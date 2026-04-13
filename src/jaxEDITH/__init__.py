@@ -8,7 +8,7 @@ and solver functions.
 Example:
 -------
 >>> from optixstuff import OpticalPath
->>> from jaxEDITH import calc_exptime, CONFIG
+>>> from jaxedith import calc_exptime, CONFIG
 >>>
 >>> # Build optical_path from optixstuff objects
 >>> optical_path = OpticalPath(primary=..., coronagraph=..., detector=...)

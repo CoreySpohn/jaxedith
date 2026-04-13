@@ -14,9 +14,9 @@ from orbix.observatory import (
     zodi_fzodi_leinert,
 )
 
-from jaxEDITH.config import CONFIG, ETCConfig
-from jaxEDITH.core import calc_exptime, calc_snr
-from jaxEDITH.scene import ETCScene
+from jaxedith.config import CONFIG, ETCConfig
+from jaxedith.core import calc_exptime, calc_snr
+from jaxedith.scene import ETCScene
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ def calc_exptime_from_observation(
     """End-to-end: observation parameters → exposure time.
 
     Computes zodiacal light from observatory geometry and calls
-    :func:`jaxEDITH.calc_exptime`.
+    :func:`jaxedith.calc_exptime`.
 
     Args:
         optical_path: ``optixstuff.OpticalPath`` equinox module.

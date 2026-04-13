@@ -3,7 +3,7 @@ requires = ['hatchling', "hatch-fancy-pypi-readme", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "jaxEDITH"
+name = "jaxedith"
 description = "JAX based HWO exposure time calculator"
 authors = [{ name = "Corey Spohn", email = "corey.a.spohn@nasa.gov" }]
 dynamic = ['readme', 'version']
@@ -31,14 +31,14 @@ docs = [
 test = ["nox", "pytest", "hypothesis", "pytest-cov", "orbix"]
 
 [project.urls]
-Homepage = "https://github.com/CoreySpohn/jaxEDITH"
-Issues = "https://github.com/CoreySpohn/jaxEDITH/issues"
+Homepage = "https://github.com/CoreySpohn/jaxedith"
+Issues = "https://github.com/CoreySpohn/jaxedith/issues"
 
 [tool.hatch.version]
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/jaxEDITH/_version.py"
+version-file = "src/jaxedith/_version.py"
 
 [tool.hatch.metadata.hooks.fancy-pypi-readme]
 content-type = "text/markdown"
@@ -53,7 +53,7 @@ select = ["B", "D", "E", "F", "I", "UP", "RUF"]
 convention = "google"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/jaxEDITH"]
+packages = ["src/jaxedith"]
 
 [tool.hatch.build.targets.sdist]
 exclude = ["/scripts", "/docs", "/tests", "/.github"]

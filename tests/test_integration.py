@@ -1,7 +1,7 @@
-"""End-to-end integration tests: real coronagraph through jaxEDITH.
+"""End-to-end integration tests: real coronagraph through jaxedith.
 
 Loads a real coronagraph YIP via pooch, builds a full
-optixstuff.OpticalPath, and pushes it through jaxEDITH to verify
+optixstuff.OpticalPath, and pushes it through jaxedith to verify
 the entire pipeline works and produces physically reasonable results.
 """
 
@@ -13,7 +13,7 @@ import pytest
 from yippy.datasets import fetch_coronagraph
 
 import optixstuff as ox
-from jaxEDITH import calc_count_rates, calc_exptime, calc_snr, ETCScene
+from jaxedith import calc_count_rates, calc_exptime, calc_snr, ETCScene
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ def sun_like_scene():
 
 
 class TestEndToEnd:
-    """Full pipeline: optixstuff OpticalPath -> jaxEDITH solvers."""
+    """Full pipeline: optixstuff OpticalPath -> jaxedith solvers."""
 
     def test_calc_count_rates_finite(self, optical_path, sun_like_scene):
         Cp, Cb, Cnf, Csp = calc_count_rates(

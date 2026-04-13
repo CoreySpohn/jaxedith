@@ -1,4 +1,4 @@
-"""Shared fixtures for jaxEDITH tests."""
+"""Shared fixtures for jaxedith tests."""
 
 
 # Add any default test fixtures here

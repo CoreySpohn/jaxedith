@@ -1,6 +1,6 @@
-# jaxEDITH
+# jaxedith
 
-Welcome to the documentation for `jaxEDITH`, a JAX based HWO exposure time calculator.
+Welcome to the documentation for `jaxedith`, a JAX based HWO exposure time calculator.
 
 ## Navigation
 

@@ -1,1 +1,1 @@
-"""Test core functionality of jaxEDITH."""
+"""Test core functionality of jaxedith."""

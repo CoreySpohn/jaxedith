@@ -16,13 +16,13 @@ jax = pytest.importorskip("jax")
 jnp = pytest.importorskip("jax.numpy")
 eqx = pytest.importorskip("equinox")
 
-from jaxEDITH.config import (
+from jaxedith.config import (
     AYO_CONFIG,
     CONFIG,
     EXOSIMS_CHARACTERIZATION_CONFIG,
     EXOSIMS_DETECTION_CONFIG,
 )
-from jaxEDITH.count_rates import (
+from jaxedith.count_rates import (
     count_rate_binary,
     count_rate_detector,
     count_rate_exozodi,
@@ -35,7 +35,7 @@ from jaxEDITH.count_rates import (
     noise_floor_total,
     photon_counting_time,
 )
-from jaxEDITH.solver import (
+from jaxedith.solver import (
     solve_exptime_ayo,
     solve_exptime_exosims_char,
     solve_exptime_exosims_det,

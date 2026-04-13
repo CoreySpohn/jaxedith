@@ -31,7 +31,7 @@ def _safe_divide(numerator, denominator):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# AYO / jaxEDITH
+# AYO / jaxedith
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -45,7 +45,7 @@ def solve_exptime_ayo(
     overhead_fixed=0.0,
     n_rolls=1,
 ):
-    r"""Solve for exposure time — AYO/jaxEDITH equation.
+    r"""Solve for exposure time — AYO/jaxedith equation.
 
     .. math::
         t = \text{SNR}^2 \cdot \frac{C_p + m \cdot C_b}{C_p^2 - C_{nf}^2}
@@ -84,7 +84,7 @@ def solve_snr_ayo(
     overhead_fixed=0.0,
     n_rolls=1,
 ):
-    r"""Solve for achieved SNR — AYO/jaxEDITH equation.
+    r"""Solve for achieved SNR — AYO/jaxedith equation.
 
     Inverse of :func:`solve_exptime_ayo`. Derived from
 

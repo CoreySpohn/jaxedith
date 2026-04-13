@@ -1,12 +1,12 @@
 """Sphinx configuration file."""
 
-import jaxEDITH
+import jaxedith
 
-project = "jaxEDITH"
+project = "jaxedith"
 copyright = "2026, Corey Spohn"
 author = "Corey Spohn"
-version = jaxEDITH.__version__
-release = jaxEDITH.__version__
+version = jaxedith.__version__
+release = jaxedith.__version__
 
 # -- General configuration ---------------------------------------------------
 
@@ -37,11 +37,11 @@ html_static_path = ["_static"]
 master_doc = "index"
 # html_logo = "_static/logo.png"
 # html_favicon = "_static/favicon.ico"
-html_title = "jaxEDITH"
+html_title = "jaxedith"
 html_sidebars = {"posts/*": ["sbt-sidebar-nav.html"]}
 
 html_theme_options = {
-    "repository_url": "https://www.github.com/CoreySpohn/jaxEDITH",
+    "repository_url": "https://www.github.com/CoreySpohn/jaxedith",
     "repository_branch": "main",
     "use_repository_button": True,
     "show_toc_level": 2,

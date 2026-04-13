@@ -237,7 +237,7 @@ def _compute_count_rates(
     # Total background
     Cb = CRbs + CRbz + CRbez + CRbbin + CRbth + CRbd
 
-    # Noise floor (AYO/jaxEDITH path)
+    # Noise floor (AYO/jaxedith path)
     CRnf_star = noise_floor_stellar(
         scene.F0,
         scene.Fs_over_F0,
@@ -364,7 +364,7 @@ def calc_count_rates(
     """Compute all count rates without solving for exposure time.
 
     Useful for debugging and comparing individual count rates against
-    jaxEDITH/AYO/EXOSIMS values.
+    jaxedith/AYO/EXOSIMS values.
 
     Args:
         optical_path: ``optixstuff.OpticalPath`` eqx.Module.

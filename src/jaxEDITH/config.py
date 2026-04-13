@@ -25,7 +25,7 @@ class ETCConfig(eqx.Module):
 
     Attributes:
         variant: Equation variant string (see above).
-        bg_multiplier: ADI background multiplier.  AYO/jaxEDITH: 2.0;
+        bg_multiplier: ADI background multiplier.  AYO/jaxedith: 2.0;
             EXOSIMS: 1.0.
         ppfact: Post-processing factor (EXOSIMS only).
         stability_fact: Wavefront stability factor (EXOSIMS only).
@@ -33,7 +33,7 @@ class ETCConfig(eqx.Module):
         overhead_fixed_s: Fixed overhead in seconds.
         n_rolls: Number of telescope rolls.
         include_exozodi_noise_floor: Whether the exozodi noise floor is
-            included (jaxEDITH extension).
+            included (jaxedith extension).
         npix_multiplier: Pixel count correction factor for the photometric
             aperture.  ETC-specific, not a hardware property.
     """
@@ -51,7 +51,7 @@ class ETCConfig(eqx.Module):
     overhead_fixed_s: float = 0.0
     n_rolls: int = 1
 
-    # --- Exozodi noise floor (jaxEDITH extension) ---
+    # --- Exozodi noise floor (jaxedith extension) ---
     include_exozodi_noise_floor: bool = True
 
     # --- Aperture correction ---
@@ -74,7 +74,7 @@ CONFIG = ETCConfig(
     bg_multiplier=2.0,
     include_exozodi_noise_floor=True,
 )
-"""jaxEDITH preset — AYO equations plus exozodi noise floor."""
+"""jaxedith preset — AYO equations plus exozodi noise floor."""
 
 EXOSIMS_DETECTION_CONFIG = ETCConfig(
     variant="exosims_det",
