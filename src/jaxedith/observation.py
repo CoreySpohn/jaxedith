@@ -299,7 +299,7 @@ def calc_exptime_from_system(
     zodi_mode: str = "ayo",
     config: ETCConfig | None = None,
 ):
-    """Compute exposure time from an exoverses.jax System.
+    """Compute exposure time from a skyscapes.scene.System.
 
     Automatically extracts star flux, planet contrast, and separation
     from the System at the given time, and computes zodi from the
@@ -307,7 +307,7 @@ def calc_exptime_from_system(
 
     Args:
         optical_path: ``optixstuff.OpticalPath`` equinox module.
-        system: ``exoverses.jax.System`` with star + planets.
+        system: ``skyscapes.scene.System`` with star + planets.
         planet_index: Index of the target planet in the System.
         observatory: orbix ``ObservatoryL2Halo`` instance.
         mjd: Observation time (Modified Julian Date).
@@ -327,7 +327,6 @@ def calc_exptime_from_system(
     if config is None:
         config = CONFIG
 
-    # Convert MJD → JD for exoverses
     time_jd = mjd + 2400000.5
 
     # RA/Dec from star for zodi computation
@@ -375,14 +374,14 @@ def calc_snr_from_system(
     zodi_mode: str = "ayo",
     config: ETCConfig | None = None,
 ):
-    """Compute achieved SNR from an exoverses.jax System.
+    """Compute achieved SNR from a skyscapes.scene.System.
 
     Same as :func:`calc_exptime_from_system` but solves for SNR
     given a fixed observation time.
 
     Args:
         optical_path: ``optixstuff.OpticalPath`` equinox module.
-        system: ``exoverses.jax.System`` with star + planets.
+        system: ``skyscapes.scene.System`` with star + planets.
         planet_index: Index of the target planet in the System.
         observatory: orbix ``ObservatoryL2Halo`` instance.
         mjd: Observation time (Modified Julian Date).
