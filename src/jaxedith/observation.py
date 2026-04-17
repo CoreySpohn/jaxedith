@@ -244,26 +244,31 @@ def _system_to_etc_scene(
     n_channels: float = 1.0,
     temp_K: float = 270.0,
 ):
-    """Extract ETCScene from an exoverses.jax.System.
+    """Extract ETCScene from a ``skyscapes.scene.System``.
 
-    Computes the star flux, planet contrast, and angular separation
-    at the given wavelength and time, then wraps them as an ETCScene.
+    Computes star flux, planet contrast, and angular separation at the
+    given wavelength and time, then wraps them as an ``ETCScene``.
 
-    Note: Star flux from exoverses is already in ph/s/m^2/nm.
+    Star flux is returned in ph/s/m²/nm. Contrast and separation come
+    from ``System.contrasts`` and ``System.alpha_dMag``, which return
+    shape ``(K, T)``; we index ``[planet_index, 0]`` to pull out the
+    scalar we want.
     """
-    # Star flux at observation wavelength/time (ph/s/m^2/nm)
+    # Star flux at observation wavelength/time (ph/s/m^2/nm) — scalar-in, scalar-out.
     F0 = system.star.spec_flux_density(wavelength_nm, time_jd)
 
-    # Planet contrast and separation
-    contrasts = system.planet.contrast(wavelength_nm, time_jd)
-    Fp_over_Fs = contrasts[planet_index]
+    # (K, 1) → scalar at [planet_index, 0]
+    contrasts = system.contrasts(
+        jnp.atleast_1d(wavelength_nm), jnp.atleast_1d(time_jd)
+    )
+    Fp_over_Fs = contrasts[planet_index, 0]
 
-    alphas, _ = system.planet.alpha_dMag(time_jd)
-    sep_arcsec = alphas[planet_index]
+    alpha, _dMag = system.alpha_dMag(jnp.atleast_1d(time_jd))
+    sep_arcsec = alpha[planet_index, 0]
 
     return ETCScene(
         F0=F0,
-        Fs_over_F0=1.0,  # F0 = Fs for this convention
+        Fs_over_F0=1.0,
         Fp_over_Fs=Fp_over_Fs,
         Fzodi=Fzodi,
         Fexozodi=Fexozodi,
