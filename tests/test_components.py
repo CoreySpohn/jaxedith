@@ -9,6 +9,7 @@ Because both paths call the identical Layer 1 function with identical
 scalar arguments, outputs must be bitwise identical -- no rtol.
 """
 
+import jax.numpy as jnp
 import pytest
 from yippy.datasets import fetch_coronagraph
 
@@ -19,10 +20,12 @@ from jaxedith.config import CONFIG
 from jaxedith.core import _compute_count_rates
 from jaxedith.count_rates import (
     count_rate_binary,
+    count_rate_detector,
     count_rate_exozodi,
     count_rate_stellar_leakage,
     count_rate_thermal,
     count_rate_zodi,
+    photon_counting_time,
 )
 
 
@@ -300,3 +303,59 @@ def test_thermal_background_parity(optical_path, etc_scene, observation):
         eps_warm_T_cold=eps_warm_T_cold,
     )
     assert float(CRbth_layer2) == float(CRbth_ref)
+
+
+def test_detector_noise_parity(optical_path, etc_scene, observation):
+    """detector_noise must equal the decomposed CRbd call in core."""
+    wl = observation["wavelength_nm"]
+    sep = observation["separation_lod"]
+    dl = observation["dlambda_nm"]
+
+    coro = optical_path.coronagraph
+    detector = optical_path.detector
+
+    # Reproduce core.py's n_pix computation (config.npix_multiplier=1.0 by default)
+    core_area_lod2 = coro.core_area(sep, wl)
+    pixscale_lod = coro.pixel_scale_lod
+    n_pix = core_area_lod2 / (pixscale_lod ** 2) * 1.0
+
+    # Reproduce core.py's total_photon_cr and t_photon
+    Cp_ref = components.planet_signal(
+        optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
+        F0=etc_scene.F0, Fs_over_F0=etc_scene.Fs_over_F0,
+        Fp_over_Fs=etc_scene.Fp_over_Fs, n_channels=etc_scene.n_channels,
+    )
+    CRbs_ref = components.stellar_leakage(
+        optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
+        F0=etc_scene.F0, Fs_over_F0=etc_scene.Fs_over_F0,
+        n_channels=etc_scene.n_channels,
+    )
+    CRbz_ref = components.zodi_background(
+        optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
+        F0=etc_scene.F0, Fzodi=etc_scene.Fzodi, n_channels=etc_scene.n_channels,
+    )
+    CRbez_ref = components.exozodi_background(
+        optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
+        F0=etc_scene.F0, Fexozodi=etc_scene.Fexozodi, dist_pc=etc_scene.dist_pc,
+        sep_arcsec=etc_scene.sep_arcsec, n_channels=etc_scene.n_channels,
+    )
+    total_photon_cr = Cp_ref + CRbs_ref + CRbz_ref + CRbez_ref
+    t_photon = photon_counting_time(jnp.maximum(total_photon_cr, 1e-30), n_pix)
+
+    CRbd_ref = count_rate_detector(
+        n_pix,
+        detector.dark_current_rate,
+        detector.read_noise_electrons,
+        detector.read_time,
+        detector.cic_rate,
+        t_photon,
+    )
+
+    CRbd_layer2 = components.detector_noise(
+        optical_path,
+        wavelength_nm=wl,
+        separation_lod=sep,
+        total_photon_rate=total_photon_cr,
+        npix_multiplier=1.0,
+    )
+    assert float(CRbd_layer2) == float(CRbd_ref)

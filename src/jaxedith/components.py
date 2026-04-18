@@ -13,15 +13,18 @@ Each Layer 2 wrapper mirrors a single invocation inside
 ``tests/test_components.py``.
 """
 
+import jax.numpy as jnp
 from hwoutils.constants import nm2m, rad2arcsec
 
 from jaxedith.count_rates import (
     count_rate_binary,
+    count_rate_detector,
     count_rate_exozodi,
     count_rate_planet,
     count_rate_stellar_leakage,
     count_rate_thermal,
     count_rate_zodi,
+    photon_counting_time,
 )
 
 
@@ -214,4 +217,45 @@ def thermal_background(
         detector.quantum_efficiency,
         detector.dqe,
         coro.core_area(separation_lod, wavelength_nm),
+    )
+
+
+def detector_noise(
+    optical_path,
+    wavelength_nm,
+    separation_lod,
+    total_photon_rate,
+    npix_multiplier=1.0,
+):
+    """Detector noise count rate CRbd [e/s].
+
+    Wraps :func:`jaxedith.count_rates.count_rate_detector`.
+
+    Args:
+        optical_path: ``optixstuff.OpticalPath`` eqx.Module.
+        wavelength_nm: Observation wavelength [nm] (passed to coronagraph
+            core-area lookup).
+        separation_lod: Planet separation in lam/D (passed to coronagraph
+            core-area lookup).
+        total_photon_rate: Total photon count rate Cp + CRbs + CRbz + CRbez
+            [e/s], used by ``photon_counting_time`` to derive t_photon.
+        npix_multiplier: Aperture pixel-count correction (ETC config).
+    """
+    coro = optical_path.coronagraph
+    detector = optical_path.detector
+    core_area_lod2 = coro.core_area(separation_lod, wavelength_nm)
+    pixscale_lod = coro.pixel_scale_lod
+    n_pix = core_area_lod2 / (pixscale_lod ** 2) * npix_multiplier
+
+    t_photon = photon_counting_time(
+        jnp.maximum(total_photon_rate, 1e-30),
+        n_pix,
+    )
+    return count_rate_detector(
+        n_pix,
+        detector.dark_current_rate,
+        detector.read_noise_electrons,
+        detector.read_time,
+        detector.cic_rate,
+        t_photon,
     )
