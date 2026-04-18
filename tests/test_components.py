@@ -424,14 +424,13 @@ def test_layer2_end_to_end_reconstructs_core_outputs(
     """Composing Layer 2 components reproduces core._compute_count_rates outputs.
 
     Exercises the full Layer 2 surface composed the same way core.py composes
-    Layer 1. The result (Cp, Cb, Cnf_star, Csp_input_CRbs) must match
-    _compute_count_rates's corresponding decomposed values.
+    Layer 1. The resulting Cp and Cb must match _compute_count_rates's
+    corresponding decomposed values bitwise.
     """
     import jaxedith
     wl = observation["wavelength_nm"]
     sep = observation["separation_lod"]
     dl = observation["dlambda_nm"]
-    snr = observation["snr"]
 
     Cp = jaxedith.planet_signal(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,

@@ -24,13 +24,6 @@ except ImportError:
 
 # -- Re-exports ---------------------------------------------------------------
 
-from .config import (
-    AYO_CONFIG,
-    CONFIG,
-    EXOSIMS_CHARACTERIZATION_CONFIG,
-    EXOSIMS_DETECTION_CONFIG,
-    ETCConfig,
-)
 from .components import (
     binary_background,
     detector_noise,
@@ -40,6 +33,13 @@ from .components import (
     stellar_noise_floor,
     thermal_background,
     zodi_background,
+)
+from .config import (
+    AYO_CONFIG,
+    CONFIG,
+    EXOSIMS_CHARACTERIZATION_CONFIG,
+    EXOSIMS_DETECTION_CONFIG,
+    ETCConfig,
 )
 from .core import (
     calc_count_rates,
