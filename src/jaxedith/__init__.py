@@ -22,7 +22,7 @@ try:
 except ImportError:
     __version__ = "unknown"
 
-# ── Re-exports ────────────────────────────────────────────────────────────────
+# -- Re-exports ---------------------------------------------------------------
 
 from .config import (
     AYO_CONFIG,

@@ -11,10 +11,10 @@ class ETCScene(eqx.Module):
 
     Attributes:
         F0: Flux zero point [ph/s/m^2/nm].
-        Fs_over_F0: Stellar-to-zeropoint flux ratio — ``10^(-0.4 x m_star)``.
-        Fp_over_Fs: Planet-to-star contrast — ``10^(-0.4 x dMag)``.
-        Fzodi: Local zodiacal surface brightness ratio [arcsec⁻²].
-        Fexozodi: Exozodiacal surface brightness ratio at 1 AU [arcsec⁻²].
+        Fs_over_F0: Stellar-to-zeropoint flux ratio -- ``10^(-0.4 x m_star)``.
+        Fp_over_Fs: Planet-to-star contrast -- ``10^(-0.4 x dMag)``.
+        Fzodi: Local zodiacal surface brightness ratio [arcsec^-2].
+        Fexozodi: Exozodiacal surface brightness ratio at 1 AU [arcsec^-2].
         dist_pc: Distance to the star [pc].
         sep_arcsec: Angular separation of the planet [arcsec].
         n_channels: Number of spectral channels.

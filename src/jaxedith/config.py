@@ -1,6 +1,6 @@
 """ETCConfig: equinox module that selects the ETC equation variant.
 
-The ``variant`` field is a plain Python string used for trace-time dispatch —
+The ``variant`` field is a plain Python string used for trace-time dispatch --
 it selects which solver function to call rather than branching inside a single
 function.  This means JIT compiles only the chosen code path and ``vmap``
 traces only one solver, avoiding dead-branch overhead.
@@ -14,14 +14,14 @@ class ETCConfig(eqx.Module):
 
     The ``variant`` field drives solver dispatch at trace time:
 
-    - ``"ayo"`` — AYO / Stark et al. equations (ADI background doubling,
+    - ``"ayo"`` -- AYO / Stark et al. equations (ADI background doubling,
       data-driven noise floor).
-    - ``"jaxedith"`` — Same as AYO plus exozodi noise floor extension.
-    - ``"exosims_det"`` — EXOSIMS detection (no ADI factor, speckle residual).
-    - ``"exosims_char"`` — EXOSIMS characterization (Cp added to Cb).
+    - ``"jaxedith"`` -- Same as AYO plus exozodi noise floor extension.
+    - ``"exosims_det"`` -- EXOSIMS detection (no ADI factor, speckle residual).
+    - ``"exosims_char"`` -- EXOSIMS characterization (Cp added to Cb).
 
     All other fields are static parameters passed directly to the selected
-    solver — no boolean flags or ``jnp.where`` branching.
+    solver -- no boolean flags or ``jnp.where`` branching.
 
     Attributes:
         variant: Equation variant string (see above).
@@ -67,25 +67,25 @@ AYO_CONFIG = ETCConfig(
     bg_multiplier=2.0,
     include_exozodi_noise_floor=False,
 )
-"""AYO preset — original Stark et al. equations without exozodi noise floor."""
+"""AYO preset -- original Stark et al. equations without exozodi noise floor."""
 
 CONFIG = ETCConfig(
     variant="jaxedith",
     bg_multiplier=2.0,
     include_exozodi_noise_floor=True,
 )
-"""jaxedith preset — AYO equations plus exozodi noise floor."""
+"""jaxedith preset -- AYO equations plus exozodi noise floor."""
 
 EXOSIMS_DETECTION_CONFIG = ETCConfig(
     variant="exosims_det",
     bg_multiplier=1.0,
     include_exozodi_noise_floor=False,
 )
-"""EXOSIMS detection preset — no ADI factor, speckle residual instead of noise floor."""
+"""EXOSIMS detection preset -- no ADI factor, speckle residual instead of noise floor."""
 
 EXOSIMS_CHARACTERIZATION_CONFIG = ETCConfig(
     variant="exosims_char",
     bg_multiplier=1.0,
     include_exozodi_noise_floor=False,
 )
-"""EXOSIMS characterization preset — Cp added to Cb."""
+"""EXOSIMS characterization preset -- Cp added to Cb."""

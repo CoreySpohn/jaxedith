@@ -1,6 +1,6 @@
 """ETC solver functions: separate implementations per equation variant.
 
-Each solver function contains a single clear equation — no ``jnp.where``
+Each solver function contains a single clear equation -- no ``jnp.where``
 branching. The orchestrator in ``__init__.py`` selects which solver to call
 at trace time based on the config variant string, so JIT compiles only the
 chosen code path.
@@ -8,7 +8,7 @@ chosen code path.
 
 import jax.numpy as jnp
 
-# ── Shared overhead / guard helpers ───────────────────────────────────────────
+# -- Shared overhead / guard helpers -------------------------------------------
 
 
 def _apply_overheads(t_science, overhead_multi, overhead_fixed, n_rolls):
@@ -30,9 +30,9 @@ def _safe_divide(numerator, denominator):
     return jnp.where(denominator > 0, result, jnp.inf)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # AYO / jaxedith
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 def solve_exptime_ayo(
@@ -45,7 +45,7 @@ def solve_exptime_ayo(
     overhead_fixed=0.0,
     n_rolls=1,
 ):
-    r"""Solve for exposure time — AYO/jaxedith equation.
+    r"""Solve for exposure time -- AYO/jaxedith equation.
 
     .. math::
         t = \text{SNR}^2 \cdot \frac{C_p + m \cdot C_b}{C_p^2 - C_{nf}^2}
@@ -84,7 +84,7 @@ def solve_snr_ayo(
     overhead_fixed=0.0,
     n_rolls=1,
 ):
-    r"""Solve for achieved SNR — AYO/jaxedith equation.
+    r"""Solve for achieved SNR -- AYO/jaxedith equation.
 
     Inverse of :func:`solve_exptime_ayo`. Derived from
 
@@ -119,9 +119,9 @@ def solve_snr_ayo(
     return jnp.where(jnp.isfinite(snr) & (snr > 0), snr, 0.0)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # EXOSIMS Detection
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 def solve_exptime_exosims_det(
@@ -133,7 +133,7 @@ def solve_exptime_exosims_det(
     overhead_fixed=0.0,
     n_rolls=1,
 ):
-    r"""Solve for exposure time — EXOSIMS detection equation.
+    r"""Solve for exposure time -- EXOSIMS detection equation.
 
     .. math::
         t = \text{SNR}^2 \cdot \frac{C_b}{C_p^2 - (\text{SNR} \cdot C_{sp})^2}
@@ -170,9 +170,9 @@ def solve_snr_exosims_det(
     overhead_fixed=0.0,
     n_rolls=1,
 ):
-    r"""Solve for achieved SNR — EXOSIMS detection equation.
+    r"""Solve for achieved SNR -- EXOSIMS detection equation.
 
-    From ``t = SNR² * Cb / (Cp² - (SNR·Csp)²)`` we get:
+    From ``t = SNR^2 * Cb / (Cp^2 - (SNR*Csp)^2)`` we get:
 
     .. math::
         \text{SNR} = \sqrt{\frac{t_{eff} \cdot C_p^2}{C_b + t_{eff} \cdot C_{sp}^2}}
@@ -196,9 +196,9 @@ def solve_snr_exosims_det(
     return jnp.where(jnp.isfinite(snr) & (snr > 0), snr, 0.0)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # EXOSIMS Characterization
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 def solve_exptime_exosims_char(
@@ -210,7 +210,7 @@ def solve_exptime_exosims_char(
     overhead_fixed=0.0,
     n_rolls=1,
 ):
-    r"""Solve for exposure time — EXOSIMS characterization equation.
+    r"""Solve for exposure time -- EXOSIMS characterization equation.
 
     Same as EXOSIMS detection but with :math:`C_p` added to :math:`C_b`:
 
@@ -244,7 +244,7 @@ def solve_snr_exosims_char(
     overhead_fixed=0.0,
     n_rolls=1,
 ):
-    r"""Solve for achieved SNR — EXOSIMS characterization equation.
+    r"""Solve for achieved SNR -- EXOSIMS characterization equation.
 
     Same as detection but with :math:`C_p` added to :math:`C_b`:
 

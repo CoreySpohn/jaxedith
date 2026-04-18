@@ -1,6 +1,6 @@
 """Pure JAX count rate functions for the exposure time calculator.
 
-All functions are pure JAX — no astropy units, no side effects. Units are
+All functions are pure JAX -- no astropy units, no side effects. Units are
 enforced at the API boundary (the public-facing functions in ``__init__.py``).
 
 All inputs are raw floats in consistent units:
@@ -15,7 +15,7 @@ All inputs are raw floats in consistent units:
 import jax.numpy as jnp
 from hwoutils.constants import c, h, k_B, nm2m
 
-# ── Planet signal ─────────────────────────────────────────────────────────────
+# -- Planet signal -------------------------------------------------------------
 
 
 def count_rate_planet(
@@ -55,7 +55,7 @@ def count_rate_planet(
     )
 
 
-# ── Stellar leakage ──────────────────────────────────────────────────────────
+# -- Stellar leakage ----------------------------------------------------------
 
 
 def count_rate_stellar_leakage(
@@ -107,7 +107,7 @@ def count_rate_stellar_leakage(
     )
 
 
-# ── Zodiacal light ───────────────────────────────────────────────────────────
+# -- Zodiacal light -----------------------------------------------------------
 
 
 def count_rate_zodi(
@@ -153,7 +153,7 @@ def count_rate_zodi(
     )
 
 
-# ── Exozodiacal light ────────────────────────────────────────────────────────
+# -- Exozodiacal light --------------------------------------------------------
 
 
 def count_rate_exozodi(
@@ -205,7 +205,7 @@ def count_rate_exozodi(
     )
 
 
-# ── Detector noise ───────────────────────────────────────────────────────────
+# -- Detector noise -----------------------------------------------------------
 
 
 def count_rate_detector(
@@ -218,7 +218,7 @@ def count_rate_detector(
 ):
     """Detector noise count rate Cbd [e/s].
 
-    Uses the variance trick from pyEDITH: ``RN_variance = read_noise²``
+    Uses the variance trick from pyEDITH: ``RN_variance = read_noise^2``
     but keeps the same units as ``read_noise`` alone (i.e. RN x RN.value).
 
     ``t_photon`` is the inverse of the photon arrival rate per pixel, used
@@ -238,7 +238,7 @@ def count_rate_detector(
     return n_pix * (dark_current + rn_variance / t_read + cic / t_photon)
 
 
-# ── Thermal background ───────────────────────────────────────────────────────
+# -- Thermal background -------------------------------------------------------
 
 
 def count_rate_thermal(
@@ -294,7 +294,7 @@ def count_rate_thermal(
     )
 
 
-# ── Binary / neighbor stray light ────────────────────────────────────────────
+# -- Binary / neighbor stray light --------------------------------------------
 
 
 def count_rate_binary(
@@ -336,7 +336,7 @@ def count_rate_binary(
     )
 
 
-# ── Noise floors ─────────────────────────────────────────────────────────────
+# -- Noise floors -------------------------------------------------------------
 
 
 def noise_floor_stellar(
@@ -403,7 +403,7 @@ def noise_floor_total(CRnf_star, CRnf_ez, include_ez):
     )
 
 
-# ── Speckle residual (EXOSIMS path) ──────────────────────────────────────────
+# -- Speckle residual (EXOSIMS path) ------------------------------------------
 
 
 def speckle_residual(C_sr, ppfact, stability_fact):
@@ -415,7 +415,7 @@ def speckle_residual(C_sr, ppfact, stability_fact):
     return C_sr * ppfact * stability_fact
 
 
-# ── Photon counting time (helper) ────────────────────────────────────────────
+# -- Photon counting time (helper) --------------------------------------------
 
 
 def photon_counting_time(det_CR, det_npix):

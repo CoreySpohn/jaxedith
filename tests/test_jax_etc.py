@@ -3,7 +3,7 @@
 
 Validates:
 1. Count rate parity between JAX and numpy pyEDITH functions
-2. Solver round-trip consistency (solve_exptime ↔ solve_snr)
+2. Solver round-trip consistency (solve_exptime <-> solve_snr)
 3. JIT compilation
 4. vmap over batched inputs
 """
@@ -68,7 +68,7 @@ det_CIC = 1e-3  # e/pix/frame
 det_t_photon = 13.79303  # s/frame
 
 
-# ── Count rate parity tests ──────────────────────────────────────────────────
+# -- Count rate parity tests --------------------------------------------------
 
 
 class TestCountRateParity:
@@ -239,7 +239,7 @@ class TestCountRateParity:
         assert np.isclose(float(result), 1.8583934, rtol=1e-5)
 
 
-# ── Config preset tests ──────────────────────────────────────────────────────
+# -- Config preset tests ------------------------------------------------------
 
 
 class TestConfigPresets:
@@ -269,32 +269,32 @@ class TestConfigPresets:
         assert EXOSIMS_CHARACTERIZATION_CONFIG.bg_multiplier == 1.0
 
 
-# ── Solver tests ─────────────────────────────────────────────────────────────
+# -- Solver tests -------------------------------------------------------------
 
 
 class TestSolver:
     """Verify solver correctness and round-trip consistency."""
 
     def test_solve_exptime_ayo_simple(self):
-        """T = SNR² * (Cp + 2Cb) / (Cp² - Cnf²)."""
+        """T = SNR^2 * (Cp + 2Cb) / (Cp^2 - Cnf^2)."""
         # t = 49 * (1 + 1) / (1 - 0) = 98
         t = solve_exptime_ayo(1.0, 0.5, 0.0, 7.0)
         assert np.isclose(float(t), 98.0, rtol=1e-10)
 
     def test_solve_exptime_with_noise_floor(self):
-        """With noise floor, denominator decreases ⟹ longer time."""
+        """With noise floor, denominator decreases => longer time."""
         # t = 49 * 2 / (1 - 0.25) = 130.667
         t = solve_exptime_ayo(1.0, 0.5, 0.5, 7.0)
         assert np.isclose(float(t), 49 * 2 / 0.75, rtol=1e-5)
 
     def test_planet_below_noise_floor(self):
-        """If Cnf ≥ Cp, time should be infinity."""
+        """If Cnf >= Cp, time should be infinity."""
         t = solve_exptime_ayo(1.0, 0.5, 1.5, 7.0)
         assert jnp.isinf(t)
 
     def test_solve_exptime_exosims_det(self):
-        """T = SNR² * Cb / (Cp² - (SNR * Csp)²)."""
-        # t = 49 * 0.5 / (1 - 0.07²) = 49 * 0.5 / 0.9951
+        """T = SNR^2 * Cb / (Cp^2 - (SNR * Csp)^2)."""
+        # t = 49 * 0.5 / (1 - 0.07^2) = 49 * 0.5 / 0.9951
         t = solve_exptime_exosims_det(1.0, 0.5, 0.01, 7.0)
         expected = 49 * 0.5 / (1 - 0.0049)
         assert np.isclose(float(t), expected, rtol=1e-6)
@@ -309,7 +309,7 @@ class TestSolver:
         assert np.isclose(float(t_char / t_det), 3.0, rtol=1e-5)
 
     def test_round_trip_ayo(self):
-        """solve_snr_ayo(solve_exptime_ayo(snr)) ≈ snr."""
+        """solve_snr_ayo(solve_exptime_ayo(snr)) ~= snr."""
         Cnf_rate = 0.01
         target_snr = 10.0
         Cnf = target_snr * Cnf_rate  # solve_exptime takes full Cnf
@@ -319,14 +319,14 @@ class TestSolver:
         assert np.isclose(float(recovered_snr), target_snr, rtol=1e-3)
 
     def test_round_trip_exosims_det(self):
-        """solve_snr_exosims_det(solve_exptime_exosims_det(snr)) ≈ snr."""
+        """solve_snr_exosims_det(solve_exptime_exosims_det(snr)) ~= snr."""
         target_snr = 10.0
         t = solve_exptime_exosims_det(1.0, 0.5, 0.01, target_snr)
         recovered_snr = solve_snr_exosims_det(1.0, 0.5, 0.01, float(t))
         assert np.isclose(float(recovered_snr), target_snr, rtol=1e-4)
 
     def test_round_trip_exosims_char(self):
-        """solve_snr_exosims_char(solve_exptime_exosims_char(snr)) ≈ snr."""
+        """solve_snr_exosims_char(solve_exptime_exosims_char(snr)) ~= snr."""
         target_snr = 10.0
         t = solve_exptime_exosims_char(1.0, 0.5, 0.01, target_snr)
         recovered_snr = solve_snr_exosims_char(1.0, 0.5, 0.01, float(t))
@@ -354,7 +354,7 @@ class TestSolver:
         assert np.isclose(float(t2), 2.0 * float(t1), rtol=1e-10)
 
 
-# ── JIT compilation tests ────────────────────────────────────────────────────
+# -- JIT compilation tests ----------------------------------------------------
 
 
 class TestJIT:
@@ -424,7 +424,7 @@ class TestJIT:
         assert np.isfinite(float(result))
 
 
-# ── vmap tests ────────────────────────────────────────────────────────────────
+# -- vmap tests ----------------------------------------------------------------
 
 
 class TestVmap:
@@ -455,7 +455,7 @@ class TestVmap:
         vmapped = jax.vmap(lambda s: solve_exptime_ayo(1.0, 0.5, 0.0, s))
         results = vmapped(snrs)
         assert results.shape == (3,)
-        # Exposure time ∝ SNR²
+        # Exposure time proportional to SNR^2
         assert np.isclose(float(results[1] / results[0]), 49.0 / 25.0, rtol=1e-6)
 
     def test_vmap_solve_exptime_exosims(self):
@@ -488,7 +488,7 @@ class TestVmap:
         assert all(jnp.isfinite(results))
 
 
-# ── Gradient tests ────────────────────────────────────────────────────────────
+# -- Gradient tests ------------------------------------------------------------
 
 
 class TestGrad:
@@ -513,7 +513,7 @@ class TestGrad:
         assert float(grad_val) > 0
 
     def test_grad_solve_exptime_ayo_wrt_contrast(self):
-        """d(t_exp)/d(contrast) should be negative — brighter planet → shorter time."""
+        """d(t_exp)/d(contrast) should be negative -- brighter planet -> shorter time."""
 
         def exptime_of_contrast(c):
             Cp = count_rate_planet(
@@ -555,7 +555,7 @@ class TestGrad:
     def test_grad_below_noise_floor_ayo(self):
         """Gradient should be finite even when planet is below noise floor.
 
-        This validates the _safe_divide fix — before the fix, the
+        This validates the _safe_divide fix -- before the fix, the
         denominator (Cp^2 - Cnf^2) going negative produced NaN in
         the gradient even though jnp.where selected inf for the result.
         """
@@ -567,7 +567,7 @@ class TestGrad:
         assert jnp.isfinite(grad_val)
 
     def test_grad_below_noise_floor_exosims(self):
-        """Same as above for EXOSIMS detection — Csp dominates Cp."""
+        """Same as above for EXOSIMS detection -- Csp dominates Cp."""
 
         def f(Cp):
             return solve_exptime_exosims_det(Cp, 0.5, 1.0, 7.0)  # SNR*Csp > Cp

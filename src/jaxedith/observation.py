@@ -1,4 +1,4 @@
-"""Observation convenience functions — bridge orbix observatory with ETC.
+"""Observation convenience functions -- bridge orbix observatory with ETC.
 
 Provides :func:`calc_exptime_from_observation` and
 :func:`calc_snr_from_observation` which compute zodiacal light from
@@ -18,7 +18,7 @@ from jaxedith.config import CONFIG, ETCConfig
 from jaxedith.core import calc_exptime, calc_snr
 from jaxedith.scene import ETCScene
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# -- Public API ----------------------------------------------------------------
 
 
 def calc_exptime_from_observation(
@@ -43,7 +43,7 @@ def calc_exptime_from_observation(
     zodi_mode: str = "ayo",
     config: ETCConfig | None = None,
 ):
-    """End-to-end: observation parameters → exposure time.
+    """End-to-end: observation parameters -> exposure time.
 
     Computes zodiacal light from observatory geometry and calls
     :func:`jaxedith.calc_exptime`.
@@ -55,7 +55,7 @@ def calc_exptime_from_observation(
         ra_rad: Target right ascension in radians (J2000).
         dec_rad: Target declination in radians (J2000).
         wavelength_nm: Observation wavelength [nm].
-        separation_lod: Planet separation in λ/D.
+        separation_lod: Planet separation in lambda/D.
         dlambda_nm: Bandwidth per spectral element [nm].
         snr: Target signal-to-noise ratio.
         F0: Flux zero point [ph/s/m^2/nm].
@@ -63,7 +63,7 @@ def calc_exptime_from_observation(
         Fp_over_Fs: Planet-to-star contrast (dimensionless).
         dist_pc: Distance to star [pc].
         sep_arcsec: Angular separation [arcsec].
-        Fexozodi: Exozodiacal surface brightness [arcsec⁻²].
+        Fexozodi: Exozodiacal surface brightness [arcsec^-2].
         n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` for position-independent AYO default, or
@@ -123,7 +123,7 @@ def calc_snr_from_observation(
     zodi_mode: str = "ayo",
     config: ETCConfig | None = None,
 ):
-    """End-to-end: observation parameters → achieved SNR.
+    """End-to-end: observation parameters -> achieved SNR.
 
     Same as :func:`calc_exptime_from_observation` but solves for SNR
     given a fixed observation time.
@@ -135,7 +135,7 @@ def calc_snr_from_observation(
         ra_rad: Target right ascension in radians (J2000).
         dec_rad: Target declination in radians (J2000).
         wavelength_nm: Observation wavelength [nm].
-        separation_lod: Planet separation in λ/D.
+        separation_lod: Planet separation in lambda/D.
         dlambda_nm: Bandwidth per spectral element [nm].
         t_obs: Total observation time [s].
         F0: Flux zero point [ph/s/m^2/nm].
@@ -143,7 +143,7 @@ def calc_snr_from_observation(
         Fp_over_Fs: Planet-to-star contrast (dimensionless).
         dist_pc: Distance to star [pc].
         sep_arcsec: Angular separation [arcsec].
-        Fexozodi: Exozodiacal surface brightness [arcsec⁻²].
+        Fexozodi: Exozodiacal surface brightness [arcsec^-2].
         n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` or ``"leinert"``.
@@ -217,7 +217,7 @@ def observation_geometry(
     }
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+# -- Internal helpers ----------------------------------------------------------
 
 
 def _compute_fzodi(observatory, mjd, ra_rad, dec_rad, wavelength_nm, mode):
@@ -249,15 +249,15 @@ def _system_to_etc_scene(
     Computes star flux, planet contrast, and angular separation at the
     given wavelength and time, then wraps them as an ``ETCScene``.
 
-    Star flux is returned in ph/s/m²/nm. Contrast and separation come
+    Star flux is returned in ph/s/m^2/nm. Contrast and separation come
     from ``System.contrasts`` and ``System.alpha_dMag``, which return
     shape ``(K, T)``; we index ``[planet_index, 0]`` to pull out the
     scalar we want.
     """
-    # Star flux at observation wavelength/time (ph/s/m^2/nm) — scalar-in, scalar-out.
+    # Star flux at observation wavelength/time (ph/s/m^2/nm) -- scalar-in, scalar-out.
     F0 = system.star.spec_flux_density(wavelength_nm, time_jd)
 
-    # (K, 1) → scalar at [planet_index, 0]
+    # (K, 1) -> scalar at [planet_index, 0]
     contrasts = system.contrasts(
         jnp.atleast_1d(wavelength_nm), jnp.atleast_1d(time_jd)
     )
@@ -279,7 +279,7 @@ def _system_to_etc_scene(
     )
 
 
-# ── System-based API ─────────────────────────────────────────────────────────
+# -- System-based API ---------------------------------------------------------
 
 
 def calc_exptime_from_system(
@@ -312,10 +312,10 @@ def calc_exptime_from_system(
         observatory: orbix ``ObservatoryL2Halo`` instance.
         mjd: Observation time (Modified Julian Date).
         wavelength_nm: Observation wavelength [nm].
-        separation_lod: Planet separation in λ/D.
+        separation_lod: Planet separation in lambda/D.
         dlambda_nm: Bandwidth per spectral element [nm].
         snr: Target signal-to-noise ratio.
-        Fexozodi: Exozodiacal surface brightness [arcsec⁻²].
+        Fexozodi: Exozodiacal surface brightness [arcsec^-2].
         n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` or ``"leinert"``.
@@ -386,10 +386,10 @@ def calc_snr_from_system(
         observatory: orbix ``ObservatoryL2Halo`` instance.
         mjd: Observation time (Modified Julian Date).
         wavelength_nm: Observation wavelength [nm].
-        separation_lod: Planet separation in λ/D.
+        separation_lod: Planet separation in lambda/D.
         dlambda_nm: Bandwidth per spectral element [nm].
         t_obs: Total observation time [s].
-        Fexozodi: Exozodiacal surface brightness [arcsec⁻²].
+        Fexozodi: Exozodiacal surface brightness [arcsec^-2].
         n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` or ``"leinert"``.
