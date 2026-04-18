@@ -31,6 +31,16 @@ from .config import (
     EXOSIMS_DETECTION_CONFIG,
     ETCConfig,
 )
+from .components import (
+    binary_background,
+    detector_noise,
+    exozodi_background,
+    planet_signal,
+    stellar_leakage,
+    stellar_noise_floor,
+    thermal_background,
+    zodi_background,
+)
 from .core import (
     calc_count_rates,
     calc_exptime,
@@ -54,6 +64,7 @@ __all__ = [
     "ETCConfig",
     "ETCScene",
     "__version__",
+    "binary_background",
     "calc_count_rates",
     "calc_exptime",
     "calc_exptime_from_observation",
@@ -62,5 +73,12 @@ __all__ = [
     "calc_snr",
     "calc_snr_from_observation",
     "calc_snr_from_system",
+    "detector_noise",
+    "exozodi_background",
     "observation_geometry",
+    "planet_signal",
+    "stellar_leakage",
+    "stellar_noise_floor",
+    "thermal_background",
+    "zodi_background",
 ]

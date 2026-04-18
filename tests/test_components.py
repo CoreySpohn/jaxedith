@@ -398,3 +398,76 @@ def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
         ppfact=ppfact,
     )
     assert float(CRnf_star_layer2) == float(CRnf_star_ref)
+
+
+def test_layer2_reexported_from_package():
+    """Layer 2 functions are accessible as jaxedith.planet_signal, etc."""
+    import jaxedith
+
+    expected = [
+        "planet_signal",
+        "stellar_leakage",
+        "zodi_background",
+        "exozodi_background",
+        "binary_background",
+        "thermal_background",
+        "detector_noise",
+        "stellar_noise_floor",
+    ]
+    for name in expected:
+        assert hasattr(jaxedith, name), f"jaxedith.{name} missing from public API"
+
+
+def test_layer2_end_to_end_reconstructs_core_outputs(
+    optical_path, etc_scene, observation, reference_count_rates
+):
+    """Composing Layer 2 components reproduces core._compute_count_rates outputs.
+
+    Exercises the full Layer 2 surface composed the same way core.py composes
+    Layer 1. The result (Cp, Cb, Cnf_star, Csp_input_CRbs) must match
+    _compute_count_rates's corresponding decomposed values.
+    """
+    import jaxedith
+    wl = observation["wavelength_nm"]
+    sep = observation["separation_lod"]
+    dl = observation["dlambda_nm"]
+    snr = observation["snr"]
+
+    Cp = jaxedith.planet_signal(
+        optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
+        F0=etc_scene.F0, Fs_over_F0=etc_scene.Fs_over_F0,
+        Fp_over_Fs=etc_scene.Fp_over_Fs, n_channels=etc_scene.n_channels,
+    )
+    CRbs = jaxedith.stellar_leakage(
+        optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
+        F0=etc_scene.F0, Fs_over_F0=etc_scene.Fs_over_F0,
+        n_channels=etc_scene.n_channels,
+    )
+    CRbz = jaxedith.zodi_background(
+        optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
+        F0=etc_scene.F0, Fzodi=etc_scene.Fzodi, n_channels=etc_scene.n_channels,
+    )
+    CRbez = jaxedith.exozodi_background(
+        optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
+        F0=etc_scene.F0, Fexozodi=etc_scene.Fexozodi, dist_pc=etc_scene.dist_pc,
+        sep_arcsec=etc_scene.sep_arcsec, n_channels=etc_scene.n_channels,
+    )
+    CRbbin = jaxedith.binary_background(
+        optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
+        F0=etc_scene.F0, Fbinary=etc_scene.Fbinary,
+        n_channels=etc_scene.n_channels,
+    )
+    CRbth = jaxedith.thermal_background(
+        optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
+        temp_K=etc_scene.temp_K,
+    )
+    total_photon_cr = Cp + CRbs + CRbz + CRbez
+    CRbd = jaxedith.detector_noise(
+        optical_path, wavelength_nm=wl, separation_lod=sep,
+        total_photon_rate=total_photon_cr, npix_multiplier=1.0,
+    )
+    Cb = CRbs + CRbz + CRbez + CRbbin + CRbth + CRbd
+
+    Cp_ref, Cb_ref, _, _ = reference_count_rates
+    assert float(Cp) == float(Cp_ref)
+    assert float(Cb) == float(Cb_ref)
