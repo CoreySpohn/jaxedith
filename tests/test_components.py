@@ -101,3 +101,21 @@ def test_reference_fixture_returns_four_tuple(reference_count_rates):
     Cp, Cb, Cnf, Csp = reference_count_rates
     assert float(Cp) > 0.0
     assert float(Cb) > 0.0
+
+
+def test_planet_signal_parity(
+    optical_path, etc_scene, observation, reference_count_rates
+):
+    """planet_signal output must equal Cp from _compute_count_rates."""
+    Cp_ref, _, _, _ = reference_count_rates
+    Cp_layer2 = components.planet_signal(
+        optical_path,
+        wavelength_nm=observation["wavelength_nm"],
+        separation_lod=observation["separation_lod"],
+        dlambda_nm=observation["dlambda_nm"],
+        F0=etc_scene.F0,
+        Fs_over_F0=etc_scene.Fs_over_F0,
+        Fp_over_Fs=etc_scene.Fp_over_Fs,
+        n_channels=etc_scene.n_channels,
+    )
+    assert float(Cp_layer2) == float(Cp_ref)
