@@ -13,9 +13,11 @@ import pytest
 from yippy.datasets import fetch_coronagraph
 
 import optixstuff as ox
+from hwoutils.constants import nm2m, rad2arcsec  # noqa: F401  (may be reused in later tests)
 from jaxedith import ETCScene, components
 from jaxedith.config import CONFIG
 from jaxedith.core import _compute_count_rates
+from jaxedith.count_rates import count_rate_stellar_leakage
 
 
 @pytest.fixture(scope="module")
@@ -119,3 +121,35 @@ def test_planet_signal_parity(
         n_channels=etc_scene.n_channels,
     )
     assert float(Cp_layer2) == float(Cp_ref)
+
+
+def test_stellar_leakage_parity(optical_path, etc_scene, observation):
+    """stellar_leakage must equal the decomposed CRbs call in core."""
+    wl = observation["wavelength_nm"]
+    sep = observation["separation_lod"]
+    dl = observation["dlambda_nm"]
+
+    coro = optical_path.coronagraph
+    primary = optical_path.primary
+
+    CRbs_ref = count_rate_stellar_leakage(
+        etc_scene.F0,
+        etc_scene.Fs_over_F0,
+        primary.area_m2,
+        optical_path.system_throughput(wl),
+        dl,
+        etc_scene.n_channels,
+        coro.core_area(sep, wl),
+        coro.core_mean_intensity(sep, wl),
+    )
+
+    CRbs_layer2 = components.stellar_leakage(
+        optical_path,
+        wavelength_nm=wl,
+        separation_lod=sep,
+        dlambda_nm=dl,
+        F0=etc_scene.F0,
+        Fs_over_F0=etc_scene.Fs_over_F0,
+        n_channels=etc_scene.n_channels,
+    )
+    assert float(CRbs_layer2) == float(CRbs_ref)

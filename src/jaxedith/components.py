@@ -13,7 +13,7 @@ Each Layer 2 wrapper mirrors a single invocation inside
 ``tests/test_components.py``.
 """
 
-from jaxedith.count_rates import count_rate_planet
+from jaxedith.count_rates import count_rate_planet, count_rate_stellar_leakage
 
 
 def planet_signal(
@@ -49,4 +49,30 @@ def planet_signal(
         optical_path.coronagraph.throughput(separation_lod, wavelength_nm),
         dlambda_nm,
         n_channels,
+    )
+
+
+def stellar_leakage(
+    optical_path,
+    wavelength_nm,
+    separation_lod,
+    dlambda_nm,
+    F0,
+    Fs_over_F0,
+    n_channels=1.0,
+):
+    """Stellar leakage count rate CRbs [e/s].
+
+    Wraps :func:`jaxedith.count_rates.count_rate_stellar_leakage`.
+    """
+    coro = optical_path.coronagraph
+    return count_rate_stellar_leakage(
+        F0,
+        Fs_over_F0,
+        optical_path.primary.area_m2,
+        optical_path.system_throughput(wavelength_nm),
+        dlambda_nm,
+        n_channels,
+        coro.core_area(separation_lod, wavelength_nm),
+        coro.core_mean_intensity(separation_lod, wavelength_nm),
     )
