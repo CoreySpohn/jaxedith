@@ -13,11 +13,11 @@ import pytest
 from yippy.datasets import fetch_coronagraph
 
 import optixstuff as ox
-from hwoutils.constants import nm2m, rad2arcsec  # noqa: F401  (may be reused in later tests)
+from hwoutils.constants import nm2m, rad2arcsec
 from jaxedith import ETCScene, components
 from jaxedith.config import CONFIG
 from jaxedith.core import _compute_count_rates
-from jaxedith.count_rates import count_rate_stellar_leakage
+from jaxedith.count_rates import count_rate_stellar_leakage, count_rate_zodi
 
 
 @pytest.fixture(scope="module")
@@ -153,3 +153,38 @@ def test_stellar_leakage_parity(optical_path, etc_scene, observation):
         n_channels=etc_scene.n_channels,
     )
     assert float(CRbs_layer2) == float(CRbs_ref)
+
+
+def test_zodi_background_parity(optical_path, etc_scene, observation):
+    """zodi_background must equal the decomposed CRbz call in core."""
+    wl = observation["wavelength_nm"]
+    sep = observation["separation_lod"]
+    dl = observation["dlambda_nm"]
+
+    coro = optical_path.coronagraph
+    primary = optical_path.primary
+    lod_rad = (wl * nm2m) / primary.diameter_m
+    lod_arcsec = lod_rad * rad2arcsec
+
+    CRbz_ref = count_rate_zodi(
+        etc_scene.F0,
+        etc_scene.Fzodi,
+        lod_arcsec,
+        coro.occulter_transmission(sep, wl),
+        primary.area_m2,
+        optical_path.system_throughput(wl),
+        dl,
+        etc_scene.n_channels,
+        coro.core_area(sep, wl),
+    )
+
+    CRbz_layer2 = components.zodi_background(
+        optical_path,
+        wavelength_nm=wl,
+        separation_lod=sep,
+        dlambda_nm=dl,
+        F0=etc_scene.F0,
+        Fzodi=etc_scene.Fzodi,
+        n_channels=etc_scene.n_channels,
+    )
+    assert float(CRbz_layer2) == float(CRbz_ref)

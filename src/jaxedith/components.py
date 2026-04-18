@@ -13,7 +13,19 @@ Each Layer 2 wrapper mirrors a single invocation inside
 ``tests/test_components.py``.
 """
 
-from jaxedith.count_rates import count_rate_planet, count_rate_stellar_leakage
+from hwoutils.constants import nm2m, rad2arcsec
+
+from jaxedith.count_rates import (
+    count_rate_planet,
+    count_rate_stellar_leakage,
+    count_rate_zodi,
+)
+
+
+def _lod_arcsec(optical_path, wavelength_nm):
+    """lambda/D in arcsec for the optical path's primary diameter."""
+    lod_rad = (wavelength_nm * nm2m) / optical_path.primary.diameter_m
+    return lod_rad * rad2arcsec
 
 
 def planet_signal(
@@ -75,4 +87,31 @@ def stellar_leakage(
         n_channels,
         coro.core_area(separation_lod, wavelength_nm),
         coro.core_mean_intensity(separation_lod, wavelength_nm),
+    )
+
+
+def zodi_background(
+    optical_path,
+    wavelength_nm,
+    separation_lod,
+    dlambda_nm,
+    F0,
+    Fzodi,
+    n_channels=1.0,
+):
+    """Local zodiacal light count rate CRbz [e/s].
+
+    Wraps :func:`jaxedith.count_rates.count_rate_zodi`.
+    """
+    coro = optical_path.coronagraph
+    return count_rate_zodi(
+        F0,
+        Fzodi,
+        _lod_arcsec(optical_path, wavelength_nm),
+        coro.occulter_transmission(separation_lod, wavelength_nm),
+        optical_path.primary.area_m2,
+        optical_path.system_throughput(wavelength_nm),
+        dlambda_nm,
+        n_channels,
+        coro.core_area(separation_lod, wavelength_nm),
     )
