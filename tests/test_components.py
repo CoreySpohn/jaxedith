@@ -21,6 +21,7 @@ from jaxedith.count_rates import (
     count_rate_binary,
     count_rate_exozodi,
     count_rate_stellar_leakage,
+    count_rate_thermal,
     count_rate_zodi,
 )
 
@@ -264,3 +265,38 @@ def test_binary_background_parity(optical_path, etc_scene, observation):
         n_channels=etc_scene.n_channels,
     )
     assert float(CRbbin_layer2) == float(CRbbin_ref)
+
+
+def test_thermal_background_parity(optical_path, etc_scene, observation):
+    """thermal_background must equal the decomposed CRbth call in core."""
+    wl = observation["wavelength_nm"]
+    sep = observation["separation_lod"]
+    dl = observation["dlambda_nm"]
+
+    primary = optical_path.primary
+    coro = optical_path.coronagraph
+    detector = optical_path.detector
+    lod_rad = (wl * nm2m) / primary.diameter_m
+    eps_warm_T_cold = 0.0  # matches core.py default
+
+    CRbth_ref = count_rate_thermal(
+        wl,
+        primary.area_m2,
+        dl,
+        etc_scene.temp_K,
+        lod_rad,
+        eps_warm_T_cold,
+        detector.quantum_efficiency,
+        detector.dqe,
+        coro.core_area(sep, wl),
+    )
+
+    CRbth_layer2 = components.thermal_background(
+        optical_path,
+        wavelength_nm=wl,
+        separation_lod=sep,
+        dlambda_nm=dl,
+        temp_K=etc_scene.temp_K,
+        eps_warm_T_cold=eps_warm_T_cold,
+    )
+    assert float(CRbth_layer2) == float(CRbth_ref)

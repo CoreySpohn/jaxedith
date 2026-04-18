@@ -20,14 +20,19 @@ from jaxedith.count_rates import (
     count_rate_exozodi,
     count_rate_planet,
     count_rate_stellar_leakage,
+    count_rate_thermal,
     count_rate_zodi,
 )
 
 
+def _lod_rad(optical_path, wavelength_nm):
+    """lambda/D in radians for the optical path's primary diameter."""
+    return (wavelength_nm * nm2m) / optical_path.primary.diameter_m
+
+
 def _lod_arcsec(optical_path, wavelength_nm):
     """lambda/D in arcsec for the optical path's primary diameter."""
-    lod_rad = (wavelength_nm * nm2m) / optical_path.primary.diameter_m
-    return lod_rad * rad2arcsec
+    return _lod_rad(optical_path, wavelength_nm) * rad2arcsec
 
 
 def planet_signal(
@@ -172,5 +177,41 @@ def binary_background(
         optical_path.system_throughput(wavelength_nm),
         dlambda_nm,
         n_channels,
+        coro.core_area(separation_lod, wavelength_nm),
+    )
+
+
+def thermal_background(
+    optical_path,
+    wavelength_nm,
+    separation_lod,
+    dlambda_nm,
+    temp_K,
+    eps_warm_T_cold=0.0,
+):
+    """Thermal background count rate CRbth [e/s].
+
+    Wraps :func:`jaxedith.count_rates.count_rate_thermal`.
+
+    Args:
+        optical_path: ``optixstuff.OpticalPath`` eqx.Module.
+        wavelength_nm: Observation wavelength [nm].
+        separation_lod: Planet separation in lam/D (used for core aperture).
+        dlambda_nm: Bandwidth [nm].
+        temp_K: Telescope mirror temperature [K].
+        eps_warm_T_cold: Warm-optics emissivity times cold transmission.
+            Defaults to 0.0 (no thermal background).
+    """
+    coro = optical_path.coronagraph
+    detector = optical_path.detector
+    return count_rate_thermal(
+        wavelength_nm,
+        optical_path.primary.area_m2,
+        dlambda_nm,
+        temp_K,
+        _lod_rad(optical_path, wavelength_nm),
+        eps_warm_T_cold,
+        detector.quantum_efficiency,
+        detector.dqe,
         coro.core_area(separation_lod, wavelength_nm),
     )
