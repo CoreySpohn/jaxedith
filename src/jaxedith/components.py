@@ -16,6 +16,7 @@ Each Layer 2 wrapper mirrors a single invocation inside
 from hwoutils.constants import nm2m, rad2arcsec
 
 from jaxedith.count_rates import (
+    count_rate_binary,
     count_rate_exozodi,
     count_rate_planet,
     count_rate_stellar_leakage,
@@ -146,4 +147,30 @@ def exozodi_background(
         coro.core_area(separation_lod, wavelength_nm),
         dist_pc,
         sep_arcsec,
+    )
+
+
+def binary_background(
+    optical_path,
+    wavelength_nm,
+    separation_lod,
+    dlambda_nm,
+    F0,
+    Fbinary,
+    n_channels=1.0,
+):
+    """Binary / neighbor stray light count rate CRbbin [e/s].
+
+    Wraps :func:`jaxedith.count_rates.count_rate_binary`.
+    """
+    coro = optical_path.coronagraph
+    return count_rate_binary(
+        F0,
+        Fbinary,
+        coro.occulter_transmission(separation_lod, wavelength_nm),
+        optical_path.primary.area_m2,
+        optical_path.system_throughput(wavelength_nm),
+        dlambda_nm,
+        n_channels,
+        coro.core_area(separation_lod, wavelength_nm),
     )

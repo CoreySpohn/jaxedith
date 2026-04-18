@@ -18,6 +18,7 @@ from jaxedith import ETCScene, components
 from jaxedith.config import CONFIG
 from jaxedith.core import _compute_count_rates
 from jaxedith.count_rates import (
+    count_rate_binary,
     count_rate_exozodi,
     count_rate_stellar_leakage,
     count_rate_zodi,
@@ -231,3 +232,35 @@ def test_exozodi_background_parity(optical_path, etc_scene, observation):
         n_channels=etc_scene.n_channels,
     )
     assert float(CRbez_layer2) == float(CRbez_ref)
+
+
+def test_binary_background_parity(optical_path, etc_scene, observation):
+    """binary_background must equal the decomposed CRbbin call in core."""
+    wl = observation["wavelength_nm"]
+    sep = observation["separation_lod"]
+    dl = observation["dlambda_nm"]
+
+    coro = optical_path.coronagraph
+    primary = optical_path.primary
+
+    CRbbin_ref = count_rate_binary(
+        etc_scene.F0,
+        etc_scene.Fbinary,
+        coro.occulter_transmission(sep, wl),
+        primary.area_m2,
+        optical_path.system_throughput(wl),
+        dl,
+        etc_scene.n_channels,
+        coro.core_area(sep, wl),
+    )
+
+    CRbbin_layer2 = components.binary_background(
+        optical_path,
+        wavelength_nm=wl,
+        separation_lod=sep,
+        dlambda_nm=dl,
+        F0=etc_scene.F0,
+        Fbinary=etc_scene.Fbinary,
+        n_channels=etc_scene.n_channels,
+    )
+    assert float(CRbbin_layer2) == float(CRbbin_ref)
