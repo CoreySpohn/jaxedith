@@ -25,6 +25,7 @@ from jaxedith.count_rates import (
     count_rate_stellar_leakage,
     count_rate_thermal,
     count_rate_zodi,
+    noise_floor_stellar,
     photon_counting_time,
 )
 
@@ -359,3 +360,41 @@ def test_detector_noise_parity(optical_path, etc_scene, observation):
         npix_multiplier=1.0,
     )
     assert float(CRbd_layer2) == float(CRbd_ref)
+
+
+def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
+    """stellar_noise_floor must equal the decomposed CRnf_star call in core."""
+    wl = observation["wavelength_nm"]
+    sep = observation["separation_lod"]
+    dl = observation["dlambda_nm"]
+    snr = observation["snr"]
+    ppfact = CONFIG.ppfact  # 1.0 in the jaxedith preset
+
+    coro = optical_path.coronagraph
+    primary = optical_path.primary
+    noisefloor_value = coro.core_mean_intensity(sep, wl) / ppfact
+
+    CRnf_star_ref = noise_floor_stellar(
+        etc_scene.F0,
+        etc_scene.Fs_over_F0,
+        primary.area_m2,
+        optical_path.system_throughput(wl),
+        dl,
+        etc_scene.n_channels,
+        snr,
+        noisefloor_value,
+        coro.core_area(sep, wl),
+    )
+
+    CRnf_star_layer2 = components.stellar_noise_floor(
+        optical_path,
+        wavelength_nm=wl,
+        separation_lod=sep,
+        dlambda_nm=dl,
+        F0=etc_scene.F0,
+        Fs_over_F0=etc_scene.Fs_over_F0,
+        snr=snr,
+        n_channels=etc_scene.n_channels,
+        ppfact=ppfact,
+    )
+    assert float(CRnf_star_layer2) == float(CRnf_star_ref)
