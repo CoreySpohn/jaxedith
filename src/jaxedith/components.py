@@ -16,6 +16,7 @@ Each Layer 2 wrapper mirrors a single invocation inside
 from hwoutils.constants import nm2m, rad2arcsec
 
 from jaxedith.count_rates import (
+    count_rate_exozodi,
     count_rate_planet,
     count_rate_stellar_leakage,
     count_rate_zodi,
@@ -114,4 +115,35 @@ def zodi_background(
         dlambda_nm,
         n_channels,
         coro.core_area(separation_lod, wavelength_nm),
+    )
+
+
+def exozodi_background(
+    optical_path,
+    wavelength_nm,
+    separation_lod,
+    dlambda_nm,
+    F0,
+    Fexozodi,
+    dist_pc,
+    sep_arcsec,
+    n_channels=1.0,
+):
+    """Exozodiacal light count rate CRbez [e/s].
+
+    Wraps :func:`jaxedith.count_rates.count_rate_exozodi`.
+    """
+    coro = optical_path.coronagraph
+    return count_rate_exozodi(
+        F0,
+        Fexozodi,
+        _lod_arcsec(optical_path, wavelength_nm),
+        coro.occulter_transmission(separation_lod, wavelength_nm),
+        optical_path.primary.area_m2,
+        optical_path.system_throughput(wavelength_nm),
+        dlambda_nm,
+        n_channels,
+        coro.core_area(separation_lod, wavelength_nm),
+        dist_pc,
+        sep_arcsec,
     )

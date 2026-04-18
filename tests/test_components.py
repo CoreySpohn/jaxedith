@@ -17,7 +17,11 @@ from hwoutils.constants import nm2m, rad2arcsec
 from jaxedith import ETCScene, components
 from jaxedith.config import CONFIG
 from jaxedith.core import _compute_count_rates
-from jaxedith.count_rates import count_rate_stellar_leakage, count_rate_zodi
+from jaxedith.count_rates import (
+    count_rate_exozodi,
+    count_rate_stellar_leakage,
+    count_rate_zodi,
+)
 
 
 @pytest.fixture(scope="module")
@@ -188,3 +192,42 @@ def test_zodi_background_parity(optical_path, etc_scene, observation):
         n_channels=etc_scene.n_channels,
     )
     assert float(CRbz_layer2) == float(CRbz_ref)
+
+
+def test_exozodi_background_parity(optical_path, etc_scene, observation):
+    """exozodi_background must equal the decomposed CRbez call in core."""
+    wl = observation["wavelength_nm"]
+    sep = observation["separation_lod"]
+    dl = observation["dlambda_nm"]
+
+    coro = optical_path.coronagraph
+    primary = optical_path.primary
+    lod_rad = (wl * nm2m) / primary.diameter_m
+    lod_arcsec = lod_rad * rad2arcsec
+
+    CRbez_ref = count_rate_exozodi(
+        etc_scene.F0,
+        etc_scene.Fexozodi,
+        lod_arcsec,
+        coro.occulter_transmission(sep, wl),
+        primary.area_m2,
+        optical_path.system_throughput(wl),
+        dl,
+        etc_scene.n_channels,
+        coro.core_area(sep, wl),
+        etc_scene.dist_pc,
+        etc_scene.sep_arcsec,
+    )
+
+    CRbez_layer2 = components.exozodi_background(
+        optical_path,
+        wavelength_nm=wl,
+        separation_lod=sep,
+        dlambda_nm=dl,
+        F0=etc_scene.F0,
+        Fexozodi=etc_scene.Fexozodi,
+        dist_pc=etc_scene.dist_pc,
+        sep_arcsec=etc_scene.sep_arcsec,
+        n_channels=etc_scene.n_channels,
+    )
+    assert float(CRbez_layer2) == float(CRbez_ref)
