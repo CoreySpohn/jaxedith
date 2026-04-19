@@ -15,13 +15,6 @@ from .components import (
     thermal_background,
     zodi_background,
 )
-from .observation import (
-    calc_exptime_from_observation,
-    calc_exptime_from_system,
-    calc_snr_from_observation,
-    calc_snr_from_system,
-    observation_geometry,
-)
 from .public import (
     count_rates_ayo,
     count_rates_exosims_char,
@@ -49,10 +42,6 @@ __all__ = [
     "ETCScene",
     "__version__",
     "binary_background",
-    "calc_exptime_from_observation",
-    "calc_exptime_from_system",
-    "calc_snr_from_observation",
-    "calc_snr_from_system",
     "count_rates_ayo",
     "count_rates_exosims_char",
     "count_rates_exosims_det",
@@ -67,7 +56,6 @@ __all__ = [
     "exptime_from_system_ayo",
     "exptime_from_system_exosims_char",
     "exptime_from_system_exosims_det",
-    "observation_geometry",
     "planet_signal",
     "snr_ayo",
     "snr_exosims_char",
