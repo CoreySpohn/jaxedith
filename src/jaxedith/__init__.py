@@ -34,6 +34,7 @@ from .public import (
     snr_exosims_det,
 )
 from .scene import ETCScene
+from .zodi import zodi_fn_ayo, zodi_fn_leinert
 
 __all__ = [
     "ETCScene",
@@ -60,4 +61,6 @@ __all__ = [
     "stellar_noise_floor",
     "thermal_background",
     "zodi_background",
+    "zodi_fn_ayo",
+    "zodi_fn_leinert",
 ]
