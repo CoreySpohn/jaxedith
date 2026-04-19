@@ -422,7 +422,8 @@ def photon_counting_time(det_CR, det_npix):
     """Average time to detect one photon per pixel [s].
 
     Used by pyEDITH to compute the CIC timing in ``count_rate_detector``.
-    The magic constant 6.73 comes from the original pyEDITH code.
+    The magic constant 6.73 comes from the original pyEDITH code, I think from
+    the Roman EMCCD.
 
     Args:
         det_CR: Total detector count rate [e/s] (summed over all sources).
