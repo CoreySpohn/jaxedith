@@ -195,32 +195,30 @@ class TestCountRateParity:
         assert np.isclose(float(result), 0.037146898, rtol=1e-5)
 
     def test_noise_floor_stellar(self):
-        """CRnf should match pyEDITH's calculate_CRnf."""
+        """CRnf_rate times SNR should match pyEDITH's calculate_CRnf."""
         noisefloor_raw = 7.25659425003725e-18
         pixscale_lod = 0.25
         noisefloor_value = noisefloor_raw / (pixscale_lod**2)
         snr = 7.0
 
-        result = noise_floor_stellar(
+        rate = noise_floor_stellar(
             F0,
             Fs_over_F0,
             area_m2,
             throughput,
             dlambda_nm,
             n_channels,
-            snr,
             noisefloor_value,
             core_area_lod2=1.0,
         )
-        assert np.isclose(float(result), 1.7763531e-6, rtol=1e-5)
+        assert np.isclose(float(snr * rate), 1.7763531e-6, rtol=1e-5)
 
     def test_noise_floor_exozodi(self):
-        """CRnf_ez is simply SNR * CRbez / ez_ppf."""
+        """CRnf_ez_rate is simply CRbez / ez_ppf."""
         CRbez = 1.2
-        snr = 7.0
         ez_ppf = 30.0
-        result = noise_floor_exozodi(CRbez, snr, ez_ppf)
-        assert np.isclose(float(result), 7.0 * 1.2 / 30.0, rtol=1e-10)
+        result = noise_floor_exozodi(CRbez, ez_ppf)
+        assert np.isclose(float(result), 1.2 / 30.0, rtol=1e-10)
 
     def test_noise_floor_total_with_exozodi(self):
         """Combined noise floor in quadrature when include_ez=True."""

@@ -363,11 +363,10 @@ def test_detector_noise_parity(optical_path, etc_scene, observation):
 
 
 def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
-    """stellar_noise_floor must equal the decomposed CRnf_star call in core."""
+    """stellar_noise_floor must equal the decomposed CRnf_star_rate call in core."""
     wl = observation["wavelength_nm"]
     sep = observation["separation_lod"]
     dl = observation["dlambda_nm"]
-    snr = observation["snr"]
     ppfact = CONFIG.ppfact  # 1.0 in the jaxedith preset
 
     coro = optical_path.coronagraph
@@ -381,7 +380,6 @@ def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
         optical_path.system_throughput(wl),
         dl,
         etc_scene.n_channels,
-        snr,
         noisefloor_value,
         coro.core_area(sep, wl),
     )
@@ -393,7 +391,6 @@ def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
         dlambda_nm=dl,
         F0=etc_scene.F0,
         Fs_over_F0=etc_scene.Fs_over_F0,
-        snr=snr,
         n_channels=etc_scene.n_channels,
         ppfact=ppfact,
     )

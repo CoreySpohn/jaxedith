@@ -269,20 +269,15 @@ def stellar_noise_floor(
     dlambda_nm,
     F0,
     Fs_over_F0,
-    snr,
     n_channels=1.0,
     ppfact=1.0,
 ):
-    """Stellar noise floor CRnf_star [e/s].
+    """Stellar noise floor *rate* CRnf_star_rate [e/s].
 
     Wraps :func:`jaxedith.count_rates.noise_floor_stellar`. The
     ``noisefloor_value`` is derived as
     ``core_mean_intensity(sep, wl) / ppfact`` to match
     ``core._compute_count_rates``.
-
-    Note: The Layer 1 function still takes an ``snr`` parameter for
-    historical reasons; Plan 3 will drop it and make the noise floor a
-    pure rate. For now we preserve the existing signature.
     """
     coro = optical_path.coronagraph
     noisefloor_value = coro.core_mean_intensity(separation_lod, wavelength_nm) / ppfact
@@ -293,7 +288,6 @@ def stellar_noise_floor(
         optical_path.system_throughput(wavelength_nm),
         dlambda_nm,
         n_channels,
-        snr,
         noisefloor_value,
         coro.core_area(separation_lod, wavelength_nm),
     )

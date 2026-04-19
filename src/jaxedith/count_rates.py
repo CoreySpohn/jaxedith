@@ -346,17 +346,20 @@ def noise_floor_stellar(
     throughput,
     dlambda_nm,
     n_channels,
-    snr,
     noisefloor_value,
     core_area_lod2,
 ):
-    """Stellar noise floor CRnf_star [e/s].
+    """Stellar noise floor *rate* CRnf_star_rate [e/s].
 
-    In the 1D curve approach, we use
-    ``noisefloor_value x core_area_lod2`` which is equivalent to
-    pyEDITH's ``noisefloor[x,y] / pixscale^2 x omega_lod[x,y]``.
+    Returns the SNR=1 rate. Callers multiply by their target SNR
+    (done inside the equation layer, not here).
 
-    Matches ``pyEDITH.exposure_time_calculator.calculate_CRnf``.
+    In the 1D curve approach, we use ``noisefloor_value x core_area_lod2``
+    which is equivalent to pyEDITH's
+    ``noisefloor[x,y] / pixscale^2 x omega_lod[x,y]``.
+
+    Matches ``pyEDITH.exposure_time_calculator.calculate_CRnf``
+    divided by SNR.
 
     Args:
         F0: flux zero point [ph/s/m^2/nm].
@@ -364,14 +367,12 @@ def noise_floor_stellar(
         area_m2: telescope collecting area [m^2].
         throughput: total throughput.
         dlambda_nm: bandwidth [nm].
-        n_channels: number of spectral channels.
-        snr: target SNR (or 1.0 for SNR-solve mode).
+        n_channels: parallel optical-path copies (multiplicative).
         noisefloor_value: noise floor level [dimensionless].
         core_area_lod2: solid angle of photometric aperture [(lam/D)^2].
     """
     return (
-        snr
-        * F0
+        F0
         * Fs_over_F0
         * noisefloor_value
         * core_area_lod2
@@ -382,12 +383,16 @@ def noise_floor_stellar(
     )
 
 
-def noise_floor_exozodi(CRbez, snr, ez_ppf):
-    """Exozodi noise floor CRnf_ez [e/s].
+def noise_floor_exozodi(CRbez, ez_ppf):
+    """Exozodi noise floor *rate* CRnf_ez_rate [e/s].
 
-    Matches ``pyEDITH.exposure_time_calculator.calculate_CRnf_ez``.
+    Returns the SNR=1 rate. Callers multiply by their target SNR in
+    the equation layer.
+
+    Matches ``pyEDITH.exposure_time_calculator.calculate_CRnf_ez``
+    divided by SNR.
     """
-    return snr * CRbez / ez_ppf
+    return CRbez / ez_ppf
 
 
 def noise_floor_total(CRnf_star, CRnf_ez, include_ez):

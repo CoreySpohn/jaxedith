@@ -237,20 +237,24 @@ def _compute_count_rates(
     # Total background
     Cb = CRbs + CRbz + CRbez + CRbbin + CRbth + CRbd
 
-    # Noise floor (AYO/jaxedith path)
-    CRnf_star = noise_floor_stellar(
+    # Noise floor rates (AYO/jaxedith path)
+    CRnf_star_rate = noise_floor_stellar(
         scene.F0,
         scene.Fs_over_F0,
         area_m2,
         throughput,
         dlambda_nm,
         scene.n_channels,
-        snr,
         noisefloor_value,
         core_area_lod2,
     )
-    CRnf_ez = noise_floor_exozodi(CRbez, snr, scene.ez_ppf)
-    Cnf = noise_floor_total(CRnf_star, CRnf_ez, config.include_exozodi_noise_floor)
+    CRnf_ez_rate = noise_floor_exozodi(CRbez, scene.ez_ppf)
+    Cnf_rate = noise_floor_total(
+        CRnf_star_rate, CRnf_ez_rate, config.include_exozodi_noise_floor
+    )
+    # Preserve the old solver API for Task 1: AYO exptime expects Cnf
+    # with snr baked in. Task 2 changes this when equations.py lands.
+    Cnf = snr * Cnf_rate
 
     # Speckle residual (EXOSIMS path)
     Csp = speckle_residual(CRbs, config.ppfact, config.stability_fact)
