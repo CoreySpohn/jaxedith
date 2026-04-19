@@ -14,8 +14,7 @@ from orbix.observatory import (
     zodi_fzodi_leinert,
 )
 
-from jaxedith.config import CONFIG, ETCConfig
-from jaxedith.core import calc_exptime, calc_snr
+from jaxedith.public import exptime_ayo, snr_ayo
 from jaxedith.scene import ETCScene
 
 # -- Public API ----------------------------------------------------------------
@@ -41,12 +40,11 @@ def calc_exptime_from_observation(
     n_channels: float = 1.0,
     temp_K: float = 270.0,
     zodi_mode: str = "ayo",
-    config: ETCConfig | None = None,
 ):
     """End-to-end: observation parameters -> exposure time.
 
     Computes zodiacal light from observatory geometry and calls
-    :func:`jaxedith.calc_exptime`.
+    :func:`jaxedith.exptime_ayo`.
 
     Args:
         optical_path: ``optixstuff.OpticalPath`` equinox module.
@@ -68,14 +66,10 @@ def calc_exptime_from_observation(
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` for position-independent AYO default, or
             ``"leinert"`` for full Leinert position-dependent model.
-        config: ETC configuration. Defaults to ``CONFIG``.
 
     Returns:
         Exposure time in seconds.
     """
-    if config is None:
-        config = CONFIG
-
     Fzodi = _compute_fzodi(observatory, mjd, ra_rad, dec_rad, wavelength_nm, zodi_mode)
 
     scene = ETCScene(
@@ -90,14 +84,15 @@ def calc_exptime_from_observation(
         temp_K=temp_K,
     )
 
-    return calc_exptime(
+    return exptime_ayo(
         optical_path,
         scene,
         wavelength_nm,
         separation_lod,
         dlambda_nm,
         snr,
-        config,
+        temp_K=temp_K,
+        ez_ppf=scene.ez_ppf,
     )
 
 
@@ -121,7 +116,6 @@ def calc_snr_from_observation(
     n_channels: float = 1.0,
     temp_K: float = 270.0,
     zodi_mode: str = "ayo",
-    config: ETCConfig | None = None,
 ):
     """End-to-end: observation parameters -> achieved SNR.
 
@@ -147,14 +141,10 @@ def calc_snr_from_observation(
         n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` or ``"leinert"``.
-        config: ETC configuration. Defaults to ``CONFIG``.
 
     Returns:
         Achieved signal-to-noise ratio.
     """
-    if config is None:
-        config = CONFIG
-
     Fzodi = _compute_fzodi(observatory, mjd, ra_rad, dec_rad, wavelength_nm, zodi_mode)
 
     scene = ETCScene(
@@ -169,14 +159,15 @@ def calc_snr_from_observation(
         temp_K=temp_K,
     )
 
-    return calc_snr(
+    return snr_ayo(
         optical_path,
         scene,
         wavelength_nm,
         separation_lod,
         dlambda_nm,
         t_obs,
-        config,
+        temp_K=temp_K,
+        ez_ppf=scene.ez_ppf,
     )
 
 
@@ -297,7 +288,6 @@ def calc_exptime_from_system(
     n_channels: float = 1.0,
     temp_K: float = 270.0,
     zodi_mode: str = "ayo",
-    config: ETCConfig | None = None,
 ):
     """Compute exposure time from a skyscapes.scene.System.
 
@@ -319,14 +309,10 @@ def calc_exptime_from_system(
         n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` or ``"leinert"``.
-        config: ETC configuration. Defaults to ``CONFIG``.
 
     Returns:
         Exposure time in seconds.
     """
-    if config is None:
-        config = CONFIG
-
     time_jd = mjd + 2400000.5
 
     # RA/Dec from star for zodi computation
@@ -346,14 +332,15 @@ def calc_exptime_from_system(
         temp_K=temp_K,
     )
 
-    return calc_exptime(
+    return exptime_ayo(
         optical_path,
         scene,
         wavelength_nm,
         separation_lod,
         dlambda_nm,
         snr,
-        config,
+        temp_K=temp_K,
+        ez_ppf=scene.ez_ppf,
     )
 
 
@@ -372,7 +359,6 @@ def calc_snr_from_system(
     n_channels: float = 1.0,
     temp_K: float = 270.0,
     zodi_mode: str = "ayo",
-    config: ETCConfig | None = None,
 ):
     """Compute achieved SNR from a skyscapes.scene.System.
 
@@ -393,14 +379,10 @@ def calc_snr_from_system(
         n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` or ``"leinert"``.
-        config: ETC configuration. Defaults to ``CONFIG``.
 
     Returns:
         Achieved signal-to-noise ratio.
     """
-    if config is None:
-        config = CONFIG
-
     time_jd = mjd + 2400000.5
 
     ra_rad = jnp.deg2rad(system.star.ra_deg)
@@ -419,12 +401,13 @@ def calc_snr_from_system(
         temp_K=temp_K,
     )
 
-    return calc_snr(
+    return snr_ayo(
         optical_path,
         scene,
         wavelength_nm,
         separation_lod,
         dlambda_nm,
         t_obs,
-        config,
+        temp_K=temp_K,
+        ez_ppf=scene.ez_ppf,
     )
