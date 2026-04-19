@@ -13,13 +13,21 @@ import optixstuff as ox
 from jaxedith import (
     AYO_CONFIG,
     CONFIG,
+    EXOSIMS_CHARACTERIZATION_CONFIG,
+    EXOSIMS_DETECTION_CONFIG,
     ETCScene,
     calc_count_rates,
     calc_exptime,
     calc_snr,
     count_rates_ayo,
+    count_rates_exosims_char,
+    count_rates_exosims_det,
     exptime_ayo,
+    exptime_exosims_char,
+    exptime_exosims_det,
     snr_ayo,
+    snr_exosims_char,
+    snr_exosims_det,
 )
 
 
@@ -134,18 +142,6 @@ def test_exptime_ayo_matches_ayo_preset(optical_path, scene):
     assert jnp.allclose(t_new, t_old)
 
 
-from jaxedith import (
-    EXOSIMS_CHARACTERIZATION_CONFIG,
-    EXOSIMS_DETECTION_CONFIG,
-    count_rates_exosims_char,
-    count_rates_exosims_det,
-    exptime_exosims_char,
-    exptime_exosims_det,
-    snr_exosims_char,
-    snr_exosims_det,
-)
-
-
 def test_count_rates_exosims_det_matches_preset(optical_path, scene):
     Cp_new, Cb_new, Csp_new = count_rates_exosims_det(
         optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM,
@@ -244,3 +240,17 @@ def test_snr_exosims_char_matches_preset(optical_path, scene):
         config=EXOSIMS_CHARACTERIZATION_CONFIG,
     )
     assert jnp.allclose(snr_new, snr_old)
+
+
+def test_count_rates_exosims_det_scales_with_ppfact_stability(optical_path, scene):
+    """Csp must scale linearly with both ppfact and stability_fact."""
+    _Cp, _Cb, Csp_baseline = count_rates_exosims_det(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM,
+        temp_K=scene.temp_K, ppfact=1.0, stability_fact=1.0,
+    )
+    _Cp, _Cb, Csp_scaled = count_rates_exosims_det(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM,
+        temp_K=scene.temp_K, ppfact=0.5, stability_fact=0.8,
+    )
+    # Csp = CRbs * ppfact * stability_fact, so scaling is 0.5 * 0.8 = 0.4.
+    assert jnp.allclose(Csp_scaled, 0.4 * Csp_baseline)
