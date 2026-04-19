@@ -443,7 +443,7 @@ def _extract_per_kt(system, exposure):
         t_jd: shape ``(T,)`` epoch array.
         contrasts: shape ``(K, T)`` planet-to-star flux ratio.
         alpha: shape ``(K, T)`` projected separation [arcsec].
-        F0_t: shape ``(T,)`` star flux density [Jy] at ``wl`` for each epoch.
+        F0_t: shape ``(T,)`` star flux [ph/s/m^2/nm] at ``wl`` for each epoch.
     """
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
