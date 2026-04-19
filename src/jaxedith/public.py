@@ -455,6 +455,24 @@ def _extract_per_kt(system, exposure):
     return wl, dlambda, t_jd, contrasts, alpha, F0_t
 
 
+def _vmap_over_kt(per_element):
+    """Wrap a scalar per-(planet, epoch) callable into a ``(K, T)`` function.
+
+    Input shapes expected on the returned function:
+        contrasts: ``(K, T)``
+        alpha:     ``(K, T)``
+        sep_lod:   ``(K, T)``
+        F0_t:      ``(T,)``
+
+    Output: whatever ``per_element`` returns, batched as ``(K, T)`` (or
+    ``tuple[(K, T), ...]`` if it returns a tuple).
+    """
+    return jax.vmap(
+        jax.vmap(per_element, in_axes=(0, 0, 0, 0)),
+        in_axes=(0, 0, 0, None),
+    )
+
+
 def count_rates_from_system_ayo(
     system,
     optical_path,
@@ -496,12 +514,7 @@ def count_rates_from_system_ayo(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    # Inner vmap: T axis (stride F0 too). Outer vmap: K axis (F0 has no K axis).
-    fn = jax.vmap(
-        jax.vmap(per_element, in_axes=(0, 0, 0, 0)),
-        in_axes=(0, 0, 0, None),
-    )
-    return fn(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
 
 
 def exptime_from_system_ayo(
@@ -550,11 +563,7 @@ def exptime_from_system_ayo(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    fn = jax.vmap(
-        jax.vmap(per_element, in_axes=(0, 0, 0, 0)),
-        in_axes=(0, 0, 0, None),
-    )
-    return fn(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
 
 
 def snr_from_system_ayo(
@@ -603,8 +612,276 @@ def snr_from_system_ayo(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    fn = jax.vmap(
-        jax.vmap(per_element, in_axes=(0, 0, 0, 0)),
-        in_axes=(0, 0, 0, None),
-    )
-    return fn(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+
+
+def count_rates_from_system_exosims_det(
+    system,
+    optical_path,
+    observatory,
+    exposure,
+    ppconfig,
+    *,
+    zodi_fn=zodi_fn_ayo,
+    Fexozodi=0.0,
+    eps_warm_T_cold=0.0,
+):
+    """EXOSIMS detection rate triple ``(Cp, Cb, Csp)`` with shape ``(K, T)``.
+
+    TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
+    once ``AbstractDisk.fexozodi_at`` lands.
+    """
+    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    Fzodi = zodi_fn(observatory, exposure, system.star)
+    sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
+    dist_pc = system.star.dist_pc
+
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+        scene = ETCScene(
+            F0=F0,
+            Fs_over_F0=1.0,
+            Fp_over_Fs=Fp_over_Fs,
+            Fzodi=Fzodi,
+            Fexozodi=Fexozodi,
+            dist_pc=dist_pc,
+            sep_arcsec=sep_arcsec,
+            Fbinary=0.0,
+        )
+        return count_rates_exosims_det(
+            optical_path, scene, wl, sep_lod_kt, dlambda,
+            temp_K=observatory.temperature_K,
+            ppfact=ppconfig.ppfact,
+            stability_fact=observatory.stability_fact,
+            eps_warm_T_cold=eps_warm_T_cold,
+        )
+
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+
+
+def exptime_from_system_exosims_det(
+    system,
+    optical_path,
+    observatory,
+    exposure,
+    ppconfig,
+    snr,
+    *,
+    zodi_fn=zodi_fn_ayo,
+    Fexozodi=0.0,
+    eps_warm_T_cold=0.0,
+):
+    """EXOSIMS detection exposure time with shape ``(K, T)``.
+
+    TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
+    """
+    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    Fzodi = zodi_fn(observatory, exposure, system.star)
+    sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
+    dist_pc = system.star.dist_pc
+
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+        scene = ETCScene(
+            F0=F0,
+            Fs_over_F0=1.0,
+            Fp_over_Fs=Fp_over_Fs,
+            Fzodi=Fzodi,
+            Fexozodi=Fexozodi,
+            dist_pc=dist_pc,
+            sep_arcsec=sep_arcsec,
+            Fbinary=0.0,
+        )
+        return exptime_exosims_det(
+            optical_path, scene, wl, sep_lod_kt, dlambda, snr,
+            temp_K=observatory.temperature_K,
+            ppfact=ppconfig.ppfact,
+            stability_fact=observatory.stability_fact,
+            overhead_multi=observatory.overhead_multi,
+            overhead_fixed_s=observatory.overhead_fixed_s,
+            n_rolls=ppconfig.n_rolls,
+            eps_warm_T_cold=eps_warm_T_cold,
+        )
+
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+
+
+def snr_from_system_exosims_det(
+    system,
+    optical_path,
+    observatory,
+    exposure,
+    ppconfig,
+    t_obs,
+    *,
+    zodi_fn=zodi_fn_ayo,
+    Fexozodi=0.0,
+    eps_warm_T_cold=0.0,
+):
+    """EXOSIMS detection achieved SNR with shape ``(K, T)``.
+
+    TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
+    """
+    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    Fzodi = zodi_fn(observatory, exposure, system.star)
+    sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
+    dist_pc = system.star.dist_pc
+
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+        scene = ETCScene(
+            F0=F0,
+            Fs_over_F0=1.0,
+            Fp_over_Fs=Fp_over_Fs,
+            Fzodi=Fzodi,
+            Fexozodi=Fexozodi,
+            dist_pc=dist_pc,
+            sep_arcsec=sep_arcsec,
+            Fbinary=0.0,
+        )
+        return snr_exosims_det(
+            optical_path, scene, wl, sep_lod_kt, dlambda, t_obs,
+            temp_K=observatory.temperature_K,
+            ppfact=ppconfig.ppfact,
+            stability_fact=observatory.stability_fact,
+            overhead_multi=observatory.overhead_multi,
+            overhead_fixed_s=observatory.overhead_fixed_s,
+            n_rolls=ppconfig.n_rolls,
+            eps_warm_T_cold=eps_warm_T_cold,
+        )
+
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+
+
+def count_rates_from_system_exosims_char(
+    system,
+    optical_path,
+    observatory,
+    exposure,
+    ppconfig,
+    *,
+    zodi_fn=zodi_fn_ayo,
+    Fexozodi=0.0,
+    eps_warm_T_cold=0.0,
+):
+    """EXOSIMS characterization rate triple ``(Cp, Cb, Csp)`` with shape ``(K, T)``.
+
+    Same rates as the detection variant; the equations differ at the
+    exptime/snr layer.
+
+    TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
+    """
+    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    Fzodi = zodi_fn(observatory, exposure, system.star)
+    sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
+    dist_pc = system.star.dist_pc
+
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+        scene = ETCScene(
+            F0=F0,
+            Fs_over_F0=1.0,
+            Fp_over_Fs=Fp_over_Fs,
+            Fzodi=Fzodi,
+            Fexozodi=Fexozodi,
+            dist_pc=dist_pc,
+            sep_arcsec=sep_arcsec,
+            Fbinary=0.0,
+        )
+        return count_rates_exosims_char(
+            optical_path, scene, wl, sep_lod_kt, dlambda,
+            temp_K=observatory.temperature_K,
+            ppfact=ppconfig.ppfact,
+            stability_fact=observatory.stability_fact,
+            eps_warm_T_cold=eps_warm_T_cold,
+        )
+
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+
+
+def exptime_from_system_exosims_char(
+    system,
+    optical_path,
+    observatory,
+    exposure,
+    ppconfig,
+    snr,
+    *,
+    zodi_fn=zodi_fn_ayo,
+    Fexozodi=0.0,
+    eps_warm_T_cold=0.0,
+):
+    """EXOSIMS characterization exposure time with shape ``(K, T)``.
+
+    TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
+    """
+    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    Fzodi = zodi_fn(observatory, exposure, system.star)
+    sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
+    dist_pc = system.star.dist_pc
+
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+        scene = ETCScene(
+            F0=F0,
+            Fs_over_F0=1.0,
+            Fp_over_Fs=Fp_over_Fs,
+            Fzodi=Fzodi,
+            Fexozodi=Fexozodi,
+            dist_pc=dist_pc,
+            sep_arcsec=sep_arcsec,
+            Fbinary=0.0,
+        )
+        return exptime_exosims_char(
+            optical_path, scene, wl, sep_lod_kt, dlambda, snr,
+            temp_K=observatory.temperature_K,
+            ppfact=ppconfig.ppfact,
+            stability_fact=observatory.stability_fact,
+            overhead_multi=observatory.overhead_multi,
+            overhead_fixed_s=observatory.overhead_fixed_s,
+            n_rolls=ppconfig.n_rolls,
+            eps_warm_T_cold=eps_warm_T_cold,
+        )
+
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+
+
+def snr_from_system_exosims_char(
+    system,
+    optical_path,
+    observatory,
+    exposure,
+    ppconfig,
+    t_obs,
+    *,
+    zodi_fn=zodi_fn_ayo,
+    Fexozodi=0.0,
+    eps_warm_T_cold=0.0,
+):
+    """EXOSIMS characterization achieved SNR with shape ``(K, T)``.
+
+    TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
+    """
+    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    Fzodi = zodi_fn(observatory, exposure, system.star)
+    sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
+    dist_pc = system.star.dist_pc
+
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+        scene = ETCScene(
+            F0=F0,
+            Fs_over_F0=1.0,
+            Fp_over_Fs=Fp_over_Fs,
+            Fzodi=Fzodi,
+            Fexozodi=Fexozodi,
+            dist_pc=dist_pc,
+            sep_arcsec=sep_arcsec,
+            Fbinary=0.0,
+        )
+        return snr_exosims_char(
+            optical_path, scene, wl, sep_lod_kt, dlambda, t_obs,
+            temp_K=observatory.temperature_K,
+            ppfact=ppconfig.ppfact,
+            stability_fact=observatory.stability_fact,
+            overhead_multi=observatory.overhead_multi,
+            overhead_fixed_s=observatory.overhead_fixed_s,
+            n_rolls=ppconfig.n_rolls,
+            eps_warm_T_cold=eps_warm_T_cold,
+        )
+
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)

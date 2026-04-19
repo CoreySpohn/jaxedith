@@ -244,3 +244,201 @@ def test_exptime_from_system_ayo_respects_zodi_swap(
     )
     # Must differ somewhere -- Leinert is position-dependent, AYO isn't
     assert not jnp.allclose(t_ayo, t_leinert)
+
+
+def test_count_rates_from_system_ayo_matches_scalar(
+    optical_path, system, observatory, exposure, ppconfig
+):
+    from jaxedith import count_rates_ayo
+
+    Cp_new, Cb_new, Cnf_new = count_rates_from_system_ayo(
+        system, optical_path, observatory, exposure, ppconfig,
+        zodi_fn=zodi_fn_ayo,
+    )
+    wl = exposure.central_wavelength_nm
+    dlambda = exposure.bin_width_nm
+    t_jd = jnp.atleast_1d(exposure.start_time_jd)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
+    alpha, _ = system.alpha_dMag(t_jd)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
+    F0 = system.star.spec_flux_density(wl, t_jd[0])
+    sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
+
+    scene = ETCScene(
+        F0=F0,
+        Fs_over_F0=1.0,
+        Fp_over_Fs=contrasts[0, 0],
+        Fzodi=Fzodi,
+        Fexozodi=0.0,
+        dist_pc=system.star.dist_pc,
+        sep_arcsec=alpha[0, 0],
+        Fbinary=0.0,
+    )
+    Cp_scalar, Cb_scalar, Cnf_scalar = count_rates_ayo(
+        optical_path, scene, wl, sep_lod, dlambda,
+        temp_K=observatory.temperature_K,
+        ez_ppf=ppconfig.ez_ppf,
+        ppfact=ppconfig.ppfact,
+    )
+    assert jnp.allclose(Cp_new[0, 0], Cp_scalar)
+    assert jnp.allclose(Cb_new[0, 0], Cb_scalar)
+    assert jnp.allclose(Cnf_new[0, 0], Cnf_scalar)
+
+
+from jaxedith import (
+    count_rates_exosims_char,
+    count_rates_exosims_det,
+    count_rates_from_system_exosims_char,
+    count_rates_from_system_exosims_det,
+    exptime_exosims_char,
+    exptime_exosims_det,
+    exptime_from_system_exosims_char,
+    exptime_from_system_exosims_det,
+    snr_exosims_char,
+    snr_exosims_det,
+    snr_from_system_exosims_char,
+    snr_from_system_exosims_det,
+)
+
+
+def _scalar_scene(system, sep_arcsec, Fp_over_Fs, F0, Fzodi):
+    return ETCScene(
+        F0=F0,
+        Fs_over_F0=1.0,
+        Fp_over_Fs=Fp_over_Fs,
+        Fzodi=Fzodi,
+        Fexozodi=0.0,
+        dist_pc=system.star.dist_pc,
+        sep_arcsec=sep_arcsec,
+        Fbinary=0.0,
+    )
+
+
+def test_count_rates_from_system_exosims_det_shape(
+    optical_path, system, observatory, exposure, ppconfig
+):
+    Cp, Cb, Csp = count_rates_from_system_exosims_det(
+        system, optical_path, observatory, exposure, ppconfig,
+        zodi_fn=zodi_fn_ayo,
+    )
+    K = system.n_planets
+    T = jnp.atleast_1d(exposure.start_time_jd).shape[0]
+    assert Cp.shape == (K, T)
+    assert Cb.shape == (K, T)
+    assert Csp.shape == (K, T)
+
+
+def test_exptime_from_system_exosims_det_matches_scalar(
+    optical_path, system, observatory, exposure, ppconfig
+):
+    t_new = exptime_from_system_exosims_det(
+        system, optical_path, observatory, exposure, ppconfig, SNR,
+        zodi_fn=zodi_fn_ayo,
+    )
+    wl = exposure.central_wavelength_nm
+    dlambda = exposure.bin_width_nm
+    t_jd = jnp.atleast_1d(exposure.start_time_jd)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
+    alpha, _ = system.alpha_dMag(t_jd)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
+    F0 = system.star.spec_flux_density(wl, t_jd[0])
+    sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
+
+    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
+    t_scalar = exptime_exosims_det(
+        optical_path, scene, wl, sep_lod, dlambda, SNR,
+        temp_K=observatory.temperature_K,
+        ppfact=ppconfig.ppfact,
+        stability_fact=observatory.stability_fact,
+        overhead_multi=observatory.overhead_multi,
+        overhead_fixed_s=observatory.overhead_fixed_s,
+        n_rolls=ppconfig.n_rolls,
+    )
+    assert jnp.allclose(t_new[0, 0], t_scalar)
+
+
+def test_snr_from_system_exosims_det_matches_scalar(
+    optical_path, system, observatory, exposure, ppconfig
+):
+    snr_new = snr_from_system_exosims_det(
+        system, optical_path, observatory, exposure, ppconfig, T_OBS,
+        zodi_fn=zodi_fn_ayo,
+    )
+    wl = exposure.central_wavelength_nm
+    dlambda = exposure.bin_width_nm
+    t_jd = jnp.atleast_1d(exposure.start_time_jd)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
+    alpha, _ = system.alpha_dMag(t_jd)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
+    F0 = system.star.spec_flux_density(wl, t_jd[0])
+    sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
+
+    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
+    snr_scalar = snr_exosims_det(
+        optical_path, scene, wl, sep_lod, dlambda, T_OBS,
+        temp_K=observatory.temperature_K,
+        ppfact=ppconfig.ppfact,
+        stability_fact=observatory.stability_fact,
+        overhead_multi=observatory.overhead_multi,
+        overhead_fixed_s=observatory.overhead_fixed_s,
+        n_rolls=ppconfig.n_rolls,
+    )
+    assert jnp.allclose(snr_new[0, 0], snr_scalar)
+
+
+def test_exptime_from_system_exosims_char_matches_scalar(
+    optical_path, system, observatory, exposure, ppconfig
+):
+    t_new = exptime_from_system_exosims_char(
+        system, optical_path, observatory, exposure, ppconfig, SNR,
+        zodi_fn=zodi_fn_ayo,
+    )
+    wl = exposure.central_wavelength_nm
+    dlambda = exposure.bin_width_nm
+    t_jd = jnp.atleast_1d(exposure.start_time_jd)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
+    alpha, _ = system.alpha_dMag(t_jd)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
+    F0 = system.star.spec_flux_density(wl, t_jd[0])
+    sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
+
+    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
+    t_scalar = exptime_exosims_char(
+        optical_path, scene, wl, sep_lod, dlambda, SNR,
+        temp_K=observatory.temperature_K,
+        ppfact=ppconfig.ppfact,
+        stability_fact=observatory.stability_fact,
+        overhead_multi=observatory.overhead_multi,
+        overhead_fixed_s=observatory.overhead_fixed_s,
+        n_rolls=ppconfig.n_rolls,
+    )
+    assert jnp.allclose(t_new[0, 0], t_scalar)
+
+
+def test_snr_from_system_exosims_char_matches_scalar(
+    optical_path, system, observatory, exposure, ppconfig
+):
+    snr_new = snr_from_system_exosims_char(
+        system, optical_path, observatory, exposure, ppconfig, T_OBS,
+        zodi_fn=zodi_fn_ayo,
+    )
+    wl = exposure.central_wavelength_nm
+    dlambda = exposure.bin_width_nm
+    t_jd = jnp.atleast_1d(exposure.start_time_jd)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
+    alpha, _ = system.alpha_dMag(t_jd)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
+    F0 = system.star.spec_flux_density(wl, t_jd[0])
+    sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
+
+    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
+    snr_scalar = snr_exosims_char(
+        optical_path, scene, wl, sep_lod, dlambda, T_OBS,
+        temp_K=observatory.temperature_K,
+        ppfact=ppconfig.ppfact,
+        stability_fact=observatory.stability_fact,
+        overhead_multi=observatory.overhead_multi,
+        overhead_fixed_s=observatory.overhead_fixed_s,
+        n_rolls=ppconfig.n_rolls,
+    )
+    assert jnp.allclose(snr_new[0, 0], snr_scalar)
