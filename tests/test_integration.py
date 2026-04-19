@@ -75,7 +75,7 @@ def sun_like_scene():
 
 
 class TestEndToEnd:
-    """Full pipeline: optixstuff OpticalPath -> jaxedith solvers."""
+    """Full pipeline: optixstuff OpticalPath -> jaxedith equations."""
 
     def test_calc_count_rates_finite(self, optical_path, sun_like_scene):
         Cp, Cb, Cnf, Csp = calc_count_rates(

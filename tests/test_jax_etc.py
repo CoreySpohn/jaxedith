@@ -270,16 +270,16 @@ class TestConfigPresets:
 # -- Equation tests -----------------------------------------------------------
 
 
-class TestSolver:
+class TestEquations:
     """Verify equation correctness and round-trip consistency."""
 
-    def test_solve_exptime_ayo_simple(self):
+    def test_exptime_from_rates_ayo_simple(self):
         """T = SNR^2 * (Cp + 2Cb) / (Cp^2 - Cnf^2)."""
         # t = 49 * (1 + 1) / (1 - 0) = 98
         t = exptime_from_rates_ayo(1.0, 0.5, 0.0, 7.0)
         assert np.isclose(float(t), 98.0, rtol=1e-10)
 
-    def test_solve_exptime_with_noise_floor(self):
+    def test_exptime_from_rates_ayo_with_noise_floor(self):
         """With noise floor, denominator decreases => longer time."""
         # Old test used Cnf=0.5 with snr=7, so Cnf_rate = 0.5 / 7.
         # t = 49 * 2 / (1 - 0.25) = 130.667
@@ -291,14 +291,14 @@ class TestSolver:
         t = exptime_from_rates_ayo(1.0, 0.5, 1.5 / 7.0, 7.0)
         assert jnp.isinf(t)
 
-    def test_solve_exptime_exosims_det(self):
+    def test_exptime_from_rates_exosims_det(self):
         """T = SNR^2 * Cb / (Cp^2 - (SNR * Csp)^2)."""
         # t = 49 * 0.5 / (1 - 0.07^2) = 49 * 0.5 / 0.9951
         t = exptime_from_rates_exosims_det(1.0, 0.5, 0.01, 7.0)
         expected = 49 * 0.5 / (1 - 0.0049)
         assert np.isclose(float(t), expected, rtol=1e-6)
 
-    def test_solve_exptime_exosims_char(self):
+    def test_exptime_from_rates_exosims_char(self):
         """Characterization adds Cp to Cb in numerator."""
         t_det = exptime_from_rates_exosims_det(1.0, 0.5, 0.01, 7.0)
         t_char = exptime_from_rates_exosims_char(1.0, 0.5, 0.01, 7.0)
@@ -373,7 +373,7 @@ class TestJIT:
         )
         assert np.isclose(float(result), 0.64877874, rtol=1e-5)
 
-    def test_jit_solve_exptime_ayo(self):
+    def test_jit_exptime_from_rates_ayo(self):
         """Test exptime_from_rates_ayo JIT compilation."""
 
         @jax.jit
@@ -383,7 +383,7 @@ class TestJIT:
         result = _solve(1.0, 0.5, 7.0)
         assert np.isclose(float(result), 98.0, rtol=1e-10)
 
-    def test_jit_solve_snr_ayo(self):
+    def test_jit_snr_from_rates_ayo(self):
         """Test snr_from_rates_ayo JIT compilation."""
 
         @jax.jit
@@ -393,7 +393,7 @@ class TestJIT:
         result = _solve(1.0, 0.5, 98.0)
         assert np.isclose(float(result), 7.0, rtol=1e-4)
 
-    def test_jit_solve_exptime_exosims(self):
+    def test_jit_exptime_from_rates_exosims(self):
         """Test exptime_from_rates_exosims_det JIT compilation."""
 
         @jax.jit
@@ -447,7 +447,7 @@ class TestVmap:
         assert results.shape == (3,)
         assert np.isclose(float(results[0] / results[1]), 10.0, rtol=1e-6)
 
-    def test_vmap_solve_exptime_ayo(self):
+    def test_vmap_exptime_from_rates_ayo(self):
         """Vmap over different SNRs."""
         snrs = jnp.array([5.0, 7.0, 10.0])
         vmapped = jax.vmap(lambda s: exptime_from_rates_ayo(1.0, 0.5, 0.0, s))
@@ -456,7 +456,7 @@ class TestVmap:
         # Exposure time proportional to SNR^2
         assert np.isclose(float(results[1] / results[0]), 49.0 / 25.0, rtol=1e-6)
 
-    def test_vmap_solve_exptime_exosims(self):
+    def test_vmap_exptime_from_rates_exosims(self):
         """Vmap EXOSIMS equation over different SNRs."""
         snrs = jnp.array([5.0, 7.0, 10.0])
         vmapped = jax.vmap(lambda s: exptime_from_rates_exosims_det(1.0, 0.5, 0.01, s))
@@ -510,7 +510,7 @@ class TestGrad:
         assert jnp.isfinite(grad_val)
         assert float(grad_val) > 0
 
-    def test_grad_solve_exptime_ayo_wrt_contrast(self):
+    def test_grad_exptime_from_rates_ayo_wrt_contrast(self):
         """d(t_exp)/d(contrast) should be negative -- brighter planet -> shorter time."""
 
         def exptime_of_contrast(c):
@@ -530,7 +530,7 @@ class TestGrad:
         assert jnp.isfinite(grad_val)
         assert float(grad_val) < 0
 
-    def test_grad_solve_exptime_exosims_wrt_contrast(self):
+    def test_grad_exptime_from_rates_exosims_wrt_contrast(self):
         """d(t_exp)/d(contrast) should be negative for EXOSIMS too."""
 
         def exptime_of_contrast(c):
