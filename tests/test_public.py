@@ -132,3 +132,115 @@ def test_exptime_ayo_matches_ayo_preset(optical_path, scene):
         optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM, SNR, config=AYO_CONFIG,
     )
     assert jnp.allclose(t_new, t_old)
+
+
+from jaxedith import (
+    EXOSIMS_CHARACTERIZATION_CONFIG,
+    EXOSIMS_DETECTION_CONFIG,
+    count_rates_exosims_char,
+    count_rates_exosims_det,
+    exptime_exosims_char,
+    exptime_exosims_det,
+    snr_exosims_char,
+    snr_exosims_det,
+)
+
+
+def test_count_rates_exosims_det_matches_preset(optical_path, scene):
+    Cp_new, Cb_new, Csp_new = count_rates_exosims_det(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM,
+        temp_K=scene.temp_K,
+        ppfact=EXOSIMS_DETECTION_CONFIG.ppfact,
+        stability_fact=EXOSIMS_DETECTION_CONFIG.stability_fact,
+    )
+    Cp_old, Cb_old, _Cnf, Csp_old = calc_count_rates(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM,
+        config=EXOSIMS_DETECTION_CONFIG,
+    )
+    assert jnp.allclose(Cp_new, Cp_old)
+    assert jnp.allclose(Cb_new, Cb_old)
+    assert jnp.allclose(Csp_new, Csp_old)
+
+
+def test_exptime_exosims_det_matches_preset(optical_path, scene):
+    t_new = exptime_exosims_det(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM, SNR,
+        temp_K=scene.temp_K,
+        ppfact=EXOSIMS_DETECTION_CONFIG.ppfact,
+        stability_fact=EXOSIMS_DETECTION_CONFIG.stability_fact,
+        overhead_multi=EXOSIMS_DETECTION_CONFIG.overhead_multi,
+        overhead_fixed_s=EXOSIMS_DETECTION_CONFIG.overhead_fixed_s,
+        n_rolls=EXOSIMS_DETECTION_CONFIG.n_rolls,
+    )
+    t_old = calc_exptime(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM, SNR,
+        config=EXOSIMS_DETECTION_CONFIG,
+    )
+    assert jnp.allclose(t_new, t_old)
+
+
+def test_snr_exosims_det_matches_preset(optical_path, scene):
+    snr_new = snr_exosims_det(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM, T_OBS,
+        temp_K=scene.temp_K,
+        ppfact=EXOSIMS_DETECTION_CONFIG.ppfact,
+        stability_fact=EXOSIMS_DETECTION_CONFIG.stability_fact,
+        overhead_multi=EXOSIMS_DETECTION_CONFIG.overhead_multi,
+        overhead_fixed_s=EXOSIMS_DETECTION_CONFIG.overhead_fixed_s,
+        n_rolls=EXOSIMS_DETECTION_CONFIG.n_rolls,
+    )
+    snr_old = calc_snr(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM, T_OBS,
+        config=EXOSIMS_DETECTION_CONFIG,
+    )
+    assert jnp.allclose(snr_new, snr_old)
+
+
+def test_count_rates_exosims_char_matches_preset(optical_path, scene):
+    Cp_new, Cb_new, Csp_new = count_rates_exosims_char(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM,
+        temp_K=scene.temp_K,
+        ppfact=EXOSIMS_CHARACTERIZATION_CONFIG.ppfact,
+        stability_fact=EXOSIMS_CHARACTERIZATION_CONFIG.stability_fact,
+    )
+    Cp_old, Cb_old, _Cnf, Csp_old = calc_count_rates(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM,
+        config=EXOSIMS_CHARACTERIZATION_CONFIG,
+    )
+    assert jnp.allclose(Cp_new, Cp_old)
+    assert jnp.allclose(Cb_new, Cb_old)
+    assert jnp.allclose(Csp_new, Csp_old)
+
+
+def test_exptime_exosims_char_matches_preset(optical_path, scene):
+    t_new = exptime_exosims_char(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM, SNR,
+        temp_K=scene.temp_K,
+        ppfact=EXOSIMS_CHARACTERIZATION_CONFIG.ppfact,
+        stability_fact=EXOSIMS_CHARACTERIZATION_CONFIG.stability_fact,
+        overhead_multi=EXOSIMS_CHARACTERIZATION_CONFIG.overhead_multi,
+        overhead_fixed_s=EXOSIMS_CHARACTERIZATION_CONFIG.overhead_fixed_s,
+        n_rolls=EXOSIMS_CHARACTERIZATION_CONFIG.n_rolls,
+    )
+    t_old = calc_exptime(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM, SNR,
+        config=EXOSIMS_CHARACTERIZATION_CONFIG,
+    )
+    assert jnp.allclose(t_new, t_old)
+
+
+def test_snr_exosims_char_matches_preset(optical_path, scene):
+    snr_new = snr_exosims_char(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM, T_OBS,
+        temp_K=scene.temp_K,
+        ppfact=EXOSIMS_CHARACTERIZATION_CONFIG.ppfact,
+        stability_fact=EXOSIMS_CHARACTERIZATION_CONFIG.stability_fact,
+        overhead_multi=EXOSIMS_CHARACTERIZATION_CONFIG.overhead_multi,
+        overhead_fixed_s=EXOSIMS_CHARACTERIZATION_CONFIG.overhead_fixed_s,
+        n_rolls=EXOSIMS_CHARACTERIZATION_CONFIG.n_rolls,
+    )
+    snr_old = calc_snr(
+        optical_path, scene, WL_NM, SEP_LOD, DLAMBDA_NM, T_OBS,
+        config=EXOSIMS_CHARACTERIZATION_CONFIG,
+    )
+    assert jnp.allclose(snr_new, snr_old)

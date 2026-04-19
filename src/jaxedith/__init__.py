@@ -56,8 +56,14 @@ from .observation import (
 )
 from .public import (
     count_rates_ayo,
+    count_rates_exosims_char,
+    count_rates_exosims_det,
     exptime_ayo,
+    exptime_exosims_char,
+    exptime_exosims_det,
     snr_ayo,
+    snr_exosims_char,
+    snr_exosims_det,
 )
 from .scene import ETCScene
 
@@ -79,12 +85,18 @@ __all__ = [
     "calc_snr_from_observation",
     "calc_snr_from_system",
     "count_rates_ayo",
+    "count_rates_exosims_char",
+    "count_rates_exosims_det",
     "detector_noise",
     "exozodi_background",
     "exptime_ayo",
+    "exptime_exosims_char",
+    "exptime_exosims_det",
     "observation_geometry",
     "planet_signal",
     "snr_ayo",
+    "snr_exosims_char",
+    "snr_exosims_det",
     "stellar_leakage",
     "stellar_noise_floor",
     "thermal_background",
