@@ -54,6 +54,11 @@ from .observation import (
     calc_snr_from_system,
     observation_geometry,
 )
+from .public import (
+    count_rates_ayo,
+    exptime_ayo,
+    snr_ayo,
+)
 from .scene import ETCScene
 
 __all__ = [
@@ -73,10 +78,13 @@ __all__ = [
     "calc_snr",
     "calc_snr_from_observation",
     "calc_snr_from_system",
+    "count_rates_ayo",
     "detector_noise",
     "exozodi_background",
+    "exptime_ayo",
     "observation_geometry",
     "planet_signal",
+    "snr_ayo",
     "stellar_leakage",
     "stellar_noise_floor",
     "thermal_background",
