@@ -1,13 +1,22 @@
-"""Layer 3: variant-explicit scalar public API for jaxedith.
+"""Layer 3: variant-explicit public API for jaxedith.
 
-Each public accepts an ``optixstuff.OpticalPath`` and an ``ETCScene`` plus
-observation geometry and scalar kwargs. Post-processing, thermal, and
-overhead knobs are plain keyword arguments with defaults. Variant is
-baked into the function name -- there is no runtime dispatch.
+Two surfaces, both defined in this file:
+
+* Scalar publics ``{count_rates,exptime,snr}_{ayo,exosims_det,exosims_char}``
+  accept an ``optixstuff.OpticalPath`` and an ``ETCScene`` plus observation
+  geometry and scalar kwargs. Post-processing, thermal, and overhead knobs
+  are plain keyword arguments with defaults. Variant is baked into the
+  function name -- there is no runtime dispatch.
+* System-level ``*_from_system_{ayo,exosims_det,exosims_char}`` wrappers
+  accept a ``skyscapes.System`` + ``OpticalPath`` + ``Observatory`` +
+  ``Exposure`` + ``PPConfig``, extract per-(planet, epoch) astrophysics,
+  and ``jax.vmap`` the matching scalar public over ``(K, T)``.
 
 Private ``_count_rates_{ayo,exosims}`` helpers assemble the rate triple
-from Layer 2 components; the public ``*_ayo`` / ``*_exosims_*`` functions
-call them and dispatch to the matching ``equations.py`` equation.
+from Layer 2 components; the scalar publics call them and dispatch to the
+matching ``equations.py`` equation. The from_system wrappers share the
+``_extract_per_kt`` / ``_sep_lod_from_arcsec`` / ``_vmap_over_kt``
+plumbing.
 """
 
 import jax
