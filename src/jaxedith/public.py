@@ -2,9 +2,8 @@
 
 Each public accepts an ``optixstuff.OpticalPath`` and an ``ETCScene`` plus
 observation geometry and scalar kwargs. Post-processing, thermal, and
-overhead knobs that used to live on ``ETCConfig`` are plain keyword
-arguments with defaults. Variant is baked into the function name --
-there is no runtime dispatch.
+overhead knobs are plain keyword arguments with defaults. Variant is
+baked into the function name -- there is no runtime dispatch.
 
 Private ``_count_rates_{ayo,exosims}`` helpers assemble the rate triple
 from Layer 2 components; the public ``*_ayo`` / ``*_exosims_*`` functions
@@ -51,11 +50,10 @@ def _count_rates_ayo(
     All Layer 2 components are called with ``n_channels`` and
     ``npix_multiplier`` read from ``optical_path`` (see Plan 2).
 
-    The noise floor is returned in rate form (Plan 3): multiply by
-    ``snr`` inside the equation, not here. Star and exozodi floors are
-    combined in quadrature, matching ``noise_floor_total`` with
-    ``include_ez=True``; setting ``ez_ppf=jnp.inf`` zeroes the exozodi
-    contribution and reproduces the ``include_ez=False`` branch.
+    The noise floor is returned in rate form: multiply by ``snr`` inside
+    the equation, not here. Star and exozodi floors are combined in
+    quadrature; setting ``ez_ppf=jnp.inf`` zeroes the exozodi
+    contribution and reduces the floor to the stellar term alone.
     """
     n_channels = optical_path.n_channels
     npix_multiplier = optical_path.npix_multiplier

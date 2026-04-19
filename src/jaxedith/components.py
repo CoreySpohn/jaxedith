@@ -9,8 +9,8 @@ Layer 2 turns the 8-to-12-argument pure-float call sites in
 ``OpticalPath`` + a few scalars, without introducing heavy scene objects.
 
 Each Layer 2 wrapper mirrors a single invocation inside
-``jaxedith.core._compute_count_rates``; parity is tested in
-``tests/test_components.py``.
+``jaxedith.public._count_rates_ayo`` / ``_count_rates_exosims``; parity
+is tested in ``tests/test_components.py``.
 """
 
 import jax.numpy as jnp
@@ -276,8 +276,7 @@ def stellar_noise_floor(
 
     Wraps :func:`jaxedith.count_rates.noise_floor_stellar`. The
     ``noisefloor_value`` is derived as
-    ``core_mean_intensity(sep, wl) / ppfact`` to match
-    ``core._compute_count_rates``.
+    ``core_mean_intensity(sep, wl) / ppfact``.
     """
     coro = optical_path.coronagraph
     noisefloor_value = coro.core_mean_intensity(separation_lod, wavelength_nm) / ppfact
