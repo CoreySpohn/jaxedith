@@ -3,7 +3,7 @@
 
 Validates:
 1. Count rate parity between JAX and numpy pyEDITH functions
-2. Solver round-trip consistency (solve_exptime <-> solve_snr)
+2. Equation round-trip consistency (exptime_from_rates <-> snr_from_rates)
 3. JIT compilation
 4. vmap over batched inputs
 """
@@ -35,13 +35,13 @@ from jaxedith.count_rates import (
     noise_floor_total,
     photon_counting_time,
 )
-from jaxedith.solver import (
-    solve_exptime_ayo,
-    solve_exptime_exosims_char,
-    solve_exptime_exosims_det,
-    solve_snr_ayo,
-    solve_snr_exosims_char,
-    solve_snr_exosims_det,
+from jaxedith.equations import (
+    exptime_from_rates_ayo,
+    exptime_from_rates_exosims_char,
+    exptime_from_rates_exosims_det,
+    snr_from_rates_ayo,
+    snr_from_rates_exosims_char,
+    snr_from_rates_exosims_det,
 )
 
 # ---------------------------------------------------------------------------
@@ -267,88 +267,88 @@ class TestConfigPresets:
         assert EXOSIMS_CHARACTERIZATION_CONFIG.bg_multiplier == 1.0
 
 
-# -- Solver tests -------------------------------------------------------------
+# -- Equation tests -----------------------------------------------------------
 
 
 class TestSolver:
-    """Verify solver correctness and round-trip consistency."""
+    """Verify equation correctness and round-trip consistency."""
 
     def test_solve_exptime_ayo_simple(self):
         """T = SNR^2 * (Cp + 2Cb) / (Cp^2 - Cnf^2)."""
         # t = 49 * (1 + 1) / (1 - 0) = 98
-        t = solve_exptime_ayo(1.0, 0.5, 0.0, 7.0)
+        t = exptime_from_rates_ayo(1.0, 0.5, 0.0, 7.0)
         assert np.isclose(float(t), 98.0, rtol=1e-10)
 
     def test_solve_exptime_with_noise_floor(self):
         """With noise floor, denominator decreases => longer time."""
+        # Old test used Cnf=0.5 with snr=7, so Cnf_rate = 0.5 / 7.
         # t = 49 * 2 / (1 - 0.25) = 130.667
-        t = solve_exptime_ayo(1.0, 0.5, 0.5, 7.0)
+        t = exptime_from_rates_ayo(1.0, 0.5, 0.5 / 7.0, 7.0)
         assert np.isclose(float(t), 49 * 2 / 0.75, rtol=1e-5)
 
     def test_planet_below_noise_floor(self):
-        """If Cnf >= Cp, time should be infinity."""
-        t = solve_exptime_ayo(1.0, 0.5, 1.5, 7.0)
+        """If snr * Cnf_rate >= Cp, time should be infinity."""
+        t = exptime_from_rates_ayo(1.0, 0.5, 1.5 / 7.0, 7.0)
         assert jnp.isinf(t)
 
     def test_solve_exptime_exosims_det(self):
         """T = SNR^2 * Cb / (Cp^2 - (SNR * Csp)^2)."""
         # t = 49 * 0.5 / (1 - 0.07^2) = 49 * 0.5 / 0.9951
-        t = solve_exptime_exosims_det(1.0, 0.5, 0.01, 7.0)
+        t = exptime_from_rates_exosims_det(1.0, 0.5, 0.01, 7.0)
         expected = 49 * 0.5 / (1 - 0.0049)
         assert np.isclose(float(t), expected, rtol=1e-6)
 
     def test_solve_exptime_exosims_char(self):
         """Characterization adds Cp to Cb in numerator."""
-        t_det = solve_exptime_exosims_det(1.0, 0.5, 0.01, 7.0)
-        t_char = solve_exptime_exosims_char(1.0, 0.5, 0.01, 7.0)
+        t_det = exptime_from_rates_exosims_det(1.0, 0.5, 0.01, 7.0)
+        t_char = exptime_from_rates_exosims_char(1.0, 0.5, 0.01, 7.0)
         # Char has larger numerator (Cb + Cp) vs (Cb), so t_char > t_det
         assert float(t_char) > float(t_det)
         # Check ratio: (Cb + Cp) / Cb = 1.5/0.5 = 3.0
         assert np.isclose(float(t_char / t_det), 3.0, rtol=1e-5)
 
     def test_round_trip_ayo(self):
-        """solve_snr_ayo(solve_exptime_ayo(snr)) ~= snr."""
+        """snr_from_rates_ayo(exptime_from_rates_ayo(snr)) ~= snr."""
         Cnf_rate = 0.01
         target_snr = 10.0
-        Cnf = target_snr * Cnf_rate  # solve_exptime takes full Cnf
 
-        t = solve_exptime_ayo(1.0, 0.5, Cnf, target_snr)
-        recovered_snr = solve_snr_ayo(1.0, 0.5, Cnf_rate, float(t))
+        t = exptime_from_rates_ayo(1.0, 0.5, Cnf_rate, target_snr)
+        recovered_snr = snr_from_rates_ayo(1.0, 0.5, Cnf_rate, float(t))
         assert np.isclose(float(recovered_snr), target_snr, rtol=1e-3)
 
     def test_round_trip_exosims_det(self):
-        """solve_snr_exosims_det(solve_exptime_exosims_det(snr)) ~= snr."""
+        """snr_from_rates_exosims_det(exptime_from_rates_exosims_det(snr)) ~= snr."""
         target_snr = 10.0
-        t = solve_exptime_exosims_det(1.0, 0.5, 0.01, target_snr)
-        recovered_snr = solve_snr_exosims_det(1.0, 0.5, 0.01, float(t))
+        t = exptime_from_rates_exosims_det(1.0, 0.5, 0.01, target_snr)
+        recovered_snr = snr_from_rates_exosims_det(1.0, 0.5, 0.01, float(t))
         assert np.isclose(float(recovered_snr), target_snr, rtol=1e-4)
 
     def test_round_trip_exosims_char(self):
-        """solve_snr_exosims_char(solve_exptime_exosims_char(snr)) ~= snr."""
+        """snr_from_rates_exosims_char(exptime_from_rates_exosims_char(snr)) ~= snr."""
         target_snr = 10.0
-        t = solve_exptime_exosims_char(1.0, 0.5, 0.01, target_snr)
-        recovered_snr = solve_snr_exosims_char(1.0, 0.5, 0.01, float(t))
+        t = exptime_from_rates_exosims_char(1.0, 0.5, 0.01, target_snr)
+        recovered_snr = snr_from_rates_exosims_char(1.0, 0.5, 0.01, float(t))
         assert np.isclose(float(recovered_snr), target_snr, rtol=1e-4)
 
     def test_zero_observation_time(self):
         """SNR should be effectively zero for zero observation time."""
-        snr = solve_snr_ayo(1.0, 0.5, 0.0, 0.0)
+        snr = snr_from_rates_ayo(1.0, 0.5, 0.0, 0.0)
         assert float(snr) < 1e-10
 
     def test_overhead_handling(self):
         """Overheads should increase exposure time."""
-        t_no = solve_exptime_ayo(
+        t_no = exptime_from_rates_ayo(
             1.0, 0.5, 0.0, 7.0, overhead_multi=1.0, overhead_fixed=0.0
         )
-        t_oh = solve_exptime_ayo(
+        t_oh = exptime_from_rates_ayo(
             1.0, 0.5, 0.0, 7.0, overhead_multi=1.1, overhead_fixed=100.0
         )
         assert float(t_oh) > float(t_no)
 
     def test_rolls_multiply_time(self):
         """Multiple rolls should multiply total time."""
-        t1 = solve_exptime_ayo(1.0, 0.5, 0.0, 7.0, n_rolls=1)
-        t2 = solve_exptime_ayo(1.0, 0.5, 0.0, 7.0, n_rolls=2)
+        t1 = exptime_from_rates_ayo(1.0, 0.5, 0.0, 7.0, n_rolls=1)
+        t2 = exptime_from_rates_ayo(1.0, 0.5, 0.0, 7.0, n_rolls=2)
         assert np.isclose(float(t2), 2.0 * float(t1), rtol=1e-10)
 
 
@@ -374,31 +374,31 @@ class TestJIT:
         assert np.isclose(float(result), 0.64877874, rtol=1e-5)
 
     def test_jit_solve_exptime_ayo(self):
-        """Test solve_exptime_ayo JIT compilation."""
+        """Test exptime_from_rates_ayo JIT compilation."""
 
         @jax.jit
         def _solve(Cp, Cb, snr):
-            return solve_exptime_ayo(Cp, Cb, 0.0, snr)
+            return exptime_from_rates_ayo(Cp, Cb, 0.0, snr)
 
         result = _solve(1.0, 0.5, 7.0)
         assert np.isclose(float(result), 98.0, rtol=1e-10)
 
     def test_jit_solve_snr_ayo(self):
-        """Test solve_snr_ayo JIT compilation."""
+        """Test snr_from_rates_ayo JIT compilation."""
 
         @jax.jit
         def _solve(Cp, Cb, t):
-            return solve_snr_ayo(Cp, Cb, 0.0, t)
+            return snr_from_rates_ayo(Cp, Cb, 0.0, t)
 
         result = _solve(1.0, 0.5, 98.0)
         assert np.isclose(float(result), 7.0, rtol=1e-4)
 
     def test_jit_solve_exptime_exosims(self):
-        """Test solve_exptime_exosims JIT compilation."""
+        """Test exptime_from_rates_exosims_det JIT compilation."""
 
         @jax.jit
         def _solve(Cp, Cb, Csp, snr):
-            return solve_exptime_exosims_det(Cp, Cb, Csp, snr)
+            return exptime_from_rates_exosims_det(Cp, Cb, Csp, snr)
 
         result = _solve(1.0, 0.5, 0.01, 7.0)
         assert np.isfinite(float(result))
@@ -450,16 +450,16 @@ class TestVmap:
     def test_vmap_solve_exptime_ayo(self):
         """Vmap over different SNRs."""
         snrs = jnp.array([5.0, 7.0, 10.0])
-        vmapped = jax.vmap(lambda s: solve_exptime_ayo(1.0, 0.5, 0.0, s))
+        vmapped = jax.vmap(lambda s: exptime_from_rates_ayo(1.0, 0.5, 0.0, s))
         results = vmapped(snrs)
         assert results.shape == (3,)
         # Exposure time proportional to SNR^2
         assert np.isclose(float(results[1] / results[0]), 49.0 / 25.0, rtol=1e-6)
 
     def test_vmap_solve_exptime_exosims(self):
-        """Vmap EXOSIMS solver over different SNRs."""
+        """Vmap EXOSIMS equation over different SNRs."""
         snrs = jnp.array([5.0, 7.0, 10.0])
-        vmapped = jax.vmap(lambda s: solve_exptime_exosims_det(1.0, 0.5, 0.01, s))
+        vmapped = jax.vmap(lambda s: exptime_from_rates_exosims_det(1.0, 0.5, 0.01, s))
         results = vmapped(snrs)
         assert results.shape == (3,)
         assert all(jnp.isfinite(results))
@@ -524,7 +524,7 @@ class TestGrad:
                 dlambda_nm,
                 n_channels,
             )
-            return solve_exptime_ayo(Cp, 0.5, 0.0, 7.0)
+            return exptime_from_rates_ayo(Cp, 0.5, 0.0, 7.0)
 
         grad_val = jax.grad(exptime_of_contrast)(1e-9)
         assert jnp.isfinite(grad_val)
@@ -544,7 +544,7 @@ class TestGrad:
                 dlambda_nm,
                 n_channels,
             )
-            return solve_exptime_exosims_det(Cp, 0.5, 0.01, 7.0)
+            return exptime_from_rates_exosims_det(Cp, 0.5, 0.01, 7.0)
 
         grad_val = jax.grad(exptime_of_contrast)(1e-9)
         assert jnp.isfinite(grad_val)
@@ -559,7 +559,8 @@ class TestGrad:
         """
 
         def f(Cp):
-            return solve_exptime_ayo(Cp, 0.5, 1.5, 7.0)  # Cnf > Cp
+            # snr * Cnf_rate = 7 * (1.5/7) = 1.5 > Cp
+            return exptime_from_rates_ayo(Cp, 0.5, 1.5 / 7.0, 7.0)
 
         grad_val = jax.grad(f)(0.5)
         assert jnp.isfinite(grad_val)
@@ -568,7 +569,7 @@ class TestGrad:
         """Same as above for EXOSIMS detection -- Csp dominates Cp."""
 
         def f(Cp):
-            return solve_exptime_exosims_det(Cp, 0.5, 1.0, 7.0)  # SNR*Csp > Cp
+            return exptime_from_rates_exosims_det(Cp, 0.5, 1.0, 7.0)  # SNR*Csp > Cp
 
         grad_val = jax.grad(f)(0.5)
         assert jnp.isfinite(grad_val)

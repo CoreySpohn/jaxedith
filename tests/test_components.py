@@ -91,14 +91,13 @@ def observation():
 
 @pytest.fixture(scope="module")
 def reference_count_rates(optical_path, etc_scene, observation):
-    """(Cp, Cb, Cnf, Csp) from core._compute_count_rates on canonical inputs."""
+    """(Cp, Cb, Cnf_rate, Csp) from core._compute_count_rates on canonical inputs."""
     return _compute_count_rates(
         optical_path,
         etc_scene,
         observation["wavelength_nm"],
         observation["separation_lod"],
         observation["dlambda_nm"],
-        observation["snr"],
         CONFIG,
     )
 
@@ -109,7 +108,7 @@ def test_components_module_imports():
 
 
 def test_reference_fixture_returns_four_tuple(reference_count_rates):
-    """Sanity: the reference call returns (Cp, Cb, Cnf, Csp)."""
+    """Sanity: the reference call returns (Cp, Cb, Cnf_rate, Csp)."""
     Cp, Cb, Cnf, Csp = reference_count_rates
     assert float(Cp) > 0.0
     assert float(Cb) > 0.0

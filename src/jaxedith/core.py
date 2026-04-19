@@ -28,51 +28,51 @@ from .count_rates import (
     photon_counting_time,
     speckle_residual,
 )
-from .solver import (
-    solve_exptime_ayo,
-    solve_exptime_exosims_char,
-    solve_exptime_exosims_det,
-    solve_snr_ayo,
-    solve_snr_exosims_char,
-    solve_snr_exosims_det,
+from .equations import (
+    exptime_from_rates_ayo,
+    exptime_from_rates_exosims_char,
+    exptime_from_rates_exosims_det,
+    snr_from_rates_ayo,
+    snr_from_rates_exosims_char,
+    snr_from_rates_exosims_det,
 )
 
 # -- Trace-time dispatch ------------------------------------------------------
 
 
-def _dispatch_exptime(Cp, Cb, Cnf, Csp, snr, config):
-    """Select and call the correct solve_exptime variant at trace time."""
+def _dispatch_exptime(Cp, Cb, Cnf_rate, Csp, snr, config):
+    """Select and call the correct exptime_from_rates_* variant at trace time."""
     kwargs = dict(
         overhead_multi=config.overhead_multi,
         overhead_fixed=config.overhead_fixed_s,
         n_rolls=config.n_rolls,
     )
     if config.variant in ("ayo", "jaxedith"):
-        return solve_exptime_ayo(
+        return exptime_from_rates_ayo(
             Cp,
             Cb,
-            Cnf,
+            Cnf_rate,
             snr,
             bg_multiplier=config.bg_multiplier,
             **kwargs,
         )
     elif config.variant == "exosims_det":
-        return solve_exptime_exosims_det(Cp, Cb, Csp, snr, **kwargs)
+        return exptime_from_rates_exosims_det(Cp, Cb, Csp, snr, **kwargs)
     elif config.variant == "exosims_char":
-        return solve_exptime_exosims_char(Cp, Cb, Csp, snr, **kwargs)
+        return exptime_from_rates_exosims_char(Cp, Cb, Csp, snr, **kwargs)
     else:
         raise ValueError(f"Unknown config variant: {config.variant!r}")
 
 
 def _dispatch_snr(Cp, Cb, Cnf_rate, Csp, t_obs, config):
-    """Select and call the correct solve_snr variant at trace time."""
+    """Select and call the correct snr_from_rates_* variant at trace time."""
     kwargs = dict(
         overhead_multi=config.overhead_multi,
         overhead_fixed=config.overhead_fixed_s,
         n_rolls=config.n_rolls,
     )
     if config.variant in ("ayo", "jaxedith"):
-        return solve_snr_ayo(
+        return snr_from_rates_ayo(
             Cp,
             Cb,
             Cnf_rate,
@@ -81,9 +81,9 @@ def _dispatch_snr(Cp, Cb, Cnf_rate, Csp, t_obs, config):
             **kwargs,
         )
     elif config.variant == "exosims_det":
-        return solve_snr_exosims_det(Cp, Cb, Csp, t_obs, **kwargs)
+        return snr_from_rates_exosims_det(Cp, Cb, Csp, t_obs, **kwargs)
     elif config.variant == "exosims_char":
-        return solve_snr_exosims_char(Cp, Cb, Csp, t_obs, **kwargs)
+        return snr_from_rates_exosims_char(Cp, Cb, Csp, t_obs, **kwargs)
     else:
         raise ValueError(f"Unknown config variant: {config.variant!r}")
 
@@ -97,7 +97,6 @@ def _compute_count_rates(
     wavelength_nm,
     separation_lod,
     dlambda_nm,
-    snr,
     config,
     eps_warm_T_cold=0.0,
 ):
@@ -113,13 +112,12 @@ def _compute_count_rates(
         wavelength_nm: Observation wavelength [nm].
         separation_lod: Planet separation in lam/D.
         dlambda_nm: Bandwidth per spectral element [nm].
-        snr: Target SNR (or 1.0 for SNR-solve mode).
         config: :class:`ETCConfig` instance.
         eps_warm_T_cold: Warm-optics emissivity times cold transmission.
             Defaults to 0.0 (no thermal background from optics).
 
     Returns:
-        Tuple of (Cp, Cb, Cnf, Csp) -- all in [e/s].
+        Tuple of (Cp, Cb, Cnf_rate, Csp) -- all in [e/s].
     """
     coro = optical_path.coronagraph
     primary = optical_path.primary
@@ -252,14 +250,11 @@ def _compute_count_rates(
     Cnf_rate = noise_floor_total(
         CRnf_star_rate, CRnf_ez_rate, config.include_exozodi_noise_floor
     )
-    # Preserve the old solver API for Task 1: AYO exptime expects Cnf
-    # with snr baked in. Task 2 changes this when equations.py lands.
-    Cnf = snr * Cnf_rate
 
     # Speckle residual (EXOSIMS path)
     Csp = speckle_residual(CRbs, config.ppfact, config.stability_fact)
 
-    return Cp, Cb, Cnf, Csp
+    return Cp, Cb, Cnf_rate, Csp
 
 
 # -- Public functions ----------------------------------------------------------
@@ -299,17 +294,16 @@ def calc_exptime(
     if config is None:
         config = CONFIG
 
-    Cp, Cb, Cnf, Csp = _compute_count_rates(
+    Cp, Cb, Cnf_rate, Csp = _compute_count_rates(
         optical_path,
         scene,
         wavelength_nm,
         separation_lod,
         dlambda_nm,
-        snr,
         config,
         eps_warm_T_cold,
     )
-    return _dispatch_exptime(Cp, Cb, Cnf, Csp, snr, config)
+    return _dispatch_exptime(Cp, Cb, Cnf_rate, Csp, snr, config)
 
 
 def calc_snr(
@@ -341,18 +335,16 @@ def calc_snr(
     if config is None:
         config = CONFIG
 
-    # For SNR-solve mode, compute noise floor rates with SNR=1
-    Cp, Cb, Cnf, Csp = _compute_count_rates(
+    Cp, Cb, Cnf_rate, Csp = _compute_count_rates(
         optical_path,
         scene,
         wavelength_nm,
         separation_lod,
         dlambda_nm,
-        1.0,
         config,
         eps_warm_T_cold,
     )
-    return _dispatch_snr(Cp, Cb, Cnf, Csp, t_obs, config)
+    return _dispatch_snr(Cp, Cb, Cnf_rate, Csp, t_obs, config)
 
 
 def calc_count_rates(
@@ -361,28 +353,13 @@ def calc_count_rates(
     wavelength_nm,
     separation_lod,
     dlambda_nm,
-    snr=7.0,
     config=None,
     eps_warm_T_cold=0.0,
 ):
     """Compute all count rates without solving for exposure time.
 
-    Useful for debugging and comparing individual count rates against
-    jaxedith/AYO/EXOSIMS values.
-
-    Args:
-        optical_path: ``optixstuff.OpticalPath`` eqx.Module.
-        scene: :class:`ETCScene` instance.
-        wavelength_nm: Observation wavelength [nm].
-        separation_lod: Planet separation in lam/D.
-        dlambda_nm: Bandwidth per spectral element [nm].
-        snr: SNR used for noise floor calculations.
-        config: :class:`ETCConfig` instance. Defaults to ``CONFIG``.
-        eps_warm_T_cold: Warm-optics emissivity times cold transmission.
-            Defaults to 0.0.
-
-    Returns:
-        Tuple of (Cp, Cb, Cnf, Csp).
+    Returns the rate form: ``(Cp, Cb, Cnf_rate, Csp)``. Multiply
+    ``Cnf_rate`` by your target SNR if you need the snr-baked value.
     """
     if config is None:
         config = CONFIG
@@ -393,7 +370,6 @@ def calc_count_rates(
         wavelength_nm,
         separation_lod,
         dlambda_nm,
-        snr,
         config,
         eps_warm_T_cold,
     )

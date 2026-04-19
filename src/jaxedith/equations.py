@@ -1,14 +1,17 @@
-"""ETC solver functions: separate implementations per equation variant.
+"""ETC equation functions -- closed-form algebra for exposure time and SNR.
 
-Each solver function contains a single clear equation -- no ``jnp.where``
-branching. The orchestrator in ``__init__.py`` selects which solver to call
-at trace time based on the config variant string, so JIT compiles only the
-chosen code path.
+Six variant-explicit equations: three exptime-solve, three snr-solve.
+Each accepts count *rates* (no SNR baked in) and returns either an
+exposure time or an achieved SNR. SNR multiplication on the noise
+term happens inside the equation, not at the caller.
+
+Naming convention: ``{exptime,snr}_from_rates_{ayo,exosims_det,exosims_char}``.
+The ``_from_rates_`` suffix marks this as Layer 1 math.
 """
 
 import jax.numpy as jnp
 
-# -- Shared overhead / guard helpers -------------------------------------------
+# -- Shared overhead / guard helpers ------------------------------------------
 
 
 def _apply_overheads(t_science, overhead_multi, overhead_fixed, n_rolls):
@@ -23,22 +26,21 @@ def _safe_divide(numerator, denominator):
 
     When ``denominator <= 0`` the result is ``jnp.inf``, but we substitute
     ``1.0`` before dividing so that ``jax.grad`` never sees ``x / 0``.
-    This avoids the classic ``jnp.where`` NaN-gradient trap.
     """
     safe_denom = jnp.where(denominator > 0, denominator, 1.0)
     result = numerator / safe_denom
     return jnp.where(denominator > 0, result, jnp.inf)
 
 
-# ===============================================================================
+# =============================================================================
 # AYO / jaxedith
-# ===============================================================================
+# =============================================================================
 
 
-def solve_exptime_ayo(
+def exptime_from_rates_ayo(
     Cp,
     Cb,
-    Cnf,
+    Cnf_rate,
     snr,
     bg_multiplier=2.0,
     overhead_multi=1.0,
@@ -48,17 +50,15 @@ def solve_exptime_ayo(
     r"""Solve for exposure time -- AYO/jaxedith equation.
 
     .. math::
-        t = \text{SNR}^2 \cdot \frac{C_p + m \cdot C_b}{C_p^2 - C_{nf}^2}
+        t = \text{SNR}^2 \cdot \frac{C_p + m \cdot C_b}
+            {C_p^2 - (\text{SNR} \cdot C_{nf,rate})^2}
 
     where *m* is the background multiplier (2 for ADI).
-
-    ``Cnf`` is the *total* noise floor, already including the SNR factor:
-    ``Cnf = SNR * noise_floor_rate``.
 
     Args:
         Cp: Planet signal count rate [e/s].
         Cb: Total background count rate [e/s].
-        Cnf: Noise floor count rate [e/s] (includes SNR factor).
+        Cnf_rate: Noise floor *rate* (SNR=1) [e/s].
         snr: Target signal-to-noise ratio.
         bg_multiplier: Background multiplier (2.0 for ADI, default).
         overhead_multi: Multiplicative overhead factor.
@@ -68,13 +68,14 @@ def solve_exptime_ayo(
     Returns:
         Total exposure time in seconds; ``jnp.inf`` if planet is below floor.
     """
+    Cnf = snr * Cnf_rate
     numerator = snr**2 * (Cp + bg_multiplier * Cb)
     denominator = Cp**2 - Cnf**2
     t_science = _safe_divide(numerator, denominator)
     return _apply_overheads(t_science, overhead_multi, overhead_fixed, n_rolls)
 
 
-def solve_snr_ayo(
+def snr_from_rates_ayo(
     Cp,
     Cb,
     Cnf_rate,
@@ -86,22 +87,18 @@ def solve_snr_ayo(
 ):
     r"""Solve for achieved SNR -- AYO/jaxedith equation.
 
-    Inverse of :func:`solve_exptime_ayo`. Derived from
+    Inverse of :func:`exptime_from_rates_ayo`:
 
     .. math::
-        t_{eff} = \frac{\text{SNR}^2}{C_p^2 - (\text{SNR} \cdot C_{nf,rate})^2}
-
-    giving
-
-    .. math::
-        \text{SNR} = \sqrt{\frac{t_{eff} \cdot C_p^2}{1 + t_{eff} \cdot C_{nf,rate}^2}}
+        \text{SNR} = \sqrt{\frac{t_{eff} \cdot C_p^2}
+            {1 + t_{eff} \cdot C_{nf,rate}^2}}
 
     where ``t_eff = t_per_roll / (overhead_multi * rate_sum)``.
 
     Args:
         Cp: Planet signal count rate [e/s].
         Cb: Total background count rate [e/s].
-        Cnf_rate: Noise floor *rate* [e/s] (with SNR=1).
+        Cnf_rate: Noise floor *rate* (SNR=1) [e/s].
         t_obs: Total observation time [s].
         bg_multiplier: Background multiplier (2.0 for ADI).
         overhead_multi: Multiplicative overhead factor.
@@ -119,12 +116,12 @@ def solve_snr_ayo(
     return jnp.where(jnp.isfinite(snr) & (snr > 0), snr, 0.0)
 
 
-# ===============================================================================
+# =============================================================================
 # EXOSIMS Detection
-# ===============================================================================
+# =============================================================================
 
 
-def solve_exptime_exosims_det(
+def exptime_from_rates_exosims_det(
     Cp,
     Cb,
     Csp,
@@ -137,11 +134,6 @@ def solve_exptime_exosims_det(
 
     .. math::
         t = \text{SNR}^2 \cdot \frac{C_b}{C_p^2 - (\text{SNR} \cdot C_{sp})^2}
-
-    Compared to AYO:
-    - No planet shot noise in numerator
-    - No ADI factor on background
-    - Speckle residual instead of noise floor
 
     Args:
         Cp: Planet signal count rate [e/s].
@@ -161,7 +153,7 @@ def solve_exptime_exosims_det(
     return _apply_overheads(t_science, overhead_multi, overhead_fixed, n_rolls)
 
 
-def solve_snr_exosims_det(
+def snr_from_rates_exosims_det(
     Cp,
     Cb,
     Csp,
@@ -171,8 +163,6 @@ def solve_snr_exosims_det(
     n_rolls=1,
 ):
     r"""Solve for achieved SNR -- EXOSIMS detection equation.
-
-    From ``t = SNR^2 * Cb / (Cp^2 - (SNR*Csp)^2)`` we get:
 
     .. math::
         \text{SNR} = \sqrt{\frac{t_{eff} \cdot C_p^2}{C_b + t_{eff} \cdot C_{sp}^2}}
@@ -196,12 +186,12 @@ def solve_snr_exosims_det(
     return jnp.where(jnp.isfinite(snr) & (snr > 0), snr, 0.0)
 
 
-# ===============================================================================
+# =============================================================================
 # EXOSIMS Characterization
-# ===============================================================================
+# =============================================================================
 
 
-def solve_exptime_exosims_char(
+def exptime_from_rates_exosims_char(
     Cp,
     Cb,
     Csp,
@@ -215,7 +205,8 @@ def solve_exptime_exosims_char(
     Same as EXOSIMS detection but with :math:`C_p` added to :math:`C_b`:
 
     .. math::
-        t = \text{SNR}^2 \cdot \frac{C_b + C_p}{C_p^2 - (\text{SNR} \cdot C_{sp})^2}
+        t = \text{SNR}^2 \cdot \frac{C_b + C_p}
+            {C_p^2 - (\text{SNR} \cdot C_{sp})^2}
 
     Args:
         Cp: Planet signal count rate [e/s].
@@ -235,7 +226,7 @@ def solve_exptime_exosims_char(
     return _apply_overheads(t_science, overhead_multi, overhead_fixed, n_rolls)
 
 
-def solve_snr_exosims_char(
+def snr_from_rates_exosims_char(
     Cp,
     Cb,
     Csp,
@@ -246,12 +237,9 @@ def solve_snr_exosims_char(
 ):
     r"""Solve for achieved SNR -- EXOSIMS characterization equation.
 
-    Same as detection but with :math:`C_p` added to :math:`C_b`:
-
     .. math::
-        \text{SNR} = \sqrt{
-            \frac{t_{eff} \cdot C_p^2}{(C_b + C_p) + t_{eff} \cdot C_{sp}^2}
-        }
+        \text{SNR} = \sqrt{\frac{t_{eff} \cdot C_p^2}
+            {(C_b + C_p) + t_{eff} \cdot C_{sp}^2}}
 
     Args:
         Cp: Planet signal count rate [e/s].
