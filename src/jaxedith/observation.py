@@ -38,6 +38,7 @@ def calc_exptime_from_observation(
     sep_arcsec: float = 0.1,
     Fexozodi: float = 0.0,
     temp_K: float = 270.0,
+    ez_ppf: float = jnp.inf,
     zodi_mode: str = "ayo",
 ):
     """End-to-end: observation parameters -> exposure time.
@@ -62,6 +63,8 @@ def calc_exptime_from_observation(
         sep_arcsec: Angular separation [arcsec].
         Fexozodi: Exozodiacal surface brightness [arcsec^-2].
         temp_K: Telescope temperature [K].
+        ez_ppf: Post-processing factor for exozodi noise floor. Default
+            ``jnp.inf`` disables the noise floor (no post-processing).
         zodi_mode: ``"ayo"`` for position-independent AYO default, or
             ``"leinert"`` for full Leinert position-dependent model.
 
@@ -88,6 +91,7 @@ def calc_exptime_from_observation(
         dlambda_nm,
         snr,
         temp_K=temp_K,
+        ez_ppf=ez_ppf,
     )
 
 
@@ -109,6 +113,7 @@ def calc_snr_from_observation(
     sep_arcsec: float = 0.1,
     Fexozodi: float = 0.0,
     temp_K: float = 270.0,
+    ez_ppf: float = jnp.inf,
     zodi_mode: str = "ayo",
 ):
     """End-to-end: observation parameters -> achieved SNR.
@@ -133,6 +138,8 @@ def calc_snr_from_observation(
         sep_arcsec: Angular separation [arcsec].
         Fexozodi: Exozodiacal surface brightness [arcsec^-2].
         temp_K: Telescope temperature [K].
+        ez_ppf: Post-processing factor for exozodi noise floor. Default
+            ``jnp.inf`` disables the noise floor (no post-processing).
         zodi_mode: ``"ayo"`` or ``"leinert"``.
 
     Returns:
@@ -158,6 +165,7 @@ def calc_snr_from_observation(
         dlambda_nm,
         t_obs,
         temp_K=temp_K,
+        ez_ppf=ez_ppf,
     )
 
 
@@ -272,6 +280,7 @@ def calc_exptime_from_system(
     *,
     Fexozodi: float = 0.0,
     temp_K: float = 270.0,
+    ez_ppf: float = jnp.inf,
     zodi_mode: str = "ayo",
 ):
     """Compute exposure time from a skyscapes.scene.System.
@@ -292,6 +301,8 @@ def calc_exptime_from_system(
         snr: Target signal-to-noise ratio.
         Fexozodi: Exozodiacal surface brightness [arcsec^-2].
         temp_K: Telescope temperature [K].
+        ez_ppf: Post-processing factor for exozodi noise floor. Default
+            ``jnp.inf`` disables the noise floor (no post-processing).
         zodi_mode: ``"ayo"`` or ``"leinert"``.
 
     Returns:
@@ -322,6 +333,7 @@ def calc_exptime_from_system(
         dlambda_nm,
         snr,
         temp_K=temp_K,
+        ez_ppf=ez_ppf,
     )
 
 
@@ -338,6 +350,7 @@ def calc_snr_from_system(
     *,
     Fexozodi: float = 0.0,
     temp_K: float = 270.0,
+    ez_ppf: float = jnp.inf,
     zodi_mode: str = "ayo",
 ):
     """Compute achieved SNR from a skyscapes.scene.System.
@@ -357,6 +370,8 @@ def calc_snr_from_system(
         t_obs: Total observation time [s].
         Fexozodi: Exozodiacal surface brightness [arcsec^-2].
         temp_K: Telescope temperature [K].
+        ez_ppf: Post-processing factor for exozodi noise floor. Default
+            ``jnp.inf`` disables the noise floor (no post-processing).
         zodi_mode: ``"ayo"`` or ``"leinert"``.
 
     Returns:
@@ -386,4 +401,5 @@ def calc_snr_from_system(
         dlambda_nm,
         t_obs,
         temp_K=temp_K,
+        ez_ppf=ez_ppf,
     )
