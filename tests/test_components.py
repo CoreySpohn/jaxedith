@@ -3,7 +3,7 @@
 Each Layer 2 function is a pass-through wrapper over a Layer 1
 count-rate function. These tests assert that, for a canonical
 ``OpticalPath + ETCScene`` fixture, each Layer 2 output equals the
-matching decomposed output from ``core._compute_count_rates``.
+matching decomposed output from ``count_rates_ayo``.
 
 Because both paths call the identical Layer 1 function with identical
 scalar arguments, outputs must be bitwise identical -- no rtol.
@@ -16,8 +16,6 @@ from yippy.datasets import fetch_coronagraph
 import optixstuff as ox
 from hwoutils.constants import nm2m, rad2arcsec
 from jaxedith import ETCScene, components
-from jaxedith.config import CONFIG
-from jaxedith.core import _compute_count_rates
 from jaxedith.count_rates import (
     count_rate_binary,
     count_rate_detector,
@@ -28,6 +26,13 @@ from jaxedith.count_rates import (
     noise_floor_stellar,
     photon_counting_time,
 )
+from jaxedith.public import count_rates_ayo
+
+# These match the default n_channels and temp_K that optical_path carries
+# (OpticalPath.n_channels=1.0, npix_multiplier=1.0) and the temp default.
+# The Layer 1 calls below use these directly for parity with Layer 2.
+N_CHANNELS = 1.0
+TEMP_K = 270.0
 
 
 @pytest.fixture(scope="module")
@@ -72,9 +77,7 @@ def etc_scene():
         Fexozodi=7.15e-9,
         dist_pc=10.0,
         sep_arcsec=0.1,
-        n_channels=2.0,
         Fbinary=0.0,
-        temp_K=270.0,
     )
 
 
@@ -91,14 +94,14 @@ def observation():
 
 @pytest.fixture(scope="module")
 def reference_count_rates(optical_path, etc_scene, observation):
-    """(Cp, Cb, Cnf_rate, Csp) from core._compute_count_rates on canonical inputs."""
-    return _compute_count_rates(
+    """(Cp, Cb, Cnf_rate) from count_rates_ayo on canonical inputs."""
+    return count_rates_ayo(
         optical_path,
         etc_scene,
         observation["wavelength_nm"],
         observation["separation_lod"],
         observation["dlambda_nm"],
-        CONFIG,
+        temp_K=TEMP_K,
     )
 
 
@@ -107,9 +110,9 @@ def test_components_module_imports():
     assert components is not None
 
 
-def test_reference_fixture_returns_four_tuple(reference_count_rates):
-    """Sanity: the reference call returns (Cp, Cb, Cnf_rate, Csp)."""
-    Cp, Cb, Cnf, Csp = reference_count_rates
+def test_reference_fixture_returns_three_tuple(reference_count_rates):
+    """Sanity: the reference call returns (Cp, Cb, Cnf_rate)."""
+    Cp, Cb, Cnf_rate = reference_count_rates
     assert float(Cp) > 0.0
     assert float(Cb) > 0.0
 
@@ -117,8 +120,8 @@ def test_reference_fixture_returns_four_tuple(reference_count_rates):
 def test_planet_signal_parity(
     optical_path, etc_scene, observation, reference_count_rates
 ):
-    """planet_signal output must equal Cp from _compute_count_rates."""
-    Cp_ref, _, _, _ = reference_count_rates
+    """planet_signal output must equal Cp from count_rates_ayo."""
+    Cp_ref, _, _ = reference_count_rates
     Cp_layer2 = components.planet_signal(
         optical_path,
         wavelength_nm=observation["wavelength_nm"],
@@ -127,13 +130,13 @@ def test_planet_signal_parity(
         F0=etc_scene.F0,
         Fs_over_F0=etc_scene.Fs_over_F0,
         Fp_over_Fs=etc_scene.Fp_over_Fs,
-        n_channels=etc_scene.n_channels,
+        n_channels=N_CHANNELS,
     )
     assert float(Cp_layer2) == float(Cp_ref)
 
 
 def test_stellar_leakage_parity(optical_path, etc_scene, observation):
-    """stellar_leakage must equal the decomposed CRbs call in core."""
+    """stellar_leakage must equal the decomposed CRbs call."""
     wl = observation["wavelength_nm"]
     sep = observation["separation_lod"]
     dl = observation["dlambda_nm"]
@@ -147,7 +150,7 @@ def test_stellar_leakage_parity(optical_path, etc_scene, observation):
         primary.area_m2,
         optical_path.system_throughput(wl),
         dl,
-        etc_scene.n_channels,
+        N_CHANNELS,
         coro.core_area(sep, wl),
         coro.core_mean_intensity(sep, wl),
     )
@@ -159,13 +162,13 @@ def test_stellar_leakage_parity(optical_path, etc_scene, observation):
         dlambda_nm=dl,
         F0=etc_scene.F0,
         Fs_over_F0=etc_scene.Fs_over_F0,
-        n_channels=etc_scene.n_channels,
+        n_channels=N_CHANNELS,
     )
     assert float(CRbs_layer2) == float(CRbs_ref)
 
 
 def test_zodi_background_parity(optical_path, etc_scene, observation):
-    """zodi_background must equal the decomposed CRbz call in core."""
+    """zodi_background must equal the decomposed CRbz call."""
     wl = observation["wavelength_nm"]
     sep = observation["separation_lod"]
     dl = observation["dlambda_nm"]
@@ -183,7 +186,7 @@ def test_zodi_background_parity(optical_path, etc_scene, observation):
         primary.area_m2,
         optical_path.system_throughput(wl),
         dl,
-        etc_scene.n_channels,
+        N_CHANNELS,
         coro.core_area(sep, wl),
     )
 
@@ -194,13 +197,13 @@ def test_zodi_background_parity(optical_path, etc_scene, observation):
         dlambda_nm=dl,
         F0=etc_scene.F0,
         Fzodi=etc_scene.Fzodi,
-        n_channels=etc_scene.n_channels,
+        n_channels=N_CHANNELS,
     )
     assert float(CRbz_layer2) == float(CRbz_ref)
 
 
 def test_exozodi_background_parity(optical_path, etc_scene, observation):
-    """exozodi_background must equal the decomposed CRbez call in core."""
+    """exozodi_background must equal the decomposed CRbez call."""
     wl = observation["wavelength_nm"]
     sep = observation["separation_lod"]
     dl = observation["dlambda_nm"]
@@ -218,7 +221,7 @@ def test_exozodi_background_parity(optical_path, etc_scene, observation):
         primary.area_m2,
         optical_path.system_throughput(wl),
         dl,
-        etc_scene.n_channels,
+        N_CHANNELS,
         coro.core_area(sep, wl),
         etc_scene.dist_pc,
         etc_scene.sep_arcsec,
@@ -233,13 +236,13 @@ def test_exozodi_background_parity(optical_path, etc_scene, observation):
         Fexozodi=etc_scene.Fexozodi,
         dist_pc=etc_scene.dist_pc,
         sep_arcsec=etc_scene.sep_arcsec,
-        n_channels=etc_scene.n_channels,
+        n_channels=N_CHANNELS,
     )
     assert float(CRbez_layer2) == float(CRbez_ref)
 
 
 def test_binary_background_parity(optical_path, etc_scene, observation):
-    """binary_background must equal the decomposed CRbbin call in core."""
+    """binary_background must equal the decomposed CRbbin call."""
     wl = observation["wavelength_nm"]
     sep = observation["separation_lod"]
     dl = observation["dlambda_nm"]
@@ -254,7 +257,7 @@ def test_binary_background_parity(optical_path, etc_scene, observation):
         primary.area_m2,
         optical_path.system_throughput(wl),
         dl,
-        etc_scene.n_channels,
+        N_CHANNELS,
         coro.core_area(sep, wl),
     )
 
@@ -265,13 +268,13 @@ def test_binary_background_parity(optical_path, etc_scene, observation):
         dlambda_nm=dl,
         F0=etc_scene.F0,
         Fbinary=etc_scene.Fbinary,
-        n_channels=etc_scene.n_channels,
+        n_channels=N_CHANNELS,
     )
     assert float(CRbbin_layer2) == float(CRbbin_ref)
 
 
 def test_thermal_background_parity(optical_path, etc_scene, observation):
-    """thermal_background must equal the decomposed CRbth call in core."""
+    """thermal_background must equal the decomposed CRbth call."""
     wl = observation["wavelength_nm"]
     sep = observation["separation_lod"]
     dl = observation["dlambda_nm"]
@@ -280,13 +283,13 @@ def test_thermal_background_parity(optical_path, etc_scene, observation):
     coro = optical_path.coronagraph
     detector = optical_path.detector
     lod_rad = (wl * nm2m) / primary.diameter_m
-    eps_warm_T_cold = 0.0  # matches core.py default
+    eps_warm_T_cold = 0.0
 
     CRbth_ref = count_rate_thermal(
         wl,
         primary.area_m2,
         dl,
-        etc_scene.temp_K,
+        TEMP_K,
         lod_rad,
         eps_warm_T_cold,
         detector.quantum_efficiency,
@@ -299,14 +302,14 @@ def test_thermal_background_parity(optical_path, etc_scene, observation):
         wavelength_nm=wl,
         separation_lod=sep,
         dlambda_nm=dl,
-        temp_K=etc_scene.temp_K,
+        temp_K=TEMP_K,
         eps_warm_T_cold=eps_warm_T_cold,
     )
     assert float(CRbth_layer2) == float(CRbth_ref)
 
 
 def test_detector_noise_parity(optical_path, etc_scene, observation):
-    """detector_noise must equal the decomposed CRbd call in core."""
+    """detector_noise must equal the decomposed CRbd call."""
     wl = observation["wavelength_nm"]
     sep = observation["separation_lod"]
     dl = observation["dlambda_nm"]
@@ -314,30 +317,28 @@ def test_detector_noise_parity(optical_path, etc_scene, observation):
     coro = optical_path.coronagraph
     detector = optical_path.detector
 
-    # Reproduce core.py's n_pix computation (config.npix_multiplier=1.0 by default)
     core_area_lod2 = coro.core_area(sep, wl)
     pixscale_lod = coro.pixel_scale_lod
     n_pix = core_area_lod2 / (pixscale_lod ** 2) * 1.0
 
-    # Reproduce core.py's total_photon_cr and t_photon
     Cp_ref = components.planet_signal(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
         F0=etc_scene.F0, Fs_over_F0=etc_scene.Fs_over_F0,
-        Fp_over_Fs=etc_scene.Fp_over_Fs, n_channels=etc_scene.n_channels,
+        Fp_over_Fs=etc_scene.Fp_over_Fs, n_channels=N_CHANNELS,
     )
     CRbs_ref = components.stellar_leakage(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
         F0=etc_scene.F0, Fs_over_F0=etc_scene.Fs_over_F0,
-        n_channels=etc_scene.n_channels,
+        n_channels=N_CHANNELS,
     )
     CRbz_ref = components.zodi_background(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
-        F0=etc_scene.F0, Fzodi=etc_scene.Fzodi, n_channels=etc_scene.n_channels,
+        F0=etc_scene.F0, Fzodi=etc_scene.Fzodi, n_channels=N_CHANNELS,
     )
     CRbez_ref = components.exozodi_background(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
         F0=etc_scene.F0, Fexozodi=etc_scene.Fexozodi, dist_pc=etc_scene.dist_pc,
-        sep_arcsec=etc_scene.sep_arcsec, n_channels=etc_scene.n_channels,
+        sep_arcsec=etc_scene.sep_arcsec, n_channels=N_CHANNELS,
     )
     total_photon_cr = Cp_ref + CRbs_ref + CRbz_ref + CRbez_ref
     t_photon = photon_counting_time(jnp.maximum(total_photon_cr, 1e-30), n_pix)
@@ -362,11 +363,11 @@ def test_detector_noise_parity(optical_path, etc_scene, observation):
 
 
 def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
-    """stellar_noise_floor must equal the decomposed CRnf_star_rate call in core."""
+    """stellar_noise_floor must equal the decomposed CRnf_star_rate call."""
     wl = observation["wavelength_nm"]
     sep = observation["separation_lod"]
     dl = observation["dlambda_nm"]
-    ppfact = CONFIG.ppfact  # 1.0 in the jaxedith preset
+    ppfact = 1.0  # default ppfact
 
     coro = optical_path.coronagraph
     primary = optical_path.primary
@@ -378,7 +379,7 @@ def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
         primary.area_m2,
         optical_path.system_throughput(wl),
         dl,
-        etc_scene.n_channels,
+        N_CHANNELS,
         noisefloor_value,
         coro.core_area(sep, wl),
     )
@@ -390,7 +391,7 @@ def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
         dlambda_nm=dl,
         F0=etc_scene.F0,
         Fs_over_F0=etc_scene.Fs_over_F0,
-        n_channels=etc_scene.n_channels,
+        n_channels=N_CHANNELS,
         ppfact=ppfact,
     )
     assert float(CRnf_star_layer2) == float(CRnf_star_ref)
@@ -414,14 +415,14 @@ def test_layer2_reexported_from_package():
         assert hasattr(jaxedith, name), f"jaxedith.{name} missing from public API"
 
 
-def test_layer2_end_to_end_reconstructs_core_outputs(
+def test_layer2_end_to_end_reconstructs_count_rates_ayo(
     optical_path, etc_scene, observation, reference_count_rates
 ):
-    """Composing Layer 2 components reproduces core._compute_count_rates outputs.
+    """Composing Layer 2 components reproduces count_rates_ayo outputs.
 
-    Exercises the full Layer 2 surface composed the same way core.py composes
-    Layer 1. The resulting Cp and Cb must match _compute_count_rates's
-    corresponding decomposed values bitwise.
+    Exercises the full Layer 2 surface composed the same way public.py composes
+    Layer 1. The resulting Cp and Cb must match count_rates_ayo's
+    corresponding values bitwise.
     """
     import jaxedith
     wl = observation["wavelength_nm"]
@@ -431,30 +432,30 @@ def test_layer2_end_to_end_reconstructs_core_outputs(
     Cp = jaxedith.planet_signal(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
         F0=etc_scene.F0, Fs_over_F0=etc_scene.Fs_over_F0,
-        Fp_over_Fs=etc_scene.Fp_over_Fs, n_channels=etc_scene.n_channels,
+        Fp_over_Fs=etc_scene.Fp_over_Fs, n_channels=N_CHANNELS,
     )
     CRbs = jaxedith.stellar_leakage(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
         F0=etc_scene.F0, Fs_over_F0=etc_scene.Fs_over_F0,
-        n_channels=etc_scene.n_channels,
+        n_channels=N_CHANNELS,
     )
     CRbz = jaxedith.zodi_background(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
-        F0=etc_scene.F0, Fzodi=etc_scene.Fzodi, n_channels=etc_scene.n_channels,
+        F0=etc_scene.F0, Fzodi=etc_scene.Fzodi, n_channels=N_CHANNELS,
     )
     CRbez = jaxedith.exozodi_background(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
         F0=etc_scene.F0, Fexozodi=etc_scene.Fexozodi, dist_pc=etc_scene.dist_pc,
-        sep_arcsec=etc_scene.sep_arcsec, n_channels=etc_scene.n_channels,
+        sep_arcsec=etc_scene.sep_arcsec, n_channels=N_CHANNELS,
     )
     CRbbin = jaxedith.binary_background(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
         F0=etc_scene.F0, Fbinary=etc_scene.Fbinary,
-        n_channels=etc_scene.n_channels,
+        n_channels=N_CHANNELS,
     )
     CRbth = jaxedith.thermal_background(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
-        temp_K=etc_scene.temp_K,
+        temp_K=TEMP_K,
     )
     total_photon_cr = Cp + CRbs + CRbz + CRbez
     CRbd = jaxedith.detector_noise(
@@ -463,6 +464,6 @@ def test_layer2_end_to_end_reconstructs_core_outputs(
     )
     Cb = CRbs + CRbz + CRbez + CRbbin + CRbth + CRbd
 
-    Cp_ref, Cb_ref, _, _ = reference_count_rates
+    Cp_ref, Cb_ref, _ = reference_count_rates
     assert float(Cp) == float(Cp_ref)
     assert float(Cb) == float(Cb_ref)

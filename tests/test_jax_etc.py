@@ -16,12 +16,6 @@ jax = pytest.importorskip("jax")
 jnp = pytest.importorskip("jax.numpy")
 eqx = pytest.importorskip("equinox")
 
-from jaxedith.config import (
-    AYO_CONFIG,
-    CONFIG,
-    EXOSIMS_CHARACTERIZATION_CONFIG,
-    EXOSIMS_DETECTION_CONFIG,
-)
 from jaxedith.count_rates import (
     count_rate_binary,
     count_rate_detector,
@@ -32,7 +26,6 @@ from jaxedith.count_rates import (
     count_rate_zodi,
     noise_floor_exozodi,
     noise_floor_stellar,
-    noise_floor_total,
     photon_counting_time,
 )
 from jaxedith.equations import (
@@ -220,51 +213,11 @@ class TestCountRateParity:
         result = noise_floor_exozodi(CRbez, ez_ppf)
         assert np.isclose(float(result), 1.2 / 30.0, rtol=1e-10)
 
-    def test_noise_floor_total_with_exozodi(self):
-        """Combined noise floor in quadrature when include_ez=True."""
-        result = noise_floor_total(3.0, 4.0, include_ez=True)
-        assert np.isclose(float(result), 5.0, rtol=1e-10)
-
-    def test_noise_floor_total_without_exozodi(self):
-        """Without exozodi, total = stellar only."""
-        result = noise_floor_total(3.0, 4.0, include_ez=False)
-        assert np.isclose(float(result), 3.0, rtol=1e-10)
-
     def test_photon_counting_time(self):
         """t_photon = 1 / (6.73 * det_CR / det_npix)."""
         det_CR = 0.723971066592388
         result = photon_counting_time(det_CR, det_npix)
         assert np.isclose(float(result), 1.8583934, rtol=1e-5)
-
-
-# -- Config preset tests ------------------------------------------------------
-
-
-class TestConfigPresets:
-    """Verify preset configurations have correct variant and parameters."""
-
-    def test_ayo_config(self):
-        """Test AYO preset variant."""
-        assert AYO_CONFIG.variant == "ayo"
-        assert AYO_CONFIG.bg_multiplier == 2.0
-        assert AYO_CONFIG.include_exozodi_noise_floor is False
-
-    def test_config(self):
-        """Test default JAXEDITH preset variant."""
-        assert CONFIG.variant == "jaxedith"
-        assert CONFIG.bg_multiplier == 2.0
-        assert CONFIG.include_exozodi_noise_floor is True
-
-    def test_exosims_detection(self):
-        """Test EXOSIMS detection preset variant."""
-        assert EXOSIMS_DETECTION_CONFIG.variant == "exosims_det"
-        assert EXOSIMS_DETECTION_CONFIG.bg_multiplier == 1.0
-        assert EXOSIMS_DETECTION_CONFIG.include_exozodi_noise_floor is False
-
-    def test_exosims_characterization(self):
-        """Test EXOSIMS characterization preset variant."""
-        assert EXOSIMS_CHARACTERIZATION_CONFIG.variant == "exosims_char"
-        assert EXOSIMS_CHARACTERIZATION_CONFIG.bg_multiplier == 1.0
 
 
 # -- Equation tests -----------------------------------------------------------

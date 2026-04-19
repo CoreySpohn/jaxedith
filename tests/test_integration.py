@@ -13,7 +13,7 @@ import pytest
 from yippy.datasets import fetch_coronagraph
 
 import optixstuff as ox
-from jaxedith import calc_count_rates, calc_exptime, calc_snr, ETCScene
+from jaxedith import ETCScene, count_rates_ayo, exptime_ayo, snr_ayo
 
 
 # ---------------------------------------------------------------------------
@@ -63,9 +63,7 @@ def sun_like_scene():
         Fexozodi=7.15e-9,
         dist_pc=10.0,
         sep_arcsec=0.1,
-        n_channels=2.0,
         Fbinary=0.0,
-        temp_K=270.0,
     )
 
 
@@ -77,39 +75,38 @@ def sun_like_scene():
 class TestEndToEnd:
     """Full pipeline: optixstuff OpticalPath -> jaxedith equations."""
 
-    def test_calc_count_rates_finite(self, optical_path, sun_like_scene):
-        Cp, Cb, Cnf, Csp = calc_count_rates(
+    def test_count_rates_ayo_finite(self, optical_path, sun_like_scene):
+        Cp, Cb, Cnf_rate = count_rates_ayo(
             optical_path, sun_like_scene,
             wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
         )
         assert jnp.isfinite(Cp), f"Cp not finite: {Cp}"
         assert jnp.isfinite(Cb), f"Cb not finite: {Cb}"
-        assert jnp.isfinite(Cnf), f"Cnf not finite: {Cnf}"
-        assert jnp.isfinite(Csp), f"Csp not finite: {Csp}"
+        assert jnp.isfinite(Cnf_rate), f"Cnf_rate not finite: {Cnf_rate}"
 
-    def test_calc_count_rates_positive_planet(self, optical_path, sun_like_scene):
-        Cp, _, _, _ = calc_count_rates(
+    def test_count_rates_ayo_positive_planet(self, optical_path, sun_like_scene):
+        Cp, _, _ = count_rates_ayo(
             optical_path, sun_like_scene,
             wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
         )
         assert float(Cp) > 0
 
-    def test_calc_exptime_finite_positive(self, optical_path, sun_like_scene):
-        t_exp = calc_exptime(
+    def test_exptime_ayo_finite_positive(self, optical_path, sun_like_scene):
+        t_exp = exptime_ayo(
             optical_path, sun_like_scene,
             wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0, snr=7.0,
         )
         assert jnp.isfinite(t_exp), f"t_exp not finite: {t_exp}"
         assert float(t_exp) > 0
 
-    def test_calc_snr_round_trip(self, optical_path, sun_like_scene):
+    def test_snr_ayo_round_trip(self, optical_path, sun_like_scene):
         target_snr = 7.0
-        t_exp = calc_exptime(
+        t_exp = exptime_ayo(
             optical_path, sun_like_scene,
             wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
             snr=target_snr,
         )
-        recovered_snr = calc_snr(
+        recovered_snr = snr_ayo(
             optical_path, sun_like_scene,
             wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
             t_obs=float(t_exp),
@@ -125,18 +122,18 @@ class TestEndToEnd:
 class TestJITCompilation:
     """Verify the full pipeline JIT-compiles."""
 
-    def test_jit_calc_exptime(self, optical_path, sun_like_scene):
+    def test_jit_exptime_ayo(self, optical_path, sun_like_scene):
         @eqx.filter_jit
         def _calc(wl, sep, dlam, snr):
-            return calc_exptime(optical_path, sun_like_scene, wl, sep, dlam, snr)
+            return exptime_ayo(optical_path, sun_like_scene, wl, sep, dlam, snr)
 
         result = _calc(500.0, 5.0, 100.0, 7.0)
         assert jnp.isfinite(result)
 
-    def test_jit_calc_snr(self, optical_path, sun_like_scene):
+    def test_jit_snr_ayo(self, optical_path, sun_like_scene):
         @eqx.filter_jit
         def _calc(wl, sep, dlam, t_obs):
-            return calc_snr(optical_path, sun_like_scene, wl, sep, dlam, t_obs)
+            return snr_ayo(optical_path, sun_like_scene, wl, sep, dlam, t_obs)
 
         result = _calc(500.0, 5.0, 100.0, 3600.0)
         assert jnp.isfinite(result)
@@ -147,7 +144,7 @@ class TestJITCompilation:
         @eqx.filter_jit
         def _batch(seps):
             return jax.vmap(
-                lambda sep: calc_exptime(
+                lambda sep: exptime_ayo(
                     optical_path, sun_like_scene, 500.0, sep, 100.0, 7.0,
                 )
             )(seps)
@@ -170,11 +167,11 @@ class TestPhysicalSanity:
         bright = ETCScene(F0=1.34e8, Fs_over_F0=0.005, Fp_over_Fs=1e-9)
         faint = ETCScene(F0=1.34e8, Fs_over_F0=0.005, Fp_over_Fs=1e-10)
 
-        t_bright = calc_exptime(optical_path, bright, 500.0, 5.0, 100.0, 7.0)
-        t_faint = calc_exptime(optical_path, faint, 500.0, 5.0, 100.0, 7.0)
+        t_bright = exptime_ayo(optical_path, bright, 500.0, 5.0, 100.0, 7.0)
+        t_faint = exptime_ayo(optical_path, faint, 500.0, 5.0, 100.0, 7.0)
         assert float(t_bright) < float(t_faint)
 
     def test_higher_snr_longer_time(self, optical_path, sun_like_scene):
-        t_low = calc_exptime(optical_path, sun_like_scene, 500.0, 5.0, 100.0, 5.0)
-        t_high = calc_exptime(optical_path, sun_like_scene, 500.0, 5.0, 100.0, 10.0)
+        t_low = exptime_ayo(optical_path, sun_like_scene, 500.0, 5.0, 100.0, 5.0)
+        t_high = exptime_ayo(optical_path, sun_like_scene, 500.0, 5.0, 100.0, 10.0)
         assert float(t_high) > float(t_low)

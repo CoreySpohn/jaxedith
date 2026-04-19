@@ -37,7 +37,6 @@ def calc_exptime_from_observation(
     dist_pc: float = 10.0,
     sep_arcsec: float = 0.1,
     Fexozodi: float = 0.0,
-    n_channels: float = 1.0,
     temp_K: float = 270.0,
     zodi_mode: str = "ayo",
 ):
@@ -62,7 +61,6 @@ def calc_exptime_from_observation(
         dist_pc: Distance to star [pc].
         sep_arcsec: Angular separation [arcsec].
         Fexozodi: Exozodiacal surface brightness [arcsec^-2].
-        n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` for position-independent AYO default, or
             ``"leinert"`` for full Leinert position-dependent model.
@@ -80,8 +78,6 @@ def calc_exptime_from_observation(
         Fexozodi=Fexozodi,
         dist_pc=dist_pc,
         sep_arcsec=sep_arcsec,
-        n_channels=n_channels,
-        temp_K=temp_K,
     )
 
     return exptime_ayo(
@@ -92,7 +88,6 @@ def calc_exptime_from_observation(
         dlambda_nm,
         snr,
         temp_K=temp_K,
-        ez_ppf=scene.ez_ppf,
     )
 
 
@@ -113,7 +108,6 @@ def calc_snr_from_observation(
     dist_pc: float = 10.0,
     sep_arcsec: float = 0.1,
     Fexozodi: float = 0.0,
-    n_channels: float = 1.0,
     temp_K: float = 270.0,
     zodi_mode: str = "ayo",
 ):
@@ -138,7 +132,6 @@ def calc_snr_from_observation(
         dist_pc: Distance to star [pc].
         sep_arcsec: Angular separation [arcsec].
         Fexozodi: Exozodiacal surface brightness [arcsec^-2].
-        n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` or ``"leinert"``.
 
@@ -155,8 +148,6 @@ def calc_snr_from_observation(
         Fexozodi=Fexozodi,
         dist_pc=dist_pc,
         sep_arcsec=sep_arcsec,
-        n_channels=n_channels,
-        temp_K=temp_K,
     )
 
     return snr_ayo(
@@ -167,7 +158,6 @@ def calc_snr_from_observation(
         dlambda_nm,
         t_obs,
         temp_K=temp_K,
-        ez_ppf=scene.ez_ppf,
     )
 
 
@@ -232,8 +222,6 @@ def _system_to_etc_scene(
     time_jd: float,
     Fzodi: float,
     Fexozodi: float = 0.0,
-    n_channels: float = 1.0,
-    temp_K: float = 270.0,
 ):
     """Extract ETCScene from a ``skyscapes.scene.System``.
 
@@ -265,8 +253,6 @@ def _system_to_etc_scene(
         Fexozodi=Fexozodi,
         dist_pc=system.star.dist_pc,
         sep_arcsec=sep_arcsec,
-        n_channels=n_channels,
-        temp_K=temp_K,
     )
 
 
@@ -285,7 +271,6 @@ def calc_exptime_from_system(
     snr: float,
     *,
     Fexozodi: float = 0.0,
-    n_channels: float = 1.0,
     temp_K: float = 270.0,
     zodi_mode: str = "ayo",
 ):
@@ -306,7 +291,6 @@ def calc_exptime_from_system(
         dlambda_nm: Bandwidth per spectral element [nm].
         snr: Target signal-to-noise ratio.
         Fexozodi: Exozodiacal surface brightness [arcsec^-2].
-        n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` or ``"leinert"``.
 
@@ -328,8 +312,6 @@ def calc_exptime_from_system(
         time_jd,
         Fzodi=Fzodi,
         Fexozodi=Fexozodi,
-        n_channels=n_channels,
-        temp_K=temp_K,
     )
 
     return exptime_ayo(
@@ -340,7 +322,6 @@ def calc_exptime_from_system(
         dlambda_nm,
         snr,
         temp_K=temp_K,
-        ez_ppf=scene.ez_ppf,
     )
 
 
@@ -356,7 +337,6 @@ def calc_snr_from_system(
     t_obs: float,
     *,
     Fexozodi: float = 0.0,
-    n_channels: float = 1.0,
     temp_K: float = 270.0,
     zodi_mode: str = "ayo",
 ):
@@ -376,7 +356,6 @@ def calc_snr_from_system(
         dlambda_nm: Bandwidth per spectral element [nm].
         t_obs: Total observation time [s].
         Fexozodi: Exozodiacal surface brightness [arcsec^-2].
-        n_channels: Number of spectral channels.
         temp_K: Telescope temperature [K].
         zodi_mode: ``"ayo"`` or ``"leinert"``.
 
@@ -397,8 +376,6 @@ def calc_snr_from_system(
         time_jd,
         Fzodi=Fzodi,
         Fexozodi=Fexozodi,
-        n_channels=n_channels,
-        temp_K=temp_K,
     )
 
     return snr_ayo(
@@ -409,5 +386,4 @@ def calc_snr_from_system(
         dlambda_nm,
         t_obs,
         temp_K=temp_K,
-        ez_ppf=scene.ez_ppf,
     )

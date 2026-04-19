@@ -395,19 +395,6 @@ def noise_floor_exozodi(CRbez, ez_ppf):
     return CRbez / ez_ppf
 
 
-def noise_floor_total(CRnf_star, CRnf_ez, include_ez):
-    """Combined noise floor CRnf [e/s].
-
-    When ``include_ez`` is True, combines stellar and exozodi noise floors
-    in quadrature. Otherwise, uses stellar noise floor only.
-    """
-    return jnp.where(
-        include_ez,
-        jnp.sqrt(CRnf_star**2 + CRnf_ez**2),
-        CRnf_star,
-    )
-
-
 # -- Speckle residual (EXOSIMS path) ------------------------------------------
 
 
