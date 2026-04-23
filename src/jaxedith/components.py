@@ -245,8 +245,15 @@ def detector_noise(
     coro = optical_path.coronagraph
     detector = optical_path.detector
     core_area_lod2 = coro.core_area(separation_lod, wavelength_nm)
-    pixscale_lod = coro.pixel_scale_lod
-    n_pix = core_area_lod2 / (pixscale_lod ** 2) * npix_multiplier
+    det_pixscale_lod = detector.pixel_scale / _lod_arcsec(
+        optical_path, wavelength_nm
+    )
+    n_pix = (
+        core_area_lod2
+        / (det_pixscale_lod ** 2)
+        * optical_path.n_channels
+        * npix_multiplier
+    )
 
     t_photon = photon_counting_time(
         jnp.maximum(total_photon_rate, 1e-30),
@@ -276,10 +283,15 @@ def stellar_noise_floor(
 
     Wraps :func:`jaxedith.count_rates.noise_floor_stellar`. The
     ``noisefloor_value`` is derived as
-    ``core_mean_intensity(sep, wl) / ppfact``.
+    ``core_mean_intensity(sep, wl) / (ppfact * pixel_scale_lod**2)`` so
+    that the Layer 1 ``noisefloor_value * core_area_lod2`` product equals
+    pyEDITH's ``Istar / pixscale**2 * omega_lod`` per-pixel formulation.
     """
     coro = optical_path.coronagraph
-    noisefloor_value = coro.core_mean_intensity(separation_lod, wavelength_nm) / ppfact
+    pixscale_lod = coro.pixel_scale_lod
+    noisefloor_value = coro.core_mean_intensity(
+        separation_lod, wavelength_nm
+    ) / (ppfact * pixscale_lod ** 2)
     return noise_floor_stellar(
         F0,
         Fs_over_F0,

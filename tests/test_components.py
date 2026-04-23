@@ -318,8 +318,14 @@ def test_detector_noise_parity(optical_path, etc_scene, observation):
     detector = optical_path.detector
 
     core_area_lod2 = coro.core_area(sep, wl)
-    pixscale_lod = coro.pixel_scale_lod
-    n_pix = core_area_lod2 / (pixscale_lod ** 2) * 1.0
+    lod_arcsec = (wl * nm2m) / optical_path.primary.diameter_m * rad2arcsec
+    det_pixscale_lod = detector.pixel_scale / lod_arcsec
+    n_pix = (
+        core_area_lod2
+        / (det_pixscale_lod ** 2)
+        * optical_path.n_channels
+        * 1.0
+    )
 
     Cp_ref = components.planet_signal(
         optical_path, wavelength_nm=wl, separation_lod=sep, dlambda_nm=dl,
@@ -371,7 +377,10 @@ def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
 
     coro = optical_path.coronagraph
     primary = optical_path.primary
-    noisefloor_value = coro.core_mean_intensity(sep, wl) / ppfact
+    pixscale_lod = coro.pixel_scale_lod
+    noisefloor_value = coro.core_mean_intensity(sep, wl) / (
+        ppfact * pixscale_lod ** 2
+    )
 
     CRnf_star_ref = noise_floor_stellar(
         etc_scene.F0,
