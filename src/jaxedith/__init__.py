@@ -1,66 +1,72 @@
-"""JAX ETC -- public API.
-
-This module provides the main user-facing functions for the JAX exposure time
-calculator. It bridges :mod:`optixstuff` hardware objects (stored as
-equinox modules) and astrophysical scene parameters to the pure-JAX count-rate
-and solver functions.
-
-Example:
--------
->>> from optixstuff import OpticalPath
->>> from jaxedith import calc_exptime, CONFIG
->>>
->>> # Build optical_path from optixstuff objects
->>> optical_path = OpticalPath(primary=..., coronagraph=..., detector=...)
->>> scene = ETCScene(F0=..., Fs_over_F0=..., Fp_over_Fs=..., ...)
->>>
->>> t_exp = calc_exptime(optical_path, scene, config=CONFIG)
-"""
+"""JAX ETC -- public API."""
 
 try:
     from ._version import __version__
 except ImportError:
     __version__ = "unknown"
 
-# ── Re-exports ────────────────────────────────────────────────────────────────
-
-from .config import (
-    AYO_CONFIG,
-    CONFIG,
-    EXOSIMS_CHARACTERIZATION_CONFIG,
-    EXOSIMS_DETECTION_CONFIG,
-    ETCConfig,
+from .components import (
+    binary_background,
+    detector_noise,
+    exozodi_background,
+    planet_signal,
+    stellar_leakage,
+    stellar_noise_floor,
+    thermal_background,
+    zodi_background,
 )
-from .core import (
-    calc_count_rates,
-    calc_exptime,
-    calc_exptime_spectrum,
-    calc_snr,
-)
-from .observation import (
-    calc_exptime_from_observation,
-    calc_exptime_from_system,
-    calc_snr_from_observation,
-    calc_snr_from_system,
-    observation_geometry,
+from .public import (
+    count_rates_ayo,
+    count_rates_exosims_char,
+    count_rates_exosims_det,
+    count_rates_from_system_ayo,
+    count_rates_from_system_exosims_char,
+    count_rates_from_system_exosims_det,
+    exptime_ayo,
+    exptime_exosims_char,
+    exptime_exosims_det,
+    exptime_from_system_ayo,
+    exptime_from_system_exosims_char,
+    exptime_from_system_exosims_det,
+    snr_ayo,
+    snr_exosims_char,
+    snr_exosims_det,
+    snr_from_system_ayo,
+    snr_from_system_exosims_char,
+    snr_from_system_exosims_det,
 )
 from .scene import ETCScene
+from .zodi import zodi_fn_ayo, zodi_fn_leinert
 
 __all__ = [
-    "AYO_CONFIG",
-    "CONFIG",
-    "EXOSIMS_CHARACTERIZATION_CONFIG",
-    "EXOSIMS_DETECTION_CONFIG",
-    "ETCConfig",
     "ETCScene",
     "__version__",
-    "calc_count_rates",
-    "calc_exptime",
-    "calc_exptime_from_observation",
-    "calc_exptime_from_system",
-    "calc_exptime_spectrum",
-    "calc_snr",
-    "calc_snr_from_observation",
-    "calc_snr_from_system",
-    "observation_geometry",
+    "binary_background",
+    "count_rates_ayo",
+    "count_rates_exosims_char",
+    "count_rates_exosims_det",
+    "count_rates_from_system_ayo",
+    "count_rates_from_system_exosims_char",
+    "count_rates_from_system_exosims_det",
+    "detector_noise",
+    "exozodi_background",
+    "exptime_ayo",
+    "exptime_exosims_char",
+    "exptime_exosims_det",
+    "exptime_from_system_ayo",
+    "exptime_from_system_exosims_char",
+    "exptime_from_system_exosims_det",
+    "planet_signal",
+    "snr_ayo",
+    "snr_exosims_char",
+    "snr_exosims_det",
+    "snr_from_system_ayo",
+    "snr_from_system_exosims_char",
+    "snr_from_system_exosims_det",
+    "stellar_leakage",
+    "stellar_noise_floor",
+    "thermal_background",
+    "zodi_background",
+    "zodi_fn_ayo",
+    "zodi_fn_leinert",
 ]

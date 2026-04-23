@@ -1,6 +1,6 @@
 """Pure JAX count rate functions for the exposure time calculator.
 
-All functions are pure JAX — no astropy units, no side effects. Units are
+All functions are pure JAX -- no astropy units, no side effects. Units are
 enforced at the API boundary (the public-facing functions in ``__init__.py``).
 
 All inputs are raw floats in consistent units:
@@ -15,7 +15,7 @@ All inputs are raw floats in consistent units:
 import jax.numpy as jnp
 from hwoutils.constants import c, h, k_B, nm2m
 
-# ── Planet signal ─────────────────────────────────────────────────────────────
+# -- Planet signal -------------------------------------------------------------
 
 
 def count_rate_planet(
@@ -55,7 +55,7 @@ def count_rate_planet(
     )
 
 
-# ── Stellar leakage ──────────────────────────────────────────────────────────
+# -- Stellar leakage ----------------------------------------------------------
 
 
 def count_rate_stellar_leakage(
@@ -107,7 +107,7 @@ def count_rate_stellar_leakage(
     )
 
 
-# ── Zodiacal light ───────────────────────────────────────────────────────────
+# -- Zodiacal light -----------------------------------------------------------
 
 
 def count_rate_zodi(
@@ -153,7 +153,7 @@ def count_rate_zodi(
     )
 
 
-# ── Exozodiacal light ────────────────────────────────────────────────────────
+# -- Exozodiacal light --------------------------------------------------------
 
 
 def count_rate_exozodi(
@@ -205,7 +205,7 @@ def count_rate_exozodi(
     )
 
 
-# ── Detector noise ───────────────────────────────────────────────────────────
+# -- Detector noise -----------------------------------------------------------
 
 
 def count_rate_detector(
@@ -218,7 +218,7 @@ def count_rate_detector(
 ):
     """Detector noise count rate Cbd [e/s].
 
-    Uses the variance trick from pyEDITH: ``RN_variance = read_noise²``
+    Uses the variance trick from pyEDITH: ``RN_variance = read_noise^2``
     but keeps the same units as ``read_noise`` alone (i.e. RN x RN.value).
 
     ``t_photon`` is the inverse of the photon arrival rate per pixel, used
@@ -238,7 +238,7 @@ def count_rate_detector(
     return n_pix * (dark_current + rn_variance / t_read + cic / t_photon)
 
 
-# ── Thermal background ───────────────────────────────────────────────────────
+# -- Thermal background -------------------------------------------------------
 
 
 def count_rate_thermal(
@@ -294,7 +294,7 @@ def count_rate_thermal(
     )
 
 
-# ── Binary / neighbor stray light ────────────────────────────────────────────
+# -- Binary / neighbor stray light --------------------------------------------
 
 
 def count_rate_binary(
@@ -336,7 +336,7 @@ def count_rate_binary(
     )
 
 
-# ── Noise floors ─────────────────────────────────────────────────────────────
+# -- Noise floors -------------------------------------------------------------
 
 
 def noise_floor_stellar(
@@ -346,17 +346,20 @@ def noise_floor_stellar(
     throughput,
     dlambda_nm,
     n_channels,
-    snr,
     noisefloor_value,
     core_area_lod2,
 ):
-    """Stellar noise floor CRnf_star [e/s].
+    """Stellar noise floor *rate* CRnf_star_rate [e/s].
 
-    In the 1D curve approach, we use
-    ``noisefloor_value x core_area_lod2`` which is equivalent to
-    pyEDITH's ``noisefloor[x,y] / pixscale^2 x omega_lod[x,y]``.
+    Returns the SNR=1 rate. Callers multiply by their target SNR
+    (done inside the equation layer, not here).
 
-    Matches ``pyEDITH.exposure_time_calculator.calculate_CRnf``.
+    In the 1D curve approach, we use ``noisefloor_value x core_area_lod2``
+    which is equivalent to pyEDITH's
+    ``noisefloor[x,y] / pixscale^2 x omega_lod[x,y]``.
+
+    Matches ``pyEDITH.exposure_time_calculator.calculate_CRnf``
+    divided by SNR.
 
     Args:
         F0: flux zero point [ph/s/m^2/nm].
@@ -364,14 +367,12 @@ def noise_floor_stellar(
         area_m2: telescope collecting area [m^2].
         throughput: total throughput.
         dlambda_nm: bandwidth [nm].
-        n_channels: number of spectral channels.
-        snr: target SNR (or 1.0 for SNR-solve mode).
+        n_channels: parallel optical-path copies (multiplicative).
         noisefloor_value: noise floor level [dimensionless].
         core_area_lod2: solid angle of photometric aperture [(lam/D)^2].
     """
     return (
-        snr
-        * F0
+        F0
         * Fs_over_F0
         * noisefloor_value
         * core_area_lod2
@@ -382,28 +383,19 @@ def noise_floor_stellar(
     )
 
 
-def noise_floor_exozodi(CRbez, snr, ez_ppf):
-    """Exozodi noise floor CRnf_ez [e/s].
+def noise_floor_exozodi(CRbez, ez_ppf):
+    """Exozodi noise floor *rate* CRnf_ez_rate [e/s].
 
-    Matches ``pyEDITH.exposure_time_calculator.calculate_CRnf_ez``.
+    Returns the SNR=1 rate. Callers multiply by their target SNR in
+    the equation layer.
+
+    Matches ``pyEDITH.exposure_time_calculator.calculate_CRnf_ez``
+    divided by SNR.
     """
-    return snr * CRbez / ez_ppf
+    return CRbez / ez_ppf
 
 
-def noise_floor_total(CRnf_star, CRnf_ez, include_ez):
-    """Combined noise floor CRnf [e/s].
-
-    When ``include_ez`` is True, combines stellar and exozodi noise floors
-    in quadrature. Otherwise, uses stellar noise floor only.
-    """
-    return jnp.where(
-        include_ez,
-        jnp.sqrt(CRnf_star**2 + CRnf_ez**2),
-        CRnf_star,
-    )
-
-
-# ── Speckle residual (EXOSIMS path) ──────────────────────────────────────────
+# -- Speckle residual (EXOSIMS path) ------------------------------------------
 
 
 def speckle_residual(C_sr, ppfact, stability_fact):
@@ -415,14 +407,15 @@ def speckle_residual(C_sr, ppfact, stability_fact):
     return C_sr * ppfact * stability_fact
 
 
-# ── Photon counting time (helper) ────────────────────────────────────────────
+# -- Photon counting time (helper) --------------------------------------------
 
 
 def photon_counting_time(det_CR, det_npix):
     """Average time to detect one photon per pixel [s].
 
     Used by pyEDITH to compute the CIC timing in ``count_rate_detector``.
-    The magic constant 6.73 comes from the original pyEDITH code.
+    The magic constant 6.73 comes from the original pyEDITH code, I think from
+    the Roman EMCCD.
 
     Args:
         det_CR: Total detector count rate [e/s] (summed over all sources).

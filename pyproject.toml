@@ -16,7 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
-dependencies = ["hwoutils", "jax>=0.8.1", "jaxlib>=0.8.1", "optixstuff"]
+dependencies = ["hwoutils", "jax>=0.8.1", "jaxlib>=0.8.1", "orbix"]
 [project.optional-dependencies]
 dev = ["pre-commit"]
 docs = [
@@ -28,7 +28,7 @@ docs = [
     "ipython",
     "matplotlib",
 ]
-test = ["nox", "pytest", "hypothesis", "pytest-cov", "orbix"]
+test = ["nox", "pytest", "hypothesis", "pytest-cov", "orbix", "optixstuff", "skyscapes", "yippy", "coronalyze"]
 
 [project.urls]
 Homepage = "https://github.com/CoreySpohn/jaxedith"
