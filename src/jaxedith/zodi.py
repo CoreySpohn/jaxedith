@@ -37,8 +37,10 @@ def zodi_fn_leinert(observatory, exposure, star):
     dec_rad = jnp.deg2rad(star.dec_deg)
     jd = jnp.atleast_1d(exposure.start_time_jd)[0]
     mjd = jd - 2400000.5
-    ecl_lat_deg = observatory.orbit.ecliptic_latitude(ra_rad, dec_rad)
-    sol_lon_deg = observatory.orbit.solar_longitude(mjd, ra_rad, dec_rad)
-    return zodi_fzodi_leinert(
-        exposure.central_wavelength_nm, ecl_lat_deg, sol_lon_deg
-    )
+    ecl_lat_deg = observatory.orbit.ecliptic_latitude_deg(mjd, ra_rad, dec_rad)
+    # Leinert table input is the helio-ecliptic longitude difference
+    # Delta_lambda_sun, not the 3D solar elongation. For ecliptic-plane
+    # targets these coincide; for off-ecliptic targets only the longitude
+    # difference is correct (see orbix.ObservatoryL2Halo docstrings).
+    sol_lon_deg = observatory.orbit.helio_ecliptic_longitude_deg(mjd, ra_rad, dec_rad)
+    return zodi_fzodi_leinert(exposure.central_wavelength_nm, ecl_lat_deg, sol_lon_deg)

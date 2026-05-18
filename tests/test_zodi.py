@@ -2,16 +2,17 @@
 
 import jax.numpy as jnp
 import pytest
+from hwoutils import constants as const
 from optixstuff import Exposure
 from orbix.observatory import Observatory, ObservatoryL2Halo
 from skyscapes.scene import SpectrumStar
 
-from hwoutils import constants as const
 from jaxedith.zodi import zodi_fn_ayo, zodi_fn_leinert
 
 
 @pytest.fixture
 def star():
+    """Synthetic Solar-analog star at (RA=90, Dec=30) deg, 10 pc."""
     return SpectrumStar(
         Ms_kg=const.Msun2kg,
         dist_pc=10.0,
@@ -27,11 +28,13 @@ def star():
 
 @pytest.fixture
 def observatory():
+    """Observatory wrapping the default L2 halo orbit."""
     return Observatory(orbit=ObservatoryL2Halo.from_default())
 
 
 @pytest.fixture
 def exposure():
+    """1 h, 500 nm exposure at MJD 60000."""
     return Exposure(
         start_time_jd=jnp.asarray(2460000.5),
         exposure_time_s=jnp.asarray(3600.0),
@@ -42,6 +45,7 @@ def exposure():
 
 
 def test_zodi_fn_ayo_matches_orbix_helper(observatory, exposure, star):
+    """zodi_fn_ayo passes the central wavelength straight through to zodi_fzodi_ayo."""
     from orbix.observatory import zodi_fzodi_ayo
 
     fz_new = zodi_fn_ayo(observatory, exposure, star)
@@ -50,26 +54,27 @@ def test_zodi_fn_ayo_matches_orbix_helper(observatory, exposure, star):
 
 
 def test_zodi_fn_ayo_returns_scalar(observatory, exposure, star):
+    """zodi_fn_ayo returns a 0-d scalar suitable for ETC composition."""
     fz = zodi_fn_ayo(observatory, exposure, star)
     assert fz.shape == ()
 
 
 def test_zodi_fn_leinert_matches_orbix_helper(observatory, exposure, star):
+    """zodi_fn_leinert matches zodi_fzodi_leinert with helio-ecliptic geometry."""
     from orbix.observatory import zodi_fzodi_leinert
 
     ra_rad = jnp.deg2rad(star.ra_deg)
     dec_rad = jnp.deg2rad(star.dec_deg)
     mjd = jnp.atleast_1d(exposure.start_time_jd)[0] - 2400000.5
-    ecl_lat = observatory.orbit.ecliptic_latitude(ra_rad, dec_rad)
-    sol_lon = observatory.orbit.solar_longitude(mjd, ra_rad, dec_rad)
+    ecl_lat = observatory.orbit.ecliptic_latitude_deg(mjd, ra_rad, dec_rad)
+    sol_lon = observatory.orbit.helio_ecliptic_longitude_deg(mjd, ra_rad, dec_rad)
 
     fz_new = zodi_fn_leinert(observatory, exposure, star)
-    fz_ref = zodi_fzodi_leinert(
-        exposure.central_wavelength_nm, ecl_lat, sol_lon
-    )
+    fz_ref = zodi_fzodi_leinert(exposure.central_wavelength_nm, ecl_lat, sol_lon)
     assert jnp.allclose(fz_new, fz_ref)
 
 
 def test_zodi_fn_leinert_returns_scalar(observatory, exposure, star):
+    """zodi_fn_leinert returns a 0-d scalar suitable for ETC composition."""
     fz = zodi_fn_leinert(observatory, exposure, star)
     assert fz.shape == ()
