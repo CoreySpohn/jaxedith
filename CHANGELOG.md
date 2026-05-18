@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/CoreySpohn/jaxedith/compare/v0.1.0...v0.1.1) (2026-05-18)
+
+
+### Bug Fixes
+
+* Calculating the zodi using the helio ecliptic longitude instead of the ecliptic latitude ([ec19cfb](https://github.com/CoreySpohn/jaxedith/commit/ec19cfbc8de71cef362340421331f9bfa924706b))
+
 ## [0.1.0](https://github.com/CoreySpohn/jaxedith/compare/v0.0.2...v0.1.0) (2026-04-23)
 
 
