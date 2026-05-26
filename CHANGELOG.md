@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.0](https://github.com/CoreySpohn/jaxedith/compare/v0.1.0...v1.0.0) (2026-05-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename layer modules to primitives/intermediates/etc and count_rate_X to X_rate
+
+### Features
+
+* rename layer modules to primitives/intermediates/etc and count_rate_X to X_rate ([7a6d83f](https://github.com/CoreySpohn/jaxedith/commit/7a6d83ff2f3e3c6ea48db37df7ba8cf890ced6c5))
+
+
+### Bug Fixes
+
+* Calculating the zodi using the helio ecliptic longitude instead of the ecliptic latitude ([ec19cfb](https://github.com/CoreySpohn/jaxedith/commit/ec19cfbc8de71cef362340421331f9bfa924706b))
+
 ## [0.1.0](https://github.com/CoreySpohn/jaxedith/compare/v0.0.2...v0.1.0) (2026-04-23)
 
 
