@@ -1,7 +1,12 @@
-"""Pure JAX count rate functions for the exposure time calculator.
+"""Scalar building blocks for the JAX exposure time calculator.
 
-All functions are pure JAX -- no astropy units, no side effects. Units are
-enforced at the API boundary (the public-facing functions in ``__init__.py``).
+Layer 1 of the jaxedith pipeline: ``primitives -> intermediates -> etc ->
+public``. Each function takes scalar physical inputs (fluxes, areas,
+bandwidths, throughputs) and returns a count rate or a derived scalar.
+No ``OpticalPath`` knowledge -- ``intermediates.py`` is the adapter
+layer that reads attributes off ``OpticalPath`` and calls these.
+
+All functions are pure JAX -- no astropy units, no side effects.
 
 All inputs are raw floats in consistent units:
 
@@ -18,7 +23,7 @@ from hwoutils.constants import c, h, k_B, nm2m
 # -- Planet signal -------------------------------------------------------------
 
 
-def count_rate_planet(
+def planet_rate(
     F0,
     Fs_over_F0,
     Fp_over_Fs,
@@ -58,7 +63,7 @@ def count_rate_planet(
 # -- Stellar leakage ----------------------------------------------------------
 
 
-def count_rate_stellar_leakage(
+def stellar_leakage_rate(
     F0,
     Fs_over_F0,
     area_m2,
@@ -110,7 +115,7 @@ def count_rate_stellar_leakage(
 # -- Zodiacal light -----------------------------------------------------------
 
 
-def count_rate_zodi(
+def zodi_rate(
     F0,
     Fzodi,
     lod_arcsec,
@@ -156,7 +161,7 @@ def count_rate_zodi(
 # -- Exozodiacal light --------------------------------------------------------
 
 
-def count_rate_exozodi(
+def exozodi_rate(
     F0,
     Fexozodi,
     lod_arcsec,
@@ -208,18 +213,18 @@ def count_rate_exozodi(
 # -- Detector noise -----------------------------------------------------------
 
 
-def count_rate_detector(
+def detector_noise_rate(
     n_pix,
     dark_current,
-    read_noise,
+    read_noise_e,
     t_read,
-    cic,
+    clock_induced_charge,
     t_photon,
 ):
     """Detector noise count rate Cbd [e/s].
 
-    Uses the variance trick from pyEDITH: ``RN_variance = read_noise^2``
-    but keeps the same units as ``read_noise`` alone (i.e. RN x RN.value).
+    Uses the variance trick from pyEDITH: ``RN_variance = read_noise_e^2``
+    but keeps the same units as ``read_noise_e`` alone (i.e. RN x RN.value).
 
     ``t_photon`` is the inverse of the photon arrival rate per pixel, used
     for the CIC timing term.
@@ -229,19 +234,21 @@ def count_rate_detector(
     Args:
         n_pix: number of detector pixels in photometric aperture.
         dark_current: dark current rate [e/pix/s].
-        read_noise: read noise [e/pix/read].
+        read_noise_e: read noise [e/pix/read].
         t_read: time per read [s].
-        cic: clock-induced charge [e/pix/frame].
+        clock_induced_charge: clock-induced charge [e/pix/frame].
         t_photon: photon counting time [s/frame].
     """
-    rn_variance = read_noise * read_noise
-    return n_pix * (dark_current + rn_variance / t_read + cic / t_photon)
+    rn_variance = read_noise_e * read_noise_e
+    return n_pix * (
+        dark_current + rn_variance / t_read + clock_induced_charge / t_photon
+    )
 
 
 # -- Thermal background -------------------------------------------------------
 
 
-def count_rate_thermal(
+def thermal_rate(
     wavelength_nm,
     area_m2,
     dlambda_nm,
@@ -297,7 +304,7 @@ def count_rate_thermal(
 # -- Binary / neighbor stray light --------------------------------------------
 
 
-def count_rate_binary(
+def binary_rate(
     F0,
     Fbinary,
     sky_trans,
@@ -413,7 +420,7 @@ def speckle_residual(C_sr, ppfact, stability_fact):
 def photon_counting_time(det_CR, det_npix):
     """Average time to detect one photon per pixel [s].
 
-    Used by pyEDITH to compute the CIC timing in ``count_rate_detector``.
+    Used to compute the CIC timing in ``detector_noise_rate``.
     The magic constant 6.73 comes from the original pyEDITH code, I think from
     the Roman EMCCD.
 

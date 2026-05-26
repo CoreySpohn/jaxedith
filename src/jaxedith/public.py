@@ -9,22 +9,28 @@ Two surfaces, both defined in this file:
   function name -- there is no runtime dispatch.
 * System-level ``*_from_system_{ayo,exosims_det,exosims_char}`` wrappers
   accept a ``skyscapes.System`` + ``OpticalPath`` + ``Observatory`` +
-  ``Exposure`` + ``PPConfig``, extract per-(planet, epoch) astrophysics,
+  ``ExposureConfig`` + ``PPConfig``, extract per-(planet, epoch) astrophysics,
   and ``jax.vmap`` the matching scalar public over ``(K, T)``.
 
 Private ``_count_rates_{ayo,exosims}`` helpers assemble the rate triple
-from Layer 2 components; the scalar publics call them and dispatch to the
-matching ``equations.py`` equation. The from_system wrappers share the
-``_extract_per_kt`` / ``_sep_lod_from_arcsec`` / ``_vmap_over_kt``
-plumbing.
+from the Layer 2 ``intermediates``; the scalar publics call them and
+dispatch to the matching ``etc.py`` equation. The from_system wrappers
+share the ``_extract_per_kt`` / ``_sep_lod_from_arcsec`` /
+``_vmap_over_kt`` plumbing.
 """
 
 import jax
 import jax.numpy as jnp
 
-from jaxedith.scene import ETCScene
-from jaxedith.zodi import zodi_fn_ayo
-from jaxedith.components import (
+from jaxedith.etc import (
+    exptime_from_rates_ayo,
+    exptime_from_rates_exosims_char,
+    exptime_from_rates_exosims_det,
+    snr_from_rates_ayo,
+    snr_from_rates_exosims_char,
+    snr_from_rates_exosims_det,
+)
+from jaxedith.intermediates import (
     binary_background,
     detector_noise,
     exozodi_background,
@@ -34,15 +40,9 @@ from jaxedith.components import (
     thermal_background,
     zodi_background,
 )
-from jaxedith.count_rates import noise_floor_exozodi, speckle_residual
-from jaxedith.equations import (
-    exptime_from_rates_ayo,
-    exptime_from_rates_exosims_char,
-    exptime_from_rates_exosims_det,
-    snr_from_rates_ayo,
-    snr_from_rates_exosims_char,
-    snr_from_rates_exosims_det,
-)
+from jaxedith.primitives import noise_floor_exozodi, speckle_residual
+from jaxedith.scene import ETCScene
+from jaxedith.zodi import zodi_fn_ayo
 
 
 def _count_rates_ayo(
@@ -59,7 +59,7 @@ def _count_rates_ayo(
 ):
     """Assemble the AYO rate triple ``(Cp, Cb, Cnf_rate)``.
 
-    All Layer 2 components are called with ``n_channels`` and
+    All Layer 2 intermediates are called with ``n_channels`` and
     ``npix_multiplier`` read from ``optical_path`` (see Plan 2).
 
     The noise floor is returned in rate form: multiply by ``snr`` inside
@@ -71,48 +71,83 @@ def _count_rates_ayo(
     npix_multiplier = optical_path.npix_multiplier
 
     Cp = planet_signal(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fs_over_F0, scene.Fp_over_Fs,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fs_over_F0,
+        scene.Fp_over_Fs,
         n_channels=n_channels,
     )
     CRbs = stellar_leakage(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fs_over_F0,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fs_over_F0,
         n_channels=n_channels,
     )
     CRbz = zodi_background(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fzodi,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fzodi,
         n_channels=n_channels,
     )
     CRbez = exozodi_background(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fexozodi, scene.dist_pc, scene.sep_arcsec,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fexozodi,
+        scene.dist_pc,
+        scene.sep_arcsec,
         n_channels=n_channels,
     )
     CRbbin = binary_background(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fbinary,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fbinary,
         n_channels=n_channels,
     )
     CRbth = thermal_background(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K, eps_warm_T_cold=eps_warm_T_cold,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K,
+        eps_warm_T_cold=eps_warm_T_cold,
     )
     total_photon_cr = Cp + CRbs + CRbz + CRbez
     CRbd = detector_noise(
-        optical_path, wavelength_nm, separation_lod,
-        total_photon_cr, npix_multiplier=npix_multiplier,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        total_photon_cr,
+        npix_multiplier=npix_multiplier,
     )
     Cb = CRbs + CRbz + CRbez + CRbbin + CRbth + CRbd
 
     CRnf_star_rate = stellar_noise_floor(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fs_over_F0,
-        n_channels=n_channels, ppfact=ppfact,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fs_over_F0,
+        n_channels=n_channels,
+        ppfact=ppfact,
     )
     CRnf_ez_rate = noise_floor_exozodi(CRbez, ez_ppf)
-    Cnf_rate = jnp.sqrt(CRnf_star_rate ** 2 + CRnf_ez_rate ** 2)
+    Cnf_rate = jnp.sqrt(CRnf_star_rate**2 + CRnf_ez_rate**2)
 
     return Cp, Cb, Cnf_rate
 
@@ -135,8 +170,14 @@ def count_rates_ayo(
     multiply by SNR internally.
     """
     return _count_rates_ayo(
-        optical_path, scene, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K=temp_K, ez_ppf=ez_ppf, ppfact=ppfact,
+        optical_path,
+        scene,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K=temp_K,
+        ez_ppf=ez_ppf,
+        ppfact=ppfact,
         eps_warm_T_cold=eps_warm_T_cold,
     )
 
@@ -160,12 +201,21 @@ def exptime_ayo(
 ):
     """AYO / jaxedith exposure time [s]."""
     Cp, Cb, Cnf_rate = _count_rates_ayo(
-        optical_path, scene, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K=temp_K, ez_ppf=ez_ppf, ppfact=ppfact,
+        optical_path,
+        scene,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K=temp_K,
+        ez_ppf=ez_ppf,
+        ppfact=ppfact,
         eps_warm_T_cold=eps_warm_T_cold,
     )
     return exptime_from_rates_ayo(
-        Cp, Cb, Cnf_rate, snr,
+        Cp,
+        Cb,
+        Cnf_rate,
+        snr,
         bg_multiplier=bg_multiplier,
         overhead_multi=overhead_multi,
         overhead_fixed=overhead_fixed_s,
@@ -192,12 +242,21 @@ def snr_ayo(
 ):
     """AYO / jaxedith achieved SNR for a fixed ``t_obs`` [s]."""
     Cp, Cb, Cnf_rate = _count_rates_ayo(
-        optical_path, scene, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K=temp_K, ez_ppf=ez_ppf, ppfact=ppfact,
+        optical_path,
+        scene,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K=temp_K,
+        ez_ppf=ez_ppf,
+        ppfact=ppfact,
         eps_warm_T_cold=eps_warm_T_cold,
     )
     return snr_from_rates_ayo(
-        Cp, Cb, Cnf_rate, t_obs,
+        Cp,
+        Cb,
+        Cnf_rate,
+        t_obs,
         bg_multiplier=bg_multiplier,
         overhead_multi=overhead_multi,
         overhead_fixed=overhead_fixed_s,
@@ -228,38 +287,68 @@ def _count_rates_exosims(
     npix_multiplier = optical_path.npix_multiplier
 
     Cp = planet_signal(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fs_over_F0, scene.Fp_over_Fs,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fs_over_F0,
+        scene.Fp_over_Fs,
         n_channels=n_channels,
     )
     CRbs = stellar_leakage(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fs_over_F0,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fs_over_F0,
         n_channels=n_channels,
     )
     CRbz = zodi_background(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fzodi,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fzodi,
         n_channels=n_channels,
     )
     CRbez = exozodi_background(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fexozodi, scene.dist_pc, scene.sep_arcsec,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fexozodi,
+        scene.dist_pc,
+        scene.sep_arcsec,
         n_channels=n_channels,
     )
     CRbbin = binary_background(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        scene.F0, scene.Fbinary,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        scene.F0,
+        scene.Fbinary,
         n_channels=n_channels,
     )
     CRbth = thermal_background(
-        optical_path, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K, eps_warm_T_cold=eps_warm_T_cold,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K,
+        eps_warm_T_cold=eps_warm_T_cold,
     )
     total_photon_cr = Cp + CRbs + CRbz + CRbez
     CRbd = detector_noise(
-        optical_path, wavelength_nm, separation_lod,
-        total_photon_cr, npix_multiplier=npix_multiplier,
+        optical_path,
+        wavelength_nm,
+        separation_lod,
+        total_photon_cr,
+        npix_multiplier=npix_multiplier,
     )
     Cb = CRbs + CRbz + CRbez + CRbbin + CRbth + CRbd
 
@@ -281,8 +370,14 @@ def count_rates_exosims_det(
 ):
     """EXOSIMS detection rate triple ``(Cp, Cb, Csp)``."""
     return _count_rates_exosims(
-        optical_path, scene, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K=temp_K, ppfact=ppfact, stability_fact=stability_fact,
+        optical_path,
+        scene,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K=temp_K,
+        ppfact=ppfact,
+        stability_fact=stability_fact,
         eps_warm_T_cold=eps_warm_T_cold,
     )
 
@@ -305,12 +400,21 @@ def exptime_exosims_det(
 ):
     """EXOSIMS detection exposure time [s]."""
     Cp, Cb, Csp = _count_rates_exosims(
-        optical_path, scene, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K=temp_K, ppfact=ppfact, stability_fact=stability_fact,
+        optical_path,
+        scene,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K=temp_K,
+        ppfact=ppfact,
+        stability_fact=stability_fact,
         eps_warm_T_cold=eps_warm_T_cold,
     )
     return exptime_from_rates_exosims_det(
-        Cp, Cb, Csp, snr,
+        Cp,
+        Cb,
+        Csp,
+        snr,
         overhead_multi=overhead_multi,
         overhead_fixed=overhead_fixed_s,
         n_rolls=n_rolls,
@@ -335,12 +439,21 @@ def snr_exosims_det(
 ):
     """EXOSIMS detection achieved SNR for a fixed ``t_obs`` [s]."""
     Cp, Cb, Csp = _count_rates_exosims(
-        optical_path, scene, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K=temp_K, ppfact=ppfact, stability_fact=stability_fact,
+        optical_path,
+        scene,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K=temp_K,
+        ppfact=ppfact,
+        stability_fact=stability_fact,
         eps_warm_T_cold=eps_warm_T_cold,
     )
     return snr_from_rates_exosims_det(
-        Cp, Cb, Csp, t_obs,
+        Cp,
+        Cb,
+        Csp,
+        t_obs,
         overhead_multi=overhead_multi,
         overhead_fixed=overhead_fixed_s,
         n_rolls=n_rolls,
@@ -364,8 +477,14 @@ def count_rates_exosims_char(
     Same rates as :func:`count_rates_exosims_det`; the equations differ.
     """
     return _count_rates_exosims(
-        optical_path, scene, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K=temp_K, ppfact=ppfact, stability_fact=stability_fact,
+        optical_path,
+        scene,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K=temp_K,
+        ppfact=ppfact,
+        stability_fact=stability_fact,
         eps_warm_T_cold=eps_warm_T_cold,
     )
 
@@ -388,12 +507,21 @@ def exptime_exosims_char(
 ):
     """EXOSIMS characterization exposure time [s]."""
     Cp, Cb, Csp = _count_rates_exosims(
-        optical_path, scene, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K=temp_K, ppfact=ppfact, stability_fact=stability_fact,
+        optical_path,
+        scene,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K=temp_K,
+        ppfact=ppfact,
+        stability_fact=stability_fact,
         eps_warm_T_cold=eps_warm_T_cold,
     )
     return exptime_from_rates_exosims_char(
-        Cp, Cb, Csp, snr,
+        Cp,
+        Cb,
+        Csp,
+        snr,
         overhead_multi=overhead_multi,
         overhead_fixed=overhead_fixed_s,
         n_rolls=n_rolls,
@@ -418,12 +546,21 @@ def snr_exosims_char(
 ):
     """EXOSIMS characterization achieved SNR for a fixed ``t_obs`` [s]."""
     Cp, Cb, Csp = _count_rates_exosims(
-        optical_path, scene, wavelength_nm, separation_lod, dlambda_nm,
-        temp_K=temp_K, ppfact=ppfact, stability_fact=stability_fact,
+        optical_path,
+        scene,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K=temp_K,
+        ppfact=ppfact,
+        stability_fact=stability_fact,
         eps_warm_T_cold=eps_warm_T_cold,
     )
     return snr_from_rates_exosims_char(
-        Cp, Cb, Csp, t_obs,
+        Cp,
+        Cb,
+        Csp,
+        t_obs,
         overhead_multi=overhead_multi,
         overhead_fixed=overhead_fixed_s,
         n_rolls=n_rolls,
@@ -516,7 +653,11 @@ def count_rates_from_system_ayo(
             Fbinary=0.0,
         )
         return count_rates_ayo(
-            optical_path, scene, wl, sep_lod_kt, dlambda,
+            optical_path,
+            scene,
+            wl,
+            sep_lod_kt,
+            dlambda,
             temp_K=observatory.temperature_K,
             ez_ppf=ppconfig.ez_ppf,
             ppfact=ppconfig.ppfact,
@@ -561,7 +702,12 @@ def exptime_from_system_ayo(
             Fbinary=0.0,
         )
         return exptime_ayo(
-            optical_path, scene, wl, sep_lod_kt, dlambda, snr,
+            optical_path,
+            scene,
+            wl,
+            sep_lod_kt,
+            dlambda,
+            snr,
             temp_K=observatory.temperature_K,
             ez_ppf=ppconfig.ez_ppf,
             ppfact=ppconfig.ppfact,
@@ -610,7 +756,12 @@ def snr_from_system_ayo(
             Fbinary=0.0,
         )
         return snr_ayo(
-            optical_path, scene, wl, sep_lod_kt, dlambda, t_obs,
+            optical_path,
+            scene,
+            wl,
+            sep_lod_kt,
+            dlambda,
+            t_obs,
             temp_K=observatory.temperature_K,
             ez_ppf=ppconfig.ez_ppf,
             ppfact=ppconfig.ppfact,
@@ -657,7 +808,11 @@ def count_rates_from_system_exosims_det(
             Fbinary=0.0,
         )
         return count_rates_exosims_det(
-            optical_path, scene, wl, sep_lod_kt, dlambda,
+            optical_path,
+            scene,
+            wl,
+            sep_lod_kt,
+            dlambda,
             temp_K=observatory.temperature_K,
             ppfact=ppconfig.ppfact,
             stability_fact=observatory.stability_fact,
@@ -700,7 +855,12 @@ def exptime_from_system_exosims_det(
             Fbinary=0.0,
         )
         return exptime_exosims_det(
-            optical_path, scene, wl, sep_lod_kt, dlambda, snr,
+            optical_path,
+            scene,
+            wl,
+            sep_lod_kt,
+            dlambda,
+            snr,
             temp_K=observatory.temperature_K,
             ppfact=ppconfig.ppfact,
             stability_fact=observatory.stability_fact,
@@ -746,7 +906,12 @@ def snr_from_system_exosims_det(
             Fbinary=0.0,
         )
         return snr_exosims_det(
-            optical_path, scene, wl, sep_lod_kt, dlambda, t_obs,
+            optical_path,
+            scene,
+            wl,
+            sep_lod_kt,
+            dlambda,
+            t_obs,
             temp_K=observatory.temperature_K,
             ppfact=ppconfig.ppfact,
             stability_fact=observatory.stability_fact,
@@ -794,7 +959,11 @@ def count_rates_from_system_exosims_char(
             Fbinary=0.0,
         )
         return count_rates_exosims_char(
-            optical_path, scene, wl, sep_lod_kt, dlambda,
+            optical_path,
+            scene,
+            wl,
+            sep_lod_kt,
+            dlambda,
             temp_K=observatory.temperature_K,
             ppfact=ppconfig.ppfact,
             stability_fact=observatory.stability_fact,
@@ -837,7 +1006,12 @@ def exptime_from_system_exosims_char(
             Fbinary=0.0,
         )
         return exptime_exosims_char(
-            optical_path, scene, wl, sep_lod_kt, dlambda, snr,
+            optical_path,
+            scene,
+            wl,
+            sep_lod_kt,
+            dlambda,
+            snr,
             temp_K=observatory.temperature_K,
             ppfact=ppconfig.ppfact,
             stability_fact=observatory.stability_fact,
@@ -883,7 +1057,12 @@ def snr_from_system_exosims_char(
             Fbinary=0.0,
         )
         return snr_exosims_char(
-            optical_path, scene, wl, sep_lod_kt, dlambda, t_obs,
+            optical_path,
+            scene,
+            wl,
+            sep_lod_kt,
+            dlambda,
+            t_obs,
             temp_K=observatory.temperature_K,
             ppfact=ppconfig.ppfact,
             stability_fact=observatory.stability_fact,

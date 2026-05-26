@@ -3,9 +3,9 @@
 import jax.numpy as jnp
 import pytest
 from hwoutils import constants as const
-from optixstuff import Exposure
+from optixstuff import ExposureConfig
 from orbix.observatory import Observatory, ObservatoryL2Halo
-from skyscapes.scene import SpectrumStar
+from skyscapes.scene import Star
 
 from jaxedith.zodi import zodi_fn_ayo, zodi_fn_leinert
 
@@ -13,7 +13,7 @@ from jaxedith.zodi import zodi_fn_ayo, zodi_fn_leinert
 @pytest.fixture
 def star():
     """Synthetic Solar-analog star at (RA=90, Dec=30) deg, 10 pc."""
-    return SpectrumStar(
+    return Star(
         Ms_kg=const.Msun2kg,
         dist_pc=10.0,
         ra_deg=90.0,
@@ -35,7 +35,7 @@ def observatory():
 @pytest.fixture
 def exposure():
     """1 h, 500 nm exposure at MJD 60000."""
-    return Exposure(
+    return ExposureConfig(
         start_time_jd=jnp.asarray(2460000.5),
         exposure_time_s=jnp.asarray(3600.0),
         central_wavelength_nm=jnp.asarray(500.0),

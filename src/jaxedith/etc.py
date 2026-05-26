@@ -1,12 +1,14 @@
-"""ETC equation functions -- closed-form algebra for exposure time and SNR.
+"""Closed-form exposure-time and SNR equations.
 
-Six variant-explicit equations: three exptime-solve, three snr-solve.
-Each accepts count *rates* (no SNR baked in) and returns either an
-exposure time or an achieved SNR. SNR multiplication on the noise
-term happens inside the equation, not at the caller.
+Layer 3 of the jaxedith pipeline: ``primitives -> intermediates -> etc
+-> public``. Six variant-explicit equations: three exptime-solve, three
+snr-solve. Each accepts count *rates* (no SNR baked in) and returns
+either an exposure time or an achieved SNR. SNR multiplication on the
+noise term happens inside the equation, not at the caller.
 
 Naming convention: ``{exptime,snr}_from_rates_{ayo,exosims_det,exosims_char}``.
-The ``_from_rates_`` suffix marks this as Layer 1 math.
+The ``_from_rates_`` suffix marks this module as closed-form math; the
+rate triple is computed upstream in ``intermediates`` + ``public``.
 """
 
 import jax.numpy as jnp

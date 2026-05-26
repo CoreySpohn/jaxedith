@@ -28,7 +28,7 @@ docs = [
     "ipython",
     "matplotlib",
 ]
-test = ["nox", "pytest", "hypothesis", "pytest-cov", "orbix", "optixstuff", "skyscapes", "yippy", "coronalyze"]
+test = ["nox", "pytest", "hypothesis", "pytest-cov", "orbix", "optixstuff", "skyscapes", "yippy", "coronalyze", "coronagraphoto"]
 
 [project.urls]
 Homepage = "https://github.com/CoreySpohn/jaxedith"
@@ -48,6 +48,9 @@ path = "README.md"
 
 [tool.ruff.lint]
 select = ["B", "D", "E", "F", "I", "UP", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]  # test functions / fixtures don't need docstrings
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

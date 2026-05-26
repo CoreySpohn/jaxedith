@@ -5,7 +5,7 @@ try:
 except ImportError:
     __version__ = "unknown"
 
-from .components import (
+from .intermediates import (
     binary_background,
     detector_noise,
     exozodi_background,

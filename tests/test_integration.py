@@ -9,23 +9,22 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
-from yippy.datasets import fetch_coronagraph
-
 import optixstuff as ox
+import pytest
+from coronagraphoto.datasets import fetch_coronagraph
+
 from jaxedith import (
     ETCScene,
     count_rates_ayo,
-    count_rates_exosims_det,
     count_rates_exosims_char,
+    count_rates_exosims_det,
     exptime_ayo,
-    exptime_exosims_det,
     exptime_exosims_char,
+    exptime_exosims_det,
     snr_ayo,
-    snr_exosims_det,
     snr_exosims_char,
+    snr_exosims_det,
 )
-
 
 # ---------------------------------------------------------------------------
 # Session-scoped fixtures (data downloaded once per test run)
@@ -44,17 +43,17 @@ def optical_path(yip_path):
     primary = ox.SimplePrimary(diameter_m=6.0, obscuration=0.14)
     coronagraph = ox.YippyCoronagraph(yip_path)
     detector = ox.Detector(
-        pixel_scale=0.010,
+        pixel_scale_arcsec=0.010,
         shape=(100, 100),
         quantum_efficiency=0.9,
-        dark_current_rate=3e-5,
-        read_noise_electrons=0.0,
-        cic_rate=1.3e-3,
-        frame_time=1000.0,
-        read_time=1000.0,
+        dark_current_rate_e_per_s=3e-5,
+        read_noise_e=0.0,
+        clock_induced_charge_rate_e_per_frame=1.3e-3,
+        frame_time_s=1000.0,
+        read_time_s=1000.0,
         dqe=1.0,
     )
-    optics_filter = ox.ConstantThroughputElement(throughput=0.5, name="optics")
+    optics_filter = ox.ConstantThroughput(throughput=0.5, name="optics")
     return ox.OpticalPath(
         primary=primary,
         coronagraph=coronagraph,
@@ -88,8 +87,11 @@ class TestEndToEnd:
 
     def test_count_rates_ayo_finite(self, optical_path, sun_like_scene):
         Cp, Cb, Cnf_rate = count_rates_ayo(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
             ppfact=30.0,
         )
         assert jnp.isfinite(Cp), f"Cp not finite: {Cp}"
@@ -98,16 +100,23 @@ class TestEndToEnd:
 
     def test_count_rates_ayo_positive_planet(self, optical_path, sun_like_scene):
         Cp, _, _ = count_rates_ayo(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
             ppfact=30.0,
         )
         assert float(Cp) > 0
 
     def test_exptime_ayo_finite_positive(self, optical_path, sun_like_scene):
         t_exp = exptime_ayo(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0, snr=7.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
+            snr=7.0,
             ppfact=30.0,
         )
         assert jnp.isfinite(t_exp), f"t_exp not finite: {t_exp}"
@@ -116,14 +125,22 @@ class TestEndToEnd:
     def test_snr_ayo_round_trip(self, optical_path, sun_like_scene):
         target_snr = 7.0
         t_exp = exptime_ayo(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
-            snr=target_snr, ppfact=30.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
+            snr=target_snr,
+            ppfact=30.0,
         )
         recovered_snr = snr_ayo(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
-            t_obs=float(t_exp), ppfact=30.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
+            t_obs=float(t_exp),
+            ppfact=30.0,
         )
         assert np.isclose(float(recovered_snr), target_snr, rtol=0.01)
 
@@ -140,7 +157,13 @@ class TestJITCompilation:
         @eqx.filter_jit
         def _calc(wl, sep, dlam, snr):
             return exptime_ayo(
-                optical_path, sun_like_scene, wl, sep, dlam, snr, ppfact=30.0,
+                optical_path,
+                sun_like_scene,
+                wl,
+                sep,
+                dlam,
+                snr,
+                ppfact=30.0,
             )
 
         result = _calc(500.0, 5.0, 100.0, 7.0)
@@ -150,7 +173,13 @@ class TestJITCompilation:
         @eqx.filter_jit
         def _calc(wl, sep, dlam, t_obs):
             return snr_ayo(
-                optical_path, sun_like_scene, wl, sep, dlam, t_obs, ppfact=30.0,
+                optical_path,
+                sun_like_scene,
+                wl,
+                sep,
+                dlam,
+                t_obs,
+                ppfact=30.0,
             )
 
         result = _calc(500.0, 5.0, 100.0, 3600.0)
@@ -163,7 +192,12 @@ class TestJITCompilation:
         def _batch(seps):
             return jax.vmap(
                 lambda sep: exptime_ayo(
-                    optical_path, sun_like_scene, 500.0, sep, 100.0, 7.0,
+                    optical_path,
+                    sun_like_scene,
+                    500.0,
+                    sep,
+                    100.0,
+                    7.0,
                     ppfact=30.0,
                 )
             )(seps)
@@ -187,19 +221,43 @@ class TestPhysicalSanity:
         faint = ETCScene(F0=1.34e8, Fs_over_F0=0.005, Fp_over_Fs=1e-10)
 
         t_bright = exptime_ayo(
-            optical_path, bright, 500.0, 5.0, 100.0, 7.0, ppfact=30.0,
+            optical_path,
+            bright,
+            500.0,
+            5.0,
+            100.0,
+            7.0,
+            ppfact=30.0,
         )
         t_faint = exptime_ayo(
-            optical_path, faint, 500.0, 5.0, 100.0, 7.0, ppfact=30.0,
+            optical_path,
+            faint,
+            500.0,
+            5.0,
+            100.0,
+            7.0,
+            ppfact=30.0,
         )
         assert float(t_bright) < float(t_faint)
 
     def test_higher_snr_longer_time(self, optical_path, sun_like_scene):
         t_low = exptime_ayo(
-            optical_path, sun_like_scene, 500.0, 5.0, 100.0, 5.0, ppfact=30.0,
+            optical_path,
+            sun_like_scene,
+            500.0,
+            5.0,
+            100.0,
+            5.0,
+            ppfact=30.0,
         )
         t_high = exptime_ayo(
-            optical_path, sun_like_scene, 500.0, 5.0, 100.0, 10.0, ppfact=30.0,
+            optical_path,
+            sun_like_scene,
+            500.0,
+            5.0,
+            100.0,
+            10.0,
+            ppfact=30.0,
         )
         assert float(t_high) > float(t_low)
 
@@ -214,8 +272,11 @@ class TestEXOSIMSEndToEnd:
 
     def test_count_rates_exosims_det_finite(self, optical_path, sun_like_scene):
         Cp, Cb, Csp = count_rates_exosims_det(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
             temp_K=270.0,
         )
         assert jnp.isfinite(Cp), f"Cp not finite: {Cp}"
@@ -225,8 +286,11 @@ class TestEXOSIMSEndToEnd:
 
     def test_count_rates_exosims_char_finite(self, optical_path, sun_like_scene):
         Cp, Cb, Csp = count_rates_exosims_char(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
             temp_K=270.0,
         )
         assert jnp.isfinite(Cp), f"Cp not finite: {Cp}"
@@ -236,18 +300,26 @@ class TestEXOSIMSEndToEnd:
 
     def test_exptime_exosims_det_finite_positive(self, optical_path, sun_like_scene):
         t_exp = exptime_exosims_det(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
-            snr=7.0, temp_K=270.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
+            snr=7.0,
+            temp_K=270.0,
         )
         assert jnp.isfinite(t_exp), f"t_exp not finite: {t_exp}"
         assert float(t_exp) > 0
 
     def test_exptime_exosims_char_finite_positive(self, optical_path, sun_like_scene):
         t_exp = exptime_exosims_char(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
-            snr=7.0, temp_K=270.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
+            snr=7.0,
+            temp_K=270.0,
         )
         assert jnp.isfinite(t_exp), f"t_exp not finite: {t_exp}"
         assert float(t_exp) > 0
@@ -255,27 +327,43 @@ class TestEXOSIMSEndToEnd:
     def test_snr_exosims_det_round_trip(self, optical_path, sun_like_scene):
         target_snr = 7.0
         t_exp = exptime_exosims_det(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
-            snr=target_snr, temp_K=270.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
+            snr=target_snr,
+            temp_K=270.0,
         )
         recovered_snr = snr_exosims_det(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
-            t_obs=float(t_exp), temp_K=270.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
+            t_obs=float(t_exp),
+            temp_K=270.0,
         )
         assert np.isclose(float(recovered_snr), target_snr, rtol=0.01)
 
     def test_snr_exosims_char_round_trip(self, optical_path, sun_like_scene):
         target_snr = 7.0
         t_exp = exptime_exosims_char(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
-            snr=target_snr, temp_K=270.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
+            snr=target_snr,
+            temp_K=270.0,
         )
         recovered_snr = snr_exosims_char(
-            optical_path, sun_like_scene,
-            wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
-            t_obs=float(t_exp), temp_K=270.0,
+            optical_path,
+            sun_like_scene,
+            wavelength_nm=500.0,
+            separation_lod=5.0,
+            dlambda_nm=100.0,
+            t_obs=float(t_exp),
+            temp_K=270.0,
         )
         assert np.isclose(float(recovered_snr), target_snr, rtol=0.01)

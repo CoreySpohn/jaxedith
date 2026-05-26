@@ -10,25 +10,34 @@ Three axes verified per wrapper:
 """
 
 import jax.numpy as jnp
+import optixstuff as ox
 import pytest
+from coronagraphoto.datasets import fetch_coronagraph
+from coronalyze import PPConfig
 from hwoutils import constants as const
-from optixstuff import Exposure
+from optixstuff import ExposureConfig
 from orbix.kepler.shortcuts.grid import get_grid_solver
 from orbix.observatory import Observatory, ObservatoryL2Halo
 from orbix.system.orbit import KeplerianOrbit
-from skyscapes.atmosphere import GridAtmosphere
-from skyscapes.scene import Planet, SpectrumStar, System
-from yippy.datasets import fetch_coronagraph
+from skyscapes.physical_model import GridPhysicalModel
+from skyscapes.scene import Planet, Star, System
 
-import optixstuff as ox
-from coronalyze import PPConfig
 from jaxedith import (
     ETCScene,
     count_rates_from_system_ayo,
+    count_rates_from_system_exosims_det,
     exptime_ayo,
+    exptime_exosims_char,
+    exptime_exosims_det,
     exptime_from_system_ayo,
+    exptime_from_system_exosims_char,
+    exptime_from_system_exosims_det,
     snr_ayo,
+    snr_exosims_char,
+    snr_exosims_det,
     snr_from_system_ayo,
+    snr_from_system_exosims_char,
+    snr_from_system_exosims_det,
     zodi_fn_ayo,
     zodi_fn_leinert,
 )
@@ -48,17 +57,17 @@ def optical_path(yip_path):
     primary = ox.SimplePrimary(diameter_m=6.0, obscuration=0.14)
     coronagraph = ox.YippyCoronagraph(yip_path)
     detector = ox.Detector(
-        pixel_scale=0.010,
+        pixel_scale_arcsec=0.010,
         shape=(100, 100),
         quantum_efficiency=0.9,
-        dark_current_rate=3e-5,
-        read_noise_electrons=0.0,
-        cic_rate=1.3e-3,
-        frame_time=1000.0,
-        read_time=1000.0,
+        dark_current_rate_e_per_s=3e-5,
+        read_noise_e=0.0,
+        clock_induced_charge_rate_e_per_frame=1.3e-3,
+        frame_time_s=1000.0,
+        read_time_s=1000.0,
         dqe=1.0,
     )
-    optics_filter = ox.ConstantThroughputElement(throughput=0.5, name="optics")
+    optics_filter = ox.ConstantThroughput(throughput=0.5, name="optics")
     return ox.OpticalPath(
         primary=primary,
         coronagraph=coronagraph,
@@ -71,7 +80,7 @@ def optical_path(yip_path):
 def system():
     solver = get_grid_solver(level="scalar", E=False, trig=True, jit=True)
     # times_jd covers the exposure epochs (2460000.5, 2460001.0)
-    star = SpectrumStar(
+    star = Star(
         Ms_kg=const.Msun2kg,
         dist_pc=10.0,
         ra_deg=90.0,
@@ -91,15 +100,20 @@ def system():
         M0_rad=jnp.array([0.0, 0.0]),
         t0_d=jnp.array([0.0, 0.0]),
     )
-    atmosphere = GridAtmosphere(
-        Rp_Rearth=jnp.array([1.0, 1.0]),
+    physical_model = GridPhysicalModel(
         wavelengths_nm=jnp.array([400.0, 800.0]),
         phase_angle_deg=jnp.array([0.0, 180.0]),
         contrast_grid=jnp.full((2, 2, 2), 1e-10),
     )
+    planet = Planet(
+        Rp_Rearth=jnp.array([1.0, 1.0]),
+        Mp_Mearth=jnp.array([1.0, 1.0]),
+        orbit=orbit,
+        physical_model=physical_model,
+    )
     return System(
         star=star,
-        planets=(Planet(orbit=orbit, atmosphere=atmosphere),),
+        planets=(planet,),
         trig_solver=solver,
     )
 
@@ -116,7 +130,7 @@ def ppconfig():
 
 @pytest.fixture
 def exposure():
-    return Exposure(
+    return ExposureConfig(
         start_time_jd=jnp.array([2460000.5, 2460001.0]),
         exposure_time_s=jnp.asarray(3600.0),
         central_wavelength_nm=jnp.asarray(500.0),
@@ -134,7 +148,11 @@ def test_count_rates_from_system_ayo_shape(
     optical_path, system, observatory, exposure, ppconfig
 ):
     Cp, Cb, Cnf_rate = count_rates_from_system_ayo(
-        system, optical_path, observatory, exposure, ppconfig,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
         zodi_fn=zodi_fn_ayo,
     )
     K = system.n_planets
@@ -148,7 +166,12 @@ def test_exptime_from_system_ayo_matches_scalar(
     optical_path, system, observatory, exposure, ppconfig
 ):
     t_new = exptime_from_system_ayo(
-        system, optical_path, observatory, exposure, ppconfig, SNR,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
+        SNR,
         zodi_fn=zodi_fn_ayo,
     )
     K = system.n_planets
@@ -163,9 +186,7 @@ def test_exptime_from_system_ayo_matches_scalar(
     alpha, _ = system.alpha_dMag(t_jd)
     contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
     F0 = system.star.spec_flux_density(wl, t_jd[0])
-    sep_lod = _expected_sep_lod(
-        alpha[0, 0], wl, optical_path.primary.diameter_m
-    )
+    sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
     scene = ETCScene(
         F0=F0,
@@ -178,7 +199,12 @@ def test_exptime_from_system_ayo_matches_scalar(
         Fbinary=0.0,
     )
     t_scalar = exptime_ayo(
-        optical_path, scene, wl, sep_lod, dlambda, SNR,
+        optical_path,
+        scene,
+        wl,
+        sep_lod,
+        dlambda,
+        SNR,
         temp_K=observatory.temperature_K,
         ez_ppf=ppconfig.ez_ppf,
         ppfact=ppconfig.ppfact,
@@ -193,7 +219,12 @@ def test_snr_from_system_ayo_matches_scalar(
     optical_path, system, observatory, exposure, ppconfig
 ):
     snr_new = snr_from_system_ayo(
-        system, optical_path, observatory, exposure, ppconfig, T_OBS,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
+        T_OBS,
         zodi_fn=zodi_fn_ayo,
     )
     K = system.n_planets
@@ -220,7 +251,12 @@ def test_snr_from_system_ayo_matches_scalar(
         Fbinary=0.0,
     )
     snr_scalar = snr_ayo(
-        optical_path, scene, wl, sep_lod, dlambda, T_OBS,
+        optical_path,
+        scene,
+        wl,
+        sep_lod,
+        dlambda,
+        T_OBS,
         temp_K=observatory.temperature_K,
         ez_ppf=ppconfig.ez_ppf,
         ppfact=ppconfig.ppfact,
@@ -235,11 +271,21 @@ def test_exptime_from_system_ayo_respects_zodi_swap(
     optical_path, system, observatory, exposure, ppconfig
 ):
     t_ayo = exptime_from_system_ayo(
-        system, optical_path, observatory, exposure, ppconfig, SNR,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
+        SNR,
         zodi_fn=zodi_fn_ayo,
     )
     t_leinert = exptime_from_system_ayo(
-        system, optical_path, observatory, exposure, ppconfig, SNR,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
+        SNR,
         zodi_fn=zodi_fn_leinert,
     )
     # Must differ somewhere -- Leinert is position-dependent, AYO isn't
@@ -252,7 +298,11 @@ def test_count_rates_from_system_ayo_matches_scalar(
     from jaxedith import count_rates_ayo
 
     Cp_new, Cb_new, Cnf_new = count_rates_from_system_ayo(
-        system, optical_path, observatory, exposure, ppconfig,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
         zodi_fn=zodi_fn_ayo,
     )
     wl = exposure.central_wavelength_nm
@@ -275,7 +325,11 @@ def test_count_rates_from_system_ayo_matches_scalar(
         Fbinary=0.0,
     )
     Cp_scalar, Cb_scalar, Cnf_scalar = count_rates_ayo(
-        optical_path, scene, wl, sep_lod, dlambda,
+        optical_path,
+        scene,
+        wl,
+        sep_lod,
+        dlambda,
         temp_K=observatory.temperature_K,
         ez_ppf=ppconfig.ez_ppf,
         ppfact=ppconfig.ppfact,
@@ -283,22 +337,6 @@ def test_count_rates_from_system_ayo_matches_scalar(
     assert jnp.allclose(Cp_new[0, 0], Cp_scalar)
     assert jnp.allclose(Cb_new[0, 0], Cb_scalar)
     assert jnp.allclose(Cnf_new[0, 0], Cnf_scalar)
-
-
-from jaxedith import (
-    count_rates_exosims_char,
-    count_rates_exosims_det,
-    count_rates_from_system_exosims_char,
-    count_rates_from_system_exosims_det,
-    exptime_exosims_char,
-    exptime_exosims_det,
-    exptime_from_system_exosims_char,
-    exptime_from_system_exosims_det,
-    snr_exosims_char,
-    snr_exosims_det,
-    snr_from_system_exosims_char,
-    snr_from_system_exosims_det,
-)
 
 
 def _scalar_scene(system, sep_arcsec, Fp_over_Fs, F0, Fzodi):
@@ -318,7 +356,11 @@ def test_count_rates_from_system_exosims_det_shape(
     optical_path, system, observatory, exposure, ppconfig
 ):
     Cp, Cb, Csp = count_rates_from_system_exosims_det(
-        system, optical_path, observatory, exposure, ppconfig,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
         zodi_fn=zodi_fn_ayo,
     )
     K = system.n_planets
@@ -332,7 +374,12 @@ def test_exptime_from_system_exosims_det_matches_scalar(
     optical_path, system, observatory, exposure, ppconfig
 ):
     t_new = exptime_from_system_exosims_det(
-        system, optical_path, observatory, exposure, ppconfig, SNR,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
+        SNR,
         zodi_fn=zodi_fn_ayo,
     )
     wl = exposure.central_wavelength_nm
@@ -346,7 +393,12 @@ def test_exptime_from_system_exosims_det_matches_scalar(
 
     scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
     t_scalar = exptime_exosims_det(
-        optical_path, scene, wl, sep_lod, dlambda, SNR,
+        optical_path,
+        scene,
+        wl,
+        sep_lod,
+        dlambda,
+        SNR,
         temp_K=observatory.temperature_K,
         ppfact=ppconfig.ppfact,
         stability_fact=observatory.stability_fact,
@@ -361,7 +413,12 @@ def test_snr_from_system_exosims_det_matches_scalar(
     optical_path, system, observatory, exposure, ppconfig
 ):
     snr_new = snr_from_system_exosims_det(
-        system, optical_path, observatory, exposure, ppconfig, T_OBS,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
+        T_OBS,
         zodi_fn=zodi_fn_ayo,
     )
     wl = exposure.central_wavelength_nm
@@ -375,7 +432,12 @@ def test_snr_from_system_exosims_det_matches_scalar(
 
     scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
     snr_scalar = snr_exosims_det(
-        optical_path, scene, wl, sep_lod, dlambda, T_OBS,
+        optical_path,
+        scene,
+        wl,
+        sep_lod,
+        dlambda,
+        T_OBS,
         temp_K=observatory.temperature_K,
         ppfact=ppconfig.ppfact,
         stability_fact=observatory.stability_fact,
@@ -390,7 +452,12 @@ def test_exptime_from_system_exosims_char_matches_scalar(
     optical_path, system, observatory, exposure, ppconfig
 ):
     t_new = exptime_from_system_exosims_char(
-        system, optical_path, observatory, exposure, ppconfig, SNR,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
+        SNR,
         zodi_fn=zodi_fn_ayo,
     )
     wl = exposure.central_wavelength_nm
@@ -404,7 +471,12 @@ def test_exptime_from_system_exosims_char_matches_scalar(
 
     scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
     t_scalar = exptime_exosims_char(
-        optical_path, scene, wl, sep_lod, dlambda, SNR,
+        optical_path,
+        scene,
+        wl,
+        sep_lod,
+        dlambda,
+        SNR,
         temp_K=observatory.temperature_K,
         ppfact=ppconfig.ppfact,
         stability_fact=observatory.stability_fact,
@@ -419,7 +491,12 @@ def test_snr_from_system_exosims_char_matches_scalar(
     optical_path, system, observatory, exposure, ppconfig
 ):
     snr_new = snr_from_system_exosims_char(
-        system, optical_path, observatory, exposure, ppconfig, T_OBS,
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
+        T_OBS,
         zodi_fn=zodi_fn_ayo,
     )
     wl = exposure.central_wavelength_nm
@@ -433,7 +510,12 @@ def test_snr_from_system_exosims_char_matches_scalar(
 
     scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
     snr_scalar = snr_exosims_char(
-        optical_path, scene, wl, sep_lod, dlambda, T_OBS,
+        optical_path,
+        scene,
+        wl,
+        sep_lod,
+        dlambda,
+        T_OBS,
         temp_K=observatory.temperature_K,
         ppfact=ppconfig.ppfact,
         stability_fact=observatory.stability_fact,

@@ -1,31 +1,31 @@
-"""Layer 2: Structured count-rate components.
+"""Layer 2: noise-budget term adapters.
 
 Each function accepts an ``optixstuff.OpticalPath`` and astrophysical /
 observation scalars, unpacks the optical path, and calls the corresponding
-pure Layer 1 function in :mod:`jaxedith.count_rates`.
+pure scalar function in :mod:`jaxedith.primitives`.
 
 Layer 2 turns the 8-to-12-argument pure-float call sites in
-:mod:`jaxedith.count_rates` into structured calls that take an
+:mod:`jaxedith.primitives` into structured calls that take an
 ``OpticalPath`` + a few scalars, without introducing heavy scene objects.
 
 Each Layer 2 wrapper mirrors a single invocation inside
 ``jaxedith.public._count_rates_ayo`` / ``_count_rates_exosims``; parity
-is tested in ``tests/test_components.py``.
+is tested in ``tests/test_intermediates.py``.
 """
 
 import jax.numpy as jnp
 from hwoutils.constants import nm2m, rad2arcsec
 
-from jaxedith.count_rates import (
-    count_rate_binary,
-    count_rate_detector,
-    count_rate_exozodi,
-    count_rate_planet,
-    count_rate_stellar_leakage,
-    count_rate_thermal,
-    count_rate_zodi,
+from jaxedith.primitives import (
+    binary_rate,
+    detector_noise_rate,
+    exozodi_rate,
     noise_floor_stellar,
     photon_counting_time,
+    planet_rate,
+    stellar_leakage_rate,
+    thermal_rate,
+    zodi_rate,
 )
 
 
@@ -51,7 +51,7 @@ def planet_signal(
 ):
     """Planet signal count rate Cp [e/s].
 
-    Wraps :func:`jaxedith.count_rates.count_rate_planet`.
+    Wraps :func:`jaxedith.primitives.planet_rate`.
 
     Args:
         optical_path: ``optixstuff.OpticalPath`` eqx.Module.
@@ -63,7 +63,7 @@ def planet_signal(
         Fp_over_Fs: Planet-to-star contrast (dimensionless).
         n_channels: Number of spectral channels.
     """
-    return count_rate_planet(
+    return planet_rate(
         F0,
         Fs_over_F0,
         Fp_over_Fs,
@@ -86,10 +86,10 @@ def stellar_leakage(
 ):
     """Stellar leakage count rate CRbs [e/s].
 
-    Wraps :func:`jaxedith.count_rates.count_rate_stellar_leakage`.
+    Wraps :func:`jaxedith.primitives.stellar_leakage_rate`.
     """
     coro = optical_path.coronagraph
-    return count_rate_stellar_leakage(
+    return stellar_leakage_rate(
         F0,
         Fs_over_F0,
         optical_path.primary.area_m2,
@@ -112,10 +112,10 @@ def zodi_background(
 ):
     """Local zodiacal light count rate CRbz [e/s].
 
-    Wraps :func:`jaxedith.count_rates.count_rate_zodi`.
+    Wraps :func:`jaxedith.primitives.zodi_rate`.
     """
     coro = optical_path.coronagraph
-    return count_rate_zodi(
+    return zodi_rate(
         F0,
         Fzodi,
         _lod_arcsec(optical_path, wavelength_nm),
@@ -141,10 +141,10 @@ def exozodi_background(
 ):
     """Exozodiacal light count rate CRbez [e/s].
 
-    Wraps :func:`jaxedith.count_rates.count_rate_exozodi`.
+    Wraps :func:`jaxedith.primitives.exozodi_rate`.
     """
     coro = optical_path.coronagraph
-    return count_rate_exozodi(
+    return exozodi_rate(
         F0,
         Fexozodi,
         _lod_arcsec(optical_path, wavelength_nm),
@@ -170,10 +170,10 @@ def binary_background(
 ):
     """Binary / neighbor stray light count rate CRbbin [e/s].
 
-    Wraps :func:`jaxedith.count_rates.count_rate_binary`.
+    Wraps :func:`jaxedith.primitives.binary_rate`.
     """
     coro = optical_path.coronagraph
-    return count_rate_binary(
+    return binary_rate(
         F0,
         Fbinary,
         coro.occulter_transmission(separation_lod, wavelength_nm),
@@ -195,7 +195,7 @@ def thermal_background(
 ):
     """Thermal background count rate CRbth [e/s].
 
-    Wraps :func:`jaxedith.count_rates.count_rate_thermal`.
+    Wraps :func:`jaxedith.primitives.thermal_rate`.
 
     Args:
         optical_path: ``optixstuff.OpticalPath`` eqx.Module.
@@ -208,7 +208,7 @@ def thermal_background(
     """
     coro = optical_path.coronagraph
     detector = optical_path.detector
-    return count_rate_thermal(
+    return thermal_rate(
         wavelength_nm,
         optical_path.primary.area_m2,
         dlambda_nm,
@@ -230,7 +230,7 @@ def detector_noise(
 ):
     """Detector noise count rate CRbd [e/s].
 
-    Wraps :func:`jaxedith.count_rates.count_rate_detector`.
+    Wraps :func:`jaxedith.primitives.detector_noise_rate`.
 
     Args:
         optical_path: ``optixstuff.OpticalPath`` eqx.Module.
@@ -245,12 +245,12 @@ def detector_noise(
     coro = optical_path.coronagraph
     detector = optical_path.detector
     core_area_lod2 = coro.core_area(separation_lod, wavelength_nm)
-    det_pixscale_lod = detector.pixel_scale / _lod_arcsec(
+    det_pixscale_lod = detector.pixel_scale_arcsec / _lod_arcsec(
         optical_path, wavelength_nm
     )
     n_pix = (
         core_area_lod2
-        / (det_pixscale_lod ** 2)
+        / (det_pixscale_lod**2)
         * optical_path.n_channels
         * npix_multiplier
     )
@@ -259,12 +259,12 @@ def detector_noise(
         jnp.maximum(total_photon_rate, 1e-30),
         n_pix,
     )
-    return count_rate_detector(
+    return detector_noise_rate(
         n_pix,
-        detector.dark_current_rate,
-        detector.read_noise_electrons,
-        detector.read_time,
-        detector.cic_rate,
+        detector.dark_current_rate_e_per_s,
+        detector.read_noise_e,
+        detector.read_time_s,
+        detector.clock_induced_charge_rate_e_per_frame,
         t_photon,
     )
 
@@ -281,7 +281,7 @@ def stellar_noise_floor(
 ):
     """Stellar noise floor *rate* CRnf_star_rate [e/s].
 
-    Wraps :func:`jaxedith.count_rates.noise_floor_stellar`. The
+    Wraps :func:`jaxedith.primitives.noise_floor_stellar`. The
     ``noisefloor_value`` is derived as
     ``core_mean_intensity(sep, wl) / (ppfact * pixel_scale_lod**2)`` so
     that the Layer 1 ``noisefloor_value * core_area_lod2`` product equals
@@ -289,9 +289,9 @@ def stellar_noise_floor(
     """
     coro = optical_path.coronagraph
     pixscale_lod = coro.pixel_scale_lod
-    noisefloor_value = coro.core_mean_intensity(
-        separation_lod, wavelength_nm
-    ) / (ppfact * pixscale_lod ** 2)
+    noisefloor_value = coro.core_mean_intensity(separation_lod, wavelength_nm) / (
+        ppfact * pixscale_lod**2
+    )
     return noise_floor_stellar(
         F0,
         Fs_over_F0,

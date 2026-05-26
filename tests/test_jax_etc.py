@@ -16,25 +16,25 @@ jax = pytest.importorskip("jax")
 jnp = pytest.importorskip("jax.numpy")
 eqx = pytest.importorskip("equinox")
 
-from jaxedith.count_rates import (
-    count_rate_binary,
-    count_rate_detector,
-    count_rate_exozodi,
-    count_rate_planet,
-    count_rate_stellar_leakage,
-    count_rate_thermal,
-    count_rate_zodi,
-    noise_floor_exozodi,
-    noise_floor_stellar,
-    photon_counting_time,
-)
-from jaxedith.equations import (
+from jaxedith.etc import (
     exptime_from_rates_ayo,
     exptime_from_rates_exosims_char,
     exptime_from_rates_exosims_det,
     snr_from_rates_ayo,
     snr_from_rates_exosims_char,
     snr_from_rates_exosims_det,
+)
+from jaxedith.primitives import (
+    binary_rate,
+    detector_noise_rate,
+    exozodi_rate,
+    noise_floor_exozodi,
+    noise_floor_stellar,
+    photon_counting_time,
+    planet_rate,
+    stellar_leakage_rate,
+    thermal_rate,
+    zodi_rate,
 )
 
 # ---------------------------------------------------------------------------
@@ -67,9 +67,9 @@ det_t_photon = 13.79303  # s/frame
 class TestCountRateParity:
     """Verify JAX count rates match numpy pyEDITH values."""
 
-    def test_count_rate_planet(self):
+    def test_planet_rate(self):
         """CRp should match pyEDITH's calculate_CRp."""
-        result = count_rate_planet(
+        result = planet_rate(
             F0,
             Fs_over_F0,
             Fp_over_Fs,
@@ -81,7 +81,7 @@ class TestCountRateParity:
         )
         assert np.isclose(float(result), 0.64877874, rtol=1e-5)
 
-    def test_count_rate_stellar_leakage(self):
+    def test_stellar_leakage_rate(self):
         """CRbs via core_mean_intensity should match pyEDITH's calculate_CRbs.
 
         The reference value (0.0008138479) was computed from pyEDITH's 2D mode
@@ -93,7 +93,7 @@ class TestCountRateParity:
         core_mean_intensity = Istar_2d / (pixscale_lod**2)
         core_area_lod2 = 1.0
 
-        result = count_rate_stellar_leakage(
+        result = stellar_leakage_rate(
             F0,
             Fs_over_F0,
             area_m2,
@@ -105,11 +105,11 @@ class TestCountRateParity:
         )
         assert np.isclose(float(result), 0.0008138479, rtol=1e-5)
 
-    def test_count_rate_zodi(self):
+    def test_zodi_rate(self):
         """CRbz should match pyEDITH's calculate_CRbz."""
         Fzodi = 3.5213620474344346e-10
         sky_trans = 0.4006394155914143
-        result = count_rate_zodi(
+        result = zodi_rate(
             F0,
             Fzodi,
             lod_arcsec,
@@ -122,14 +122,14 @@ class TestCountRateParity:
         )
         assert np.isclose(float(result), 0.0099697346, rtol=1e-5)
 
-    def test_count_rate_exozodi(self):
+    def test_exozodi_rate(self):
         """CRbez should match pyEDITH's calculate_CRbez."""
         Fexozodi = 7.1490465158365465e-09
         sky_trans = 0.6161309232588068
         dist_pc = 18.195476531982425
         sep_arcsec_local = 0.02784705929320709
 
-        result = count_rate_exozodi(
+        result = exozodi_rate(
             F0,
             Fexozodi,
             lod_arcsec,
@@ -144,9 +144,9 @@ class TestCountRateParity:
         )
         assert np.isclose(float(result), 1.2124248, rtol=1e-5)
 
-    def test_count_rate_binary_zero(self):
+    def test_binary_rate_zero(self):
         """CRbbin should be zero when Fbinary=0."""
-        result = count_rate_binary(
+        result = binary_rate(
             F0,
             0.0,
             0.65,
@@ -158,7 +158,7 @@ class TestCountRateParity:
         )
         assert float(result) == 0.0
 
-    def test_count_rate_thermal(self):
+    def test_thermal_rate(self):
         """CRbth should match pyEDITH's calculate_CRbth."""
         wavelength_nm = 500.0
         temp_K = 290.0
@@ -167,7 +167,7 @@ class TestCountRateParity:
         QE = 0.675
         dQE = 1.0
 
-        result = count_rate_thermal(
+        result = thermal_rate(
             wavelength_nm,
             area_m2,
             dlambda_nm,
@@ -180,9 +180,9 @@ class TestCountRateParity:
         )
         assert np.isclose(float(result), 2.848015e-30, rtol=0.05)
 
-    def test_count_rate_detector(self):
+    def test_detector_noise_rate(self):
         """CRbd should match pyEDITH's calculate_CRbd."""
-        result = count_rate_detector(
+        result = detector_noise_rate(
             det_npix, det_DC, det_RN, det_tread, det_CIC, det_t_photon
         )
         assert np.isclose(float(result), 0.037146898, rtol=1e-5)
@@ -311,9 +311,9 @@ class TestEquations:
 class TestJIT:
     """Verify functions compile under jax.jit."""
 
-    def test_jit_count_rate_planet(self):
-        """Test count_rate_planet JIT compilation."""
-        jitted = jax.jit(count_rate_planet)
+    def test_jit_planet_rate(self):
+        """Test planet_rate JIT compilation."""
+        jitted = jax.jit(planet_rate)
         result = jitted(
             F0,
             Fs_over_F0,
@@ -356,10 +356,10 @@ class TestJIT:
         result = _solve(1.0, 0.5, 0.01, 7.0)
         assert np.isfinite(float(result))
 
-    def test_jit_count_rate_stellar_leakage(self):
+    def test_jit_stellar_leakage_rate(self):
         """Stellar leakage 1D mode should JIT-compile."""
         jitted = jax.jit(
-            lambda cmi: count_rate_stellar_leakage(
+            lambda cmi: stellar_leakage_rate(
                 F0,
                 Fs_over_F0,
                 area_m2,
@@ -381,11 +381,11 @@ class TestJIT:
 class TestVmap:
     """Verify functions work with jax.vmap."""
 
-    def test_vmap_count_rate_planet(self):
+    def test_vmap_planet_rate(self):
         """Vmap over different contrasts."""
         contrasts = jnp.array([1e-9, 1e-10, 1e-11])
         vmapped = jax.vmap(
-            lambda c: count_rate_planet(
+            lambda c: planet_rate(
                 F0,
                 Fs_over_F0,
                 c,
@@ -406,7 +406,7 @@ class TestVmap:
         vmapped = jax.vmap(lambda s: exptime_from_rates_ayo(1.0, 0.5, 0.0, s))
         results = vmapped(snrs)
         assert results.shape == (3,)
-        # Exposure time proportional to SNR^2
+        # ExposureConfig time proportional to SNR^2
         assert np.isclose(float(results[1] / results[0]), 49.0 / 25.0, rtol=1e-6)
 
     def test_vmap_exptime_from_rates_exosims(self):
@@ -423,7 +423,7 @@ class TestVmap:
         F0_arr = jnp.array([15000.0, 13400.0, 11000.0])
 
         vmapped = jax.vmap(
-            lambda f0, wl: count_rate_planet(
+            lambda f0, wl: planet_rate(
                 f0,
                 Fs_over_F0,
                 Fp_over_Fs,
@@ -445,10 +445,10 @@ class TestVmap:
 class TestGrad:
     """Verify differentiability."""
 
-    def test_grad_count_rate_planet_wrt_contrast(self):
+    def test_grad_planet_rate_wrt_contrast(self):
         """d(CRp)/d(contrast) should be positive and finite."""
         grad_fn = jax.grad(
-            lambda c: count_rate_planet(
+            lambda c: planet_rate(
                 F0,
                 Fs_over_F0,
                 c,
@@ -464,10 +464,13 @@ class TestGrad:
         assert float(grad_val) > 0
 
     def test_grad_exptime_from_rates_ayo_wrt_contrast(self):
-        """d(t_exp)/d(contrast) should be negative -- brighter planet -> shorter time."""
+        """d(t_exp)/d(contrast) should be negative.
+
+        Brighter planet -> shorter required exposure time.
+        """
 
         def exptime_of_contrast(c):
-            Cp = count_rate_planet(
+            Cp = planet_rate(
                 F0,
                 Fs_over_F0,
                 c,
@@ -487,7 +490,7 @@ class TestGrad:
         """d(t_exp)/d(contrast) should be negative for EXOSIMS too."""
 
         def exptime_of_contrast(c):
-            Cp = count_rate_planet(
+            Cp = planet_rate(
                 F0,
                 Fs_over_F0,
                 c,
