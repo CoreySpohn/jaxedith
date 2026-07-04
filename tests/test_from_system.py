@@ -15,9 +15,10 @@ import pytest
 from coronagraphoto.datasets import fetch_coronagraph
 from coronalyze import PPConfig
 from hwoutils import constants as const
+from hwoutils.conversions import jy_to_photons_per_nm_per_m2
 from optixstuff import ExposureConfig
 from orbix.kepler.shortcuts.grid import get_grid_solver
-from orbix.observatory import Observatory, ObservatoryL2Halo
+from orbix.observatory import Observatory, ObservatoryL2Halo, mag_to_flux_jy
 from orbix.system.orbit import KeplerianOrbit
 from skyscapes.physical_model import GridPhysicalModel
 from skyscapes.scene import Planet, Star, System
@@ -118,6 +119,103 @@ def system():
     )
 
 
+def _make_system(flux_density_jy):
+    """System parametrized by star flux, for the zodi-invariance regression."""
+    solver = get_grid_solver(level="scalar", E=False, trig=True, jit=True)
+    star = Star(
+        Ms_kg=const.Msun2kg,
+        dist_pc=10.0,
+        ra_deg=90.0,
+        dec_deg=30.0,
+        diameter_arcsec=0.0,
+        luminosity_lsun=1.0,
+        wavelengths_nm=jnp.array([400.0, 800.0]),
+        times_jd=jnp.array([2459999.0, 2460002.0]),
+        flux_density_jy=jnp.full((2, 2), flux_density_jy),
+    )
+    orbit = KeplerianOrbit(
+        a_AU=jnp.array([1.0, 1.5]),
+        e=jnp.array([0.0, 0.0]),
+        W_rad=jnp.array([0.0, 0.0]),
+        i_rad=jnp.array([0.0, 0.0]),
+        w_rad=jnp.array([0.0, 0.0]),
+        M0_rad=jnp.array([0.0, 0.0]),
+        t0_d=jnp.array([0.0, 0.0]),
+    )
+    physical_model = GridPhysicalModel(
+        wavelengths_nm=jnp.array([400.0, 800.0]),
+        phase_angle_deg=jnp.array([0.0, 180.0]),
+        contrast_grid=jnp.full((2, 2, 2), 1e-10),
+    )
+    planet = Planet(
+        Rp_Rearth=jnp.array([1.0, 1.0]),
+        Mp_Mearth=jnp.array([1.0, 1.0]),
+        orbit=orbit,
+        physical_model=physical_model,
+    )
+    return System(star=star, planets=(planet,), trig_solver=solver)
+
+
+def _noiseless_optical_path(yip_path):
+    """Zero-noise detector so the background reduces to Cb = CRbs + CRbz."""
+    return ox.OpticalPath(
+        primary=ox.SimplePrimary(diameter_m=6.0, obscuration=0.14),
+        coronagraph=ox.YippyCoronagraph(yip_path),
+        attenuating_elements=(ox.ConstantThroughput(throughput=0.5, name="optics"),),
+        detector=ox.Detector(
+            pixel_scale_arcsec=0.010,
+            shape=(100, 100),
+            quantum_efficiency=0.9,
+            dark_current_rate_e_per_s=0.0,
+            read_noise_e=0.0,
+            clock_induced_charge_rate_e_per_frame=0.0,
+            frame_time_s=1000.0,
+            read_time_s=1000.0,
+            dqe=1.0,
+        ),
+    )
+
+
+def test_zodi_count_rate_invariant_to_star_flux(
+    yip_path, observatory, exposure, ppconfig
+):
+    """Local zodi is absolute sky brightness; CRbz must not scale with the star.
+
+    Regression for the F0 zero-point bug: count_rates_from_system_ayo set
+    F0 = star flux and Fs_over_F0 = 1, so the absolute zodi term was scaled by
+    the target star's brightness (wrong by 10^(-0.4 * m_star)). A mag-0 and a
+    100x-fainter (mag-5) star must give the same zodi count rate.
+    """
+    optical_path = _noiseless_optical_path(yip_path)
+
+    def zero_zodi(observatory, exposure, star):
+        return 0.0
+
+    def crbz(flux_density_jy):
+        system = _make_system(flux_density_jy)
+        _, Cb, _ = count_rates_from_system_ayo(
+            system,
+            optical_path,
+            observatory,
+            exposure,
+            ppconfig,
+            zodi_fn=zodi_fn_ayo,
+        )
+        _, Cb_nozodi, _ = count_rates_from_system_ayo(
+            system,
+            optical_path,
+            observatory,
+            exposure,
+            ppconfig,
+            zodi_fn=zero_zodi,
+        )
+        return Cb - Cb_nozodi
+
+    crbz_bright = crbz(3631.0)  # AB mag 0
+    crbz_faint = crbz(36.31)  # AB mag 5, 100x fainter
+    assert jnp.allclose(crbz_bright, crbz_faint, rtol=1e-3)
+
+
 @pytest.fixture
 def observatory():
     return Observatory(orbit=ObservatoryL2Halo.from_default())
@@ -186,11 +284,12 @@ def test_exptime_from_system_ayo_matches_scalar(
     alpha, _ = system.alpha_dMag(t_jd)
     contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
     F0 = system.star.spec_flux_density(wl, t_jd[0])
+    F0_zp = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wl)
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
     scene = ETCScene(
-        F0=F0,
-        Fs_over_F0=1.0,
+        F0=F0_zp,
+        Fs_over_F0=F0 / F0_zp,
         Fp_over_Fs=contrasts[0, 0],
         Fzodi=Fzodi,
         Fexozodi=0.0,
@@ -238,11 +337,12 @@ def test_snr_from_system_ayo_matches_scalar(
     alpha, _ = system.alpha_dMag(t_jd)
     contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
     F0 = system.star.spec_flux_density(wl, t_jd[0])
+    F0_zp = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wl)
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
     scene = ETCScene(
-        F0=F0,
-        Fs_over_F0=1.0,
+        F0=F0_zp,
+        Fs_over_F0=F0 / F0_zp,
         Fp_over_Fs=contrasts[0, 0],
         Fzodi=Fzodi,
         Fexozodi=0.0,
@@ -312,11 +412,12 @@ def test_count_rates_from_system_ayo_matches_scalar(
     alpha, _ = system.alpha_dMag(t_jd)
     contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
     F0 = system.star.spec_flux_density(wl, t_jd[0])
+    F0_zp = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wl)
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
     scene = ETCScene(
-        F0=F0,
-        Fs_over_F0=1.0,
+        F0=F0_zp,
+        Fs_over_F0=F0 / F0_zp,
         Fp_over_Fs=contrasts[0, 0],
         Fzodi=Fzodi,
         Fexozodi=0.0,
@@ -339,10 +440,11 @@ def test_count_rates_from_system_ayo_matches_scalar(
     assert jnp.allclose(Cnf_new[0, 0], Cnf_scalar)
 
 
-def _scalar_scene(system, sep_arcsec, Fp_over_Fs, F0, Fzodi):
+def _scalar_scene(system, sep_arcsec, Fp_over_Fs, F0, Fzodi, wl):
+    F0_zp = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wl)
     return ETCScene(
-        F0=F0,
-        Fs_over_F0=1.0,
+        F0=F0_zp,
+        Fs_over_F0=F0 / F0_zp,
         Fp_over_Fs=Fp_over_Fs,
         Fzodi=Fzodi,
         Fexozodi=0.0,
@@ -391,7 +493,7 @@ def test_exptime_from_system_exosims_det_matches_scalar(
     F0 = system.star.spec_flux_density(wl, t_jd[0])
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
-    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
+    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi, wl)
     t_scalar = exptime_exosims_det(
         optical_path,
         scene,
@@ -430,7 +532,7 @@ def test_snr_from_system_exosims_det_matches_scalar(
     F0 = system.star.spec_flux_density(wl, t_jd[0])
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
-    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
+    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi, wl)
     snr_scalar = snr_exosims_det(
         optical_path,
         scene,
@@ -469,7 +571,7 @@ def test_exptime_from_system_exosims_char_matches_scalar(
     F0 = system.star.spec_flux_density(wl, t_jd[0])
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
-    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
+    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi, wl)
     t_scalar = exptime_exosims_char(
         optical_path,
         scene,
@@ -508,7 +610,7 @@ def test_snr_from_system_exosims_char_matches_scalar(
     F0 = system.star.spec_flux_density(wl, t_jd[0])
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
-    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi)
+    scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi, wl)
     snr_scalar = snr_exosims_char(
         optical_path,
         scene,

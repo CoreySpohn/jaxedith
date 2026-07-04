@@ -21,6 +21,8 @@ share the ``_extract_per_kt`` / ``_sep_lod_from_arcsec`` /
 
 import jax
 import jax.numpy as jnp
+from hwoutils.conversions import jy_to_photons_per_nm_per_m2
+from orbix.observatory import mag_to_flux_jy
 
 from jaxedith.etc import (
     exptime_from_rates_ayo,
@@ -583,13 +585,20 @@ def _sep_lod_from_arcsec(sep_arcsec, wavelength_nm, diameter_m):
 def _extract_per_kt(system, exposure):
     """Pull the per-(K, T) astrophysics needed by every from_system call.
 
+    ``F0`` is the flux zero point (a magnitude-0 source), NOT the star flux:
+    the absolute sky terms (zodi, exozodi) reference it, and the star flux
+    enters via ``Fs_over_F0``. This is the single source of the F0 convention
+    for every from_system wrapper; folding the star flux into F0 (with
+    Fs_over_F0=1) silently scaled zodi/exozodi by 10^(-0.4 m_star).
+
     Returns:
         wl: scalar central wavelength [nm].
         dlambda: scalar bandwidth [nm].
         t_jd: shape ``(T,)`` epoch array.
         contrasts: shape ``(K, T)`` planet-to-star flux ratio.
         alpha: shape ``(K, T)`` projected separation [arcsec].
-        F0_t: shape ``(T,)`` star flux [ph/s/m^2/nm] at ``wl`` for each epoch.
+        F0_zp: scalar flux zero point [ph/s/m^2/nm] at ``wl``.
+        Fs_over_F0_t: shape ``(T,)`` star-to-zeropoint flux ratio per epoch.
     """
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
@@ -598,17 +607,18 @@ def _extract_per_kt(system, exposure):
     contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
     alpha, _dMag = system.alpha_dMag(t_jd)
     F0_t = jax.vmap(lambda t: system.star.spec_flux_density(wl, t))(t_jd)
-    return wl, dlambda, t_jd, contrasts, alpha, F0_t
+    F0_zp = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wl)
+    return wl, dlambda, t_jd, contrasts, alpha, F0_zp, F0_t / F0_zp
 
 
 def _vmap_over_kt(per_element):
     """Wrap a scalar per-(planet, epoch) callable into a ``(K, T)`` function.
 
     Input shapes expected on the returned function:
-        contrasts: ``(K, T)``
-        alpha:     ``(K, T)``
-        sep_lod:   ``(K, T)``
-        F0_t:      ``(T,)``
+        contrasts:    ``(K, T)``
+        alpha:        ``(K, T)``
+        sep_lod:      ``(K, T)``
+        Fs_over_F0_t: ``(T,)``
 
     Output: whatever ``per_element`` returns, batched as ``(K, T)`` (or
     ``tuple[(K, T), ...]`` if it returns a tuple).
@@ -636,15 +646,17 @@ def count_rates_from_system_ayo(
     ``system.disk.fexozodi_at(...)`` once
     ``skyscapes.AbstractDisk.fexozodi_at`` lands.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+        system, exposure
+    )
     Fzodi = zodi_fn(observatory, exposure, system.star)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
     dist_pc = system.star.dist_pc
 
-    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
-            F0=F0,
-            Fs_over_F0=1.0,
+            F0=F0_zp,
+            Fs_over_F0=Fs_over_F0,
             Fp_over_Fs=Fp_over_Fs,
             Fzodi=Fzodi,
             Fexozodi=Fexozodi,
@@ -664,7 +676,7 @@ def count_rates_from_system_ayo(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
 
 
 def exptime_from_system_ayo(
@@ -685,15 +697,17 @@ def exptime_from_system_ayo(
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
     once ``AbstractDisk.fexozodi_at`` lands.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+        system, exposure
+    )
     Fzodi = zodi_fn(observatory, exposure, system.star)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
     dist_pc = system.star.dist_pc
 
-    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
-            F0=F0,
-            Fs_over_F0=1.0,
+            F0=F0_zp,
+            Fs_over_F0=Fs_over_F0,
             Fp_over_Fs=Fp_over_Fs,
             Fzodi=Fzodi,
             Fexozodi=Fexozodi,
@@ -718,7 +732,7 @@ def exptime_from_system_ayo(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
 
 
 def snr_from_system_ayo(
@@ -739,15 +753,17 @@ def snr_from_system_ayo(
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
     once ``AbstractDisk.fexozodi_at`` lands.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+        system, exposure
+    )
     Fzodi = zodi_fn(observatory, exposure, system.star)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
     dist_pc = system.star.dist_pc
 
-    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
-            F0=F0,
-            Fs_over_F0=1.0,
+            F0=F0_zp,
+            Fs_over_F0=Fs_over_F0,
             Fp_over_Fs=Fp_over_Fs,
             Fzodi=Fzodi,
             Fexozodi=Fexozodi,
@@ -772,7 +788,7 @@ def snr_from_system_ayo(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
 
 
 def count_rates_from_system_exosims_det(
@@ -791,15 +807,17 @@ def count_rates_from_system_exosims_det(
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
     once ``AbstractDisk.fexozodi_at`` lands.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+        system, exposure
+    )
     Fzodi = zodi_fn(observatory, exposure, system.star)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
     dist_pc = system.star.dist_pc
 
-    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
-            F0=F0,
-            Fs_over_F0=1.0,
+            F0=F0_zp,
+            Fs_over_F0=Fs_over_F0,
             Fp_over_Fs=Fp_over_Fs,
             Fzodi=Fzodi,
             Fexozodi=Fexozodi,
@@ -819,7 +837,7 @@ def count_rates_from_system_exosims_det(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
 
 
 def exptime_from_system_exosims_det(
@@ -838,15 +856,17 @@ def exptime_from_system_exosims_det(
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+        system, exposure
+    )
     Fzodi = zodi_fn(observatory, exposure, system.star)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
     dist_pc = system.star.dist_pc
 
-    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
-            F0=F0,
-            Fs_over_F0=1.0,
+            F0=F0_zp,
+            Fs_over_F0=Fs_over_F0,
             Fp_over_Fs=Fp_over_Fs,
             Fzodi=Fzodi,
             Fexozodi=Fexozodi,
@@ -870,7 +890,7 @@ def exptime_from_system_exosims_det(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
 
 
 def snr_from_system_exosims_det(
@@ -889,15 +909,17 @@ def snr_from_system_exosims_det(
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+        system, exposure
+    )
     Fzodi = zodi_fn(observatory, exposure, system.star)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
     dist_pc = system.star.dist_pc
 
-    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
-            F0=F0,
-            Fs_over_F0=1.0,
+            F0=F0_zp,
+            Fs_over_F0=Fs_over_F0,
             Fp_over_Fs=Fp_over_Fs,
             Fzodi=Fzodi,
             Fexozodi=Fexozodi,
@@ -921,7 +943,7 @@ def snr_from_system_exosims_det(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
 
 
 def count_rates_from_system_exosims_char(
@@ -942,15 +964,17 @@ def count_rates_from_system_exosims_char(
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+        system, exposure
+    )
     Fzodi = zodi_fn(observatory, exposure, system.star)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
     dist_pc = system.star.dist_pc
 
-    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
-            F0=F0,
-            Fs_over_F0=1.0,
+            F0=F0_zp,
+            Fs_over_F0=Fs_over_F0,
             Fp_over_Fs=Fp_over_Fs,
             Fzodi=Fzodi,
             Fexozodi=Fexozodi,
@@ -970,7 +994,7 @@ def count_rates_from_system_exosims_char(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
 
 
 def exptime_from_system_exosims_char(
@@ -989,15 +1013,17 @@ def exptime_from_system_exosims_char(
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+        system, exposure
+    )
     Fzodi = zodi_fn(observatory, exposure, system.star)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
     dist_pc = system.star.dist_pc
 
-    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
-            F0=F0,
-            Fs_over_F0=1.0,
+            F0=F0_zp,
+            Fs_over_F0=Fs_over_F0,
             Fp_over_Fs=Fp_over_Fs,
             Fzodi=Fzodi,
             Fexozodi=Fexozodi,
@@ -1021,7 +1047,7 @@ def exptime_from_system_exosims_char(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
 
 
 def snr_from_system_exosims_char(
@@ -1040,15 +1066,17 @@ def snr_from_system_exosims_char(
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_t = _extract_per_kt(system, exposure)
+    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+        system, exposure
+    )
     Fzodi = zodi_fn(observatory, exposure, system.star)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
     dist_pc = system.star.dist_pc
 
-    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, F0):
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
-            F0=F0,
-            Fs_over_F0=1.0,
+            F0=F0_zp,
+            Fs_over_F0=Fs_over_F0,
             Fp_over_Fs=Fp_over_Fs,
             Fzodi=Fzodi,
             Fexozodi=Fexozodi,
@@ -1072,4 +1100,4 @@ def snr_from_system_exosims_char(
             eps_warm_T_cold=eps_warm_T_cold,
         )
 
-    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, F0_t)
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
