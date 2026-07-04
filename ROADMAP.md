@@ -1,7 +1,7 @@
 # jaxedith Roadmap
 
-Forward-looking items not on the active plan. Active work lives in
-`hwo-mission-control/burn/jaxedith-refactor/brain/plans/`.
+Forward-looking items not on the active plan. Active work is tracked in
+the private research workspace.
 
 ## Future / potential
 
