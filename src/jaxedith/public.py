@@ -21,8 +21,7 @@ share the ``_extract_per_kt`` / ``_sep_lod_from_arcsec`` /
 
 import jax
 import jax.numpy as jnp
-from hwoutils.conversions import jy_to_photons_per_nm_per_m2
-from orbix.observatory import mag_to_flux_jy
+from hwoutils.conversions import jy_to_photons_per_nm_per_m2, mag_to_flux_jy
 
 from jaxedith.etc import (
     exptime_from_rates_ayo,

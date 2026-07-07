@@ -44,12 +44,13 @@ def exposure():
     )
 
 
-def test_zodi_fn_ayo_matches_orbix_helper(observatory, exposure, star):
-    """zodi_fn_ayo passes the central wavelength straight through to zodi_fzodi_ayo."""
-    from orbix.observatory import zodi_fzodi_ayo
+def test_zodi_fn_ayo_matches_fzodi_helper(observatory, exposure, star):
+    """zodi_fn_ayo yields Fzodi = 10**(-0.4*mag) from the skyscapes AYO magnitude."""
+    from skyscapes.background.leinert import ayo_default_zodi_mag
 
     fz_new = zodi_fn_ayo(observatory, exposure, star)
-    fz_ref = zodi_fzodi_ayo(exposure.central_wavelength_nm)
+    mag = ayo_default_zodi_mag(exposure.central_wavelength_nm)
+    fz_ref = 10.0 ** (-0.4 * mag)
     assert jnp.allclose(fz_new, fz_ref)
 
 
@@ -59,9 +60,9 @@ def test_zodi_fn_ayo_returns_scalar(observatory, exposure, star):
     assert fz.shape == ()
 
 
-def test_zodi_fn_leinert_matches_orbix_helper(observatory, exposure, star):
-    """zodi_fn_leinert matches zodi_fzodi_leinert with helio-ecliptic geometry."""
-    from orbix.observatory import zodi_fzodi_leinert
+def test_zodi_fn_leinert_matches_fzodi_helper(observatory, exposure, star):
+    """zodi_fn_leinert matches _fzodi_leinert with helio-ecliptic geometry."""
+    from jaxedith.zodi import _fzodi_leinert
 
     ra_rad = jnp.deg2rad(star.ra_deg)
     dec_rad = jnp.deg2rad(star.dec_deg)
@@ -70,7 +71,7 @@ def test_zodi_fn_leinert_matches_orbix_helper(observatory, exposure, star):
     sol_lon = observatory.orbit.helio_ecliptic_longitude_deg(mjd, ra_rad, dec_rad)
 
     fz_new = zodi_fn_leinert(observatory, exposure, star)
-    fz_ref = zodi_fzodi_leinert(exposure.central_wavelength_nm, ecl_lat, sol_lon)
+    fz_ref = _fzodi_leinert(exposure.central_wavelength_nm, ecl_lat, sol_lon)
     assert jnp.allclose(fz_new, fz_ref)
 
 

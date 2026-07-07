@@ -5,15 +5,28 @@ Each ``zodi_fn_*`` matches the callable contract documented on the
 
     zodi_fn(observatory, exposure, star) -> Fzodi  # scalar
 
-Implementations are thin adapters around orbix's
-``zodi_fzodi_{ayo,leinert}`` helpers. Callers pass whichever they want
-as a kwarg to the wrapper; the default on every wrapper is
-``zodi_fn_ayo`` (preserves legacy ``zodi_mode='ayo'`` behavior without
-a string argument).
+Implementations are thin wrappers around the ``_fzodi_{ayo,leinert}``
+helpers defined below, which in turn convert a skyscapes zodi magnitude
+into the EXOSIMS/pyEDITH ``Fzodi = 10**(-0.4*mag)`` convention. Callers
+pass whichever they want as a kwarg to the wrapper; the default on every
+wrapper is ``zodi_fn_ayo`` (preserves legacy ``zodi_mode='ayo'``
+behavior without a string argument).
 """
 
 import jax.numpy as jnp
-from orbix.observatory import zodi_fzodi_ayo, zodi_fzodi_leinert
+from skyscapes.background.leinert import ayo_default_zodi_mag, leinert_zodi_mag
+
+
+def _fzodi_ayo(wavelength_nm):
+    """AYO-default Fzodi = 10**(-0.4 * mag); arcsec^-2, dimensionless."""
+    return 10.0 ** (-0.4 * ayo_default_zodi_mag(wavelength_nm))
+
+
+def _fzodi_leinert(wavelength_nm, ecliptic_lat_deg=0.0, solar_lon_deg=135.0):
+    """Position-dependent Leinert Fzodi = 10**(-0.4 * mag); arcsec^-2."""
+    return 10.0 ** (
+        -0.4 * leinert_zodi_mag(wavelength_nm, ecliptic_lat_deg, solar_lon_deg)
+    )
 
 
 def zodi_fn_ayo(observatory, exposure, star):
@@ -23,7 +36,7 @@ def zodi_fn_ayo(observatory, exposure, star):
     and ignored. Returns scalar ``Fzodi`` [arcsec^-2].
     """
     del observatory, star
-    return zodi_fzodi_ayo(exposure.central_wavelength_nm)
+    return _fzodi_ayo(exposure.central_wavelength_nm)
 
 
 def zodi_fn_leinert(observatory, exposure, star):
@@ -43,4 +56,4 @@ def zodi_fn_leinert(observatory, exposure, star):
     # targets these coincide; for off-ecliptic targets only the longitude
     # difference is correct (see orbix.ObservatoryL2Halo docstrings).
     sol_lon_deg = observatory.orbit.helio_ecliptic_longitude_deg(mjd, ra_rad, dec_rad)
-    return zodi_fzodi_leinert(exposure.central_wavelength_nm, ecl_lat_deg, sol_lon_deg)
+    return _fzodi_leinert(exposure.central_wavelength_nm, ecl_lat_deg, sol_lon_deg)
