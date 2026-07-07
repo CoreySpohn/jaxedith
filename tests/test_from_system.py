@@ -19,7 +19,7 @@ from hwoutils.conversions import jy_to_photons_per_nm_per_m2
 from optixstuff import ExposureConfig
 from orbix.kepler.shortcuts.grid import get_grid_solver
 from orbix.observatory import Observatory, ObservatoryL2Halo, mag_to_flux_jy
-from orbix.system.orbit import KeplerianOrbit
+from orbix.orbit import KeplerianOrbit
 from skyscapes.physical_model import GridPhysicalModel
 from skyscapes.scene import Planet, Star, System
 
