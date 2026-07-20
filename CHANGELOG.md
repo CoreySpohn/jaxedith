@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/CoreySpohn/jaxedith/compare/v1.0.0...v1.0.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* **from_system:** reference zodi/exozodi to a mag-0 F0 zero point, not the star flux ([c339272](https://github.com/CoreySpohn/jaxedith/commit/c33927226fce7472bebd0417fc368ca33d291292))
+
 ## [1.0.0](https://github.com/CoreySpohn/jaxedith/compare/v0.1.0...v1.0.0) (2026-05-26)
 
 
