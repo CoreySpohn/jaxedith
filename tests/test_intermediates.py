@@ -392,8 +392,7 @@ def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
 
     coro = optical_path.coronagraph
     primary = optical_path.primary
-    pixscale_lod = coro.pixel_scale_lod
-    noisefloor_value = coro.core_mean_intensity(sep, wl) / (ppfact * pixscale_lod**2)
+    noisefloor_value = coro.core_mean_intensity(sep, wl) / ppfact
 
     CRnf_star_ref = noise_floor_stellar(
         etc_scene.F0,
@@ -417,6 +416,79 @@ def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
         ppfact=ppfact,
     )
     assert float(CRnf_star_layer2) == float(CRnf_star_ref)
+
+
+@pytest.mark.parametrize("separation_lod", [5.0, 10.0])
+def test_stellar_leakage_is_the_star_light_in_the_aperture(
+    optical_path, etc_scene, observation, separation_lod
+):
+    """Leakage is the star's photon rate times the fraction in the aperture.
+
+    The package's stellar map holds the fraction of the star's light on each
+    pixel. Its mean over a one-pixel ring at the separation, divided by one
+    pixel's solid angle and multiplied by the core area, is the fraction of the
+    star's light inside the photometric aperture, independent of the curve
+    jaxedith reads. Reading a per-pixel fraction as an intensity per
+    (lambda/D)^2 would make the leakage low by the pixel area, a factor of 16
+    at 0.25 lambda/D pixels. The tolerance covers the difference between a
+    one-pixel ring and the reader's radial bins, a few percent.
+    """
+    wl = observation["wavelength_nm"]
+    dl = observation["dlambda_nm"]
+    coro = optical_path.coronagraph
+    pixel_lod = coro.pixel_scale_lod
+    star_map = jnp.asarray(coro.stellar_intens(0.0))
+    ny, nx = star_map.shape
+    rows, cols = jnp.indices((ny, nx))
+    radius_lod = jnp.hypot(rows - (ny - 1) / 2.0, cols - (nx - 1) / 2.0) * pixel_lod
+    ring = jnp.abs(radius_lod - separation_lod) < 0.5 * pixel_lod
+    per_pixel = jnp.sum(jnp.where(ring, star_map, 0.0)) / jnp.sum(ring)
+    aperture_fraction = per_pixel / pixel_lod**2 * coro.core_area(separation_lod, wl)
+    star_photon_rate = (
+        etc_scene.F0
+        * etc_scene.Fs_over_F0
+        * optical_path.primary.area_m2
+        * optical_path.system_throughput(wl)
+        * dl
+        * N_CHANNELS
+    )
+
+    leakage = intermediates.stellar_leakage(
+        optical_path,
+        wavelength_nm=wl,
+        separation_lod=separation_lod,
+        dlambda_nm=dl,
+        F0=etc_scene.F0,
+        Fs_over_F0=etc_scene.Fs_over_F0,
+        n_channels=N_CHANNELS,
+    )
+    assert float(leakage) == pytest.approx(
+        float(star_photon_rate * aperture_fraction), rel=0.1
+    )
+
+
+def test_stellar_noise_floor_is_the_leakage_over_the_ppf(
+    optical_path, etc_scene, observation
+):
+    """The stellar noise floor is the stellar leakage divided by the ppf.
+
+    Both terms come from the same core mean intensity and core area, so the
+    systematic residual after post-processing is exactly the leakage reduced
+    by the post-processing factor, at any separation and in any unit the
+    coronagraph reports.
+    """
+    ppfact = 30.0
+    kwargs = {
+        "wavelength_nm": observation["wavelength_nm"],
+        "separation_lod": observation["separation_lod"],
+        "dlambda_nm": observation["dlambda_nm"],
+        "F0": etc_scene.F0,
+        "Fs_over_F0": etc_scene.Fs_over_F0,
+        "n_channels": N_CHANNELS,
+    }
+    leakage = intermediates.stellar_leakage(optical_path, **kwargs)
+    floor = intermediates.stellar_noise_floor(optical_path, ppfact=ppfact, **kwargs)
+    assert float(floor) * ppfact == pytest.approx(float(leakage), rel=1e-6)
 
 
 def test_layer2_reexported_from_package():
