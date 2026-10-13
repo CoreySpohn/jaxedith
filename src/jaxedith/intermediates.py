@@ -287,7 +287,8 @@ def stellar_noise_floor(
     ``core_mean_intensity(sep, wl) / ppfact`` and the Layer 1
     ``noisefloor_value * core_area_lod2`` product equals pyEDITH's
     ``Istar / pixscale**2 * omega_lod`` per-pixel formulation. The rate is
-    the stellar leakage rate divided by ``ppfact``.
+    the stellar leakage rate divided by ``ppfact`` (the AYO convention; the
+    EXOSIMS speckle residual multiplies by its ``ppfact`` instead).
     """
     coro = optical_path.coronagraph
     noisefloor_value = coro.core_mean_intensity(separation_lod, wavelength_nm) / ppfact

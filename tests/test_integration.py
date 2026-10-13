@@ -267,9 +267,11 @@ class TestPhysicalSanity:
 # ---------------------------------------------------------------------------
 
 
-# A raw speckle floor (ppfact = 1) hides a 1e-10 planet at 5 lambda/D behind
-# this coronagraph's leakage, so the exposure time is infinite. The
-# time and SNR smoke tests use a typical post-processing factor instead.
+# In the EXOSIMS path ppfact multiplies the stellar leakage (Csp = CRbs *
+# ppfact), so 0.1 is a tenfold speckle suppression; the AYO path divides by
+# ppfact instead, where 30 is typical. A raw speckle floor (ppfact = 1) hides
+# a 1e-10 planet at 5 lambda/D behind this coronagraph's leakage, so the
+# exposure time is infinite. The time and SNR smoke tests use 0.1 instead.
 _EXOSIMS_PPFACT = 0.1
 
 

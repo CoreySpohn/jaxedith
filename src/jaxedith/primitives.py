@@ -409,7 +409,9 @@ def speckle_residual(C_sr, ppfact, stability_fact):
     """EXOSIMS-style speckle residual Csp [e/s].
 
     ``C_sr`` is the raw stellar residual count rate (e.g. from
-    core_contrast x core_throughput x stellar flux).
+    core_contrast x core_throughput x stellar flux). ``ppfact`` multiplies
+    (EXOSIMS ``ppFact``, at most 1); the AYO noise floor divides by its
+    ``ppfact`` instead.
     """
     return C_sr * ppfact * stability_fact
 
