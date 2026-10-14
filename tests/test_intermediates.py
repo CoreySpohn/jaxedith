@@ -10,10 +10,12 @@ scalar arguments, outputs must be bitwise identical -- no rtol.
 """
 
 import jax.numpy as jnp
+import numpy as np
 import optixstuff as ox
 import pytest
 from coronagraphoto.datasets import fetch_coronagraph
 from hwoutils.constants import nm2m, rad2arcsec
+from scipy.interpolate import RectBivariateSpline
 
 from jaxedith import ETCScene, intermediates
 from jaxedith.primitives import (
@@ -425,24 +427,29 @@ def test_stellar_leakage_is_the_star_light_in_the_aperture(
     """Leakage is the star's photon rate times the fraction in the aperture.
 
     The package's stellar map holds the fraction of the star's light on each
-    pixel. Its mean over a one-pixel ring at the separation, divided by one
+    pixel. Its azimuthal mean on the circle at the separation, divided by one
     pixel's solid angle and multiplied by the core area, is the fraction of the
     star's light inside the photometric aperture, independent of the curve
-    jaxedith reads. Reading a per-pixel fraction as an intensity per
-    (lambda/D)^2 would make the leakage low by the pixel area, a factor of 16
-    at 0.25 lambda/D pixels. The tolerance covers the difference between a
-    one-pixel ring and the reader's radial bins, a few percent.
+    jaxedith reads. The mean is taken of a quintic spline of the map on 2048
+    position angles about the optical axis, between the four central pixels;
+    a one-pixel ring of pixel centers mixes a range of radii and reads high
+    by tens of percent where the leakage profile is curved. Reading a
+    per-pixel fraction as an intensity per (lambda/D)^2 would make the
+    leakage low by the pixel area, a factor of 16 at 0.25 lambda/D pixels.
     """
     wl = observation["wavelength_nm"]
     dl = observation["dlambda_nm"]
     coro = optical_path.coronagraph
     pixel_lod = coro.pixel_scale_lod
-    star_map = jnp.asarray(coro.stellar_intens(0.0))
+    star_map = np.asarray(coro.stellar_intens(0.0), dtype=np.float64)
     ny, nx = star_map.shape
-    rows, cols = jnp.indices((ny, nx))
-    radius_lod = jnp.hypot(rows - (ny - 1) / 2.0, cols - (nx - 1) / 2.0) * pixel_lod
-    ring = jnp.abs(radius_lod - separation_lod) < 0.5 * pixel_lod
-    per_pixel = jnp.sum(jnp.where(ring, star_map, 0.0)) / jnp.sum(ring)
+    spline = RectBivariateSpline(np.arange(ny), np.arange(nx), star_map, kx=5, ky=5)
+    theta = np.linspace(0.0, 2.0 * np.pi, 2048, endpoint=False)
+    radius_pix = separation_lod / pixel_lod
+    per_pixel = spline.ev(
+        (ny - 1) / 2.0 + radius_pix * np.sin(theta),
+        (nx - 1) / 2.0 + radius_pix * np.cos(theta),
+    ).mean()
     aperture_fraction = per_pixel / pixel_lod**2 * coro.core_area(separation_lod, wl)
     star_photon_rate = (
         etc_scene.F0
@@ -463,7 +470,7 @@ def test_stellar_leakage_is_the_star_light_in_the_aperture(
         n_channels=N_CHANNELS,
     )
     assert float(leakage) == pytest.approx(
-        float(star_photon_rate * aperture_fraction), rel=0.1
+        float(star_photon_rate * aperture_fraction), rel=1e-2
     )
 
 
