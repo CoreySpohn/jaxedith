@@ -75,18 +75,18 @@ def stellar_leakage_rate(
 ):
     r"""Stellar leakage count rate CRbs [e/s].
 
-    Uses ``core_mean_intensity`` from ``EqxCoronagraph.core_mean_intensity(sep)``,
-    which is the azimuthal average of the 2D stellar intensity map in
-    :math:`(\lambda/D)^{-2}` units. Multiplying by ``core_area_lod2`` in
-    :math:`(\lambda/D)^2` gives the dimensionless aperture-integrated
-    stellar leakage.
+    Uses the coronagraph's ``core_mean_intensity(sep, wl)``, the azimuthal
+    average of the stellar intensity in :math:`(\lambda/D)^{-2}` units.
+    Multiplying by ``core_area_lod2`` in :math:`(\lambda/D)^2` gives the
+    dimensionless aperture-integrated stellar leakage.
 
     .. note::
 
         The original pyEDITH uses a per-pixel 2D lookup (``Istar / pixscale^2``).
-        In the JAX backend we use the 1D curve because yippy computes
-        ``core_mean_intensity`` by azimuthally averaging the 2D ``Istar`` map
-        (via ``radial_profile``), making the two paths numerically identical.
+        The JAX backend uses the 1D curve; a backend that tabulates the
+        per-pixel ``Istar`` (yippy) is divided by ``pixscale^2`` in its
+        coronagraph adapter, so the two paths agree up to the azimuthal
+        average.
 
     Matches ``pyEDITH.exposure_time_calculator.calculate_CRbs``.
 
@@ -409,7 +409,9 @@ def speckle_residual(C_sr, ppfact, stability_fact):
     """EXOSIMS-style speckle residual Csp [e/s].
 
     ``C_sr`` is the raw stellar residual count rate (e.g. from
-    core_contrast x core_throughput x stellar flux).
+    core_contrast x core_throughput x stellar flux). ``ppfact`` multiplies
+    (EXOSIMS ``ppFact``, at most 1); the AYO noise floor divides by its
+    ``ppfact`` instead.
     """
     return C_sr * ppfact * stability_fact
 

@@ -12,6 +12,12 @@ Two surfaces, both defined in this file:
   ``ExposureConfig`` + ``PPConfig``, extract per-(planet, epoch) astrophysics,
   and ``jax.vmap`` the matching scalar public over ``(K, T)``.
 
+``ppfact`` means opposite things in the two variants. In the AYO publics
+it divides: the stellar noise floor is the stellar leakage over ``ppfact``
+(pyEDITH's post-processing factor, about 30). In the EXOSIMS publics it
+multiplies: the speckle residual is the stellar leakage times ``ppfact``
+(EXOSIMS' ``ppFact``, at most 1). Both default to 1, the raw leakage.
+
 Private ``_count_rates_{ayo,exosims}`` helpers assemble the rate triple
 from the Layer 2 ``intermediates``; the scalar publics call them and
 dispatch to the matching ``etc.py`` equation. The from_system wrappers
@@ -67,6 +73,7 @@ def _count_rates_ayo(
     the equation, not here. Star and exozodi floors are combined in
     quadrature; setting ``ez_ppf=jnp.inf`` zeroes the exozodi
     contribution and reduces the floor to the stellar term alone.
+    ``ppfact`` divides here: the stellar floor is the leakage / ``ppfact``.
     """
     n_channels = optical_path.n_channels
     npix_multiplier = optical_path.npix_multiplier
@@ -282,7 +289,8 @@ def _count_rates_exosims(
     Shared by both detection and characterization. Differs from the AYO
     helper in the noise term: EXOSIMS uses a speckle residual
     ``Csp = speckle_residual(CRbs, ppfact, stability_fact)`` instead of
-    the data-driven noise floor.
+    the data-driven noise floor. ``ppfact`` multiplies here, the opposite
+    of the AYO path where it divides.
     """
     n_channels = optical_path.n_channels
     npix_multiplier = optical_path.npix_multiplier

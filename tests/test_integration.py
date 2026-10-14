@@ -267,6 +267,14 @@ class TestPhysicalSanity:
 # ---------------------------------------------------------------------------
 
 
+# In the EXOSIMS path ppfact multiplies the stellar leakage (Csp = CRbs *
+# ppfact), so 0.1 is a tenfold speckle suppression; the AYO path divides by
+# ppfact instead, where 30 is typical. A raw speckle floor (ppfact = 1) hides
+# a 1e-10 planet at 5 lambda/D behind this coronagraph's leakage, so the
+# exposure time is infinite. The time and SNR smoke tests use 0.1 instead.
+_EXOSIMS_PPFACT = 0.1
+
+
 class TestEXOSIMSEndToEnd:
     """Full pipeline: optixstuff OpticalPath -> EXOSIMS Layer 3 publics."""
 
@@ -307,6 +315,7 @@ class TestEXOSIMSEndToEnd:
             dlambda_nm=100.0,
             snr=7.0,
             temp_K=270.0,
+            ppfact=_EXOSIMS_PPFACT,
         )
         assert jnp.isfinite(t_exp), f"t_exp not finite: {t_exp}"
         assert float(t_exp) > 0
@@ -320,6 +329,7 @@ class TestEXOSIMSEndToEnd:
             dlambda_nm=100.0,
             snr=7.0,
             temp_K=270.0,
+            ppfact=_EXOSIMS_PPFACT,
         )
         assert jnp.isfinite(t_exp), f"t_exp not finite: {t_exp}"
         assert float(t_exp) > 0
@@ -334,6 +344,7 @@ class TestEXOSIMSEndToEnd:
             dlambda_nm=100.0,
             snr=target_snr,
             temp_K=270.0,
+            ppfact=_EXOSIMS_PPFACT,
         )
         recovered_snr = snr_exosims_det(
             optical_path,
@@ -343,6 +354,7 @@ class TestEXOSIMSEndToEnd:
             dlambda_nm=100.0,
             t_obs=float(t_exp),
             temp_K=270.0,
+            ppfact=_EXOSIMS_PPFACT,
         )
         assert np.isclose(float(recovered_snr), target_snr, rtol=0.01)
 
@@ -356,6 +368,7 @@ class TestEXOSIMSEndToEnd:
             dlambda_nm=100.0,
             snr=target_snr,
             temp_K=270.0,
+            ppfact=_EXOSIMS_PPFACT,
         )
         recovered_snr = snr_exosims_char(
             optical_path,
@@ -365,5 +378,6 @@ class TestEXOSIMSEndToEnd:
             dlambda_nm=100.0,
             t_obs=float(t_exp),
             temp_K=270.0,
+            ppfact=_EXOSIMS_PPFACT,
         )
         assert np.isclose(float(recovered_snr), target_snr, rtol=0.01)
