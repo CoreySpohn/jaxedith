@@ -20,6 +20,7 @@ class ETCScene(eqx.Module):
         dist_pc: Distance to the star [pc].
         sep_arcsec: Angular separation of the planet [arcsec].
         Fbinary: Flux ratio from binary/neighbor stars [dimensionless].
+        stellar_diam_mas: Stellar angular diameter [milliarcseconds]; 0 = point star.
     """
 
     F0: float
@@ -30,3 +31,4 @@ class ETCScene(eqx.Module):
     dist_pc: float = 10.0
     sep_arcsec: float = 0.1
     Fbinary: float = 0.0
+    stellar_diam_mas: float = 0.0

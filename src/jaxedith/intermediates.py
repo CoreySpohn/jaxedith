@@ -83,10 +83,14 @@ def stellar_leakage(
     F0,
     Fs_over_F0,
     n_channels=1.0,
+    *,
+    stellar_diam_lod=0.0,
 ):
     """Stellar leakage count rate CRbs [e/s].
 
     Wraps :func:`jaxedith.primitives.stellar_leakage_rate`.
+    ``stellar_diam_lod`` is the stellar angular diameter in lambda/D
+    at ``wavelength_nm``; 0 means a point star.
     """
     coro = optical_path.coronagraph
     return stellar_leakage_rate(
@@ -97,7 +101,9 @@ def stellar_leakage(
         dlambda_nm,
         n_channels,
         coro.core_area(separation_lod, wavelength_nm),
-        coro.core_mean_intensity(separation_lod, wavelength_nm),
+        coro.core_mean_intensity(
+            separation_lod, wavelength_nm, stellar_diam_lod=stellar_diam_lod
+        ),
     )
 
 
@@ -278,20 +284,29 @@ def stellar_noise_floor(
     Fs_over_F0,
     n_channels=1.0,
     ppfact=1.0,
+    *,
+    stellar_diam_lod=0.0,
 ):
     """Stellar noise floor *rate* CRnf_star_rate [e/s].
 
     Wraps :func:`jaxedith.primitives.noise_floor_stellar`. The
     coronagraph's ``core_mean_intensity`` is already an intensity per
     (lambda/D)^2, so ``noisefloor_value`` is
-    ``core_mean_intensity(sep, wl) / ppfact`` and the Layer 1
-    ``noisefloor_value * core_area_lod2`` product equals pyEDITH's
+    ``core_mean_intensity(sep, wl, stellar_diam_lod=stellar_diam_lod) / ppfact``
+    and the Layer 1 ``noisefloor_value * core_area_lod2`` product equals pyEDITH's
     ``Istar / pixscale**2 * omega_lod`` per-pixel formulation. The rate is
     the stellar leakage rate divided by ``ppfact`` (the AYO convention; the
     EXOSIMS speckle residual multiplies by its ``ppfact`` instead).
+    ``stellar_diam_lod`` is the stellar angular diameter in lambda/D
+    at ``wavelength_nm``; 0 means a point star.
     """
     coro = optical_path.coronagraph
-    noisefloor_value = coro.core_mean_intensity(separation_lod, wavelength_nm) / ppfact
+    noisefloor_value = (
+        coro.core_mean_intensity(
+            separation_lod, wavelength_nm, stellar_diam_lod=stellar_diam_lod
+        )
+        / ppfact
+    )
     return noise_floor_stellar(
         F0,
         Fs_over_F0,

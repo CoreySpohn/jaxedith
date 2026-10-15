@@ -38,6 +38,7 @@ from jaxedith.etc import (
     snr_from_rates_exosims_det,
 )
 from jaxedith.intermediates import (
+    _lod_arcsec,
     binary_background,
     detector_noise,
     exozodi_background,
@@ -77,6 +78,9 @@ def _count_rates_ayo(
     """
     n_channels = optical_path.n_channels
     npix_multiplier = optical_path.npix_multiplier
+    stellar_diam_lod = scene.stellar_diam_mas / (
+        1000.0 * _lod_arcsec(optical_path, wavelength_nm)
+    )
 
     Cp = planet_signal(
         optical_path,
@@ -96,6 +100,7 @@ def _count_rates_ayo(
         scene.F0,
         scene.Fs_over_F0,
         n_channels=n_channels,
+        stellar_diam_lod=stellar_diam_lod,
     )
     CRbz = zodi_background(
         optical_path,
@@ -153,6 +158,7 @@ def _count_rates_ayo(
         scene.Fs_over_F0,
         n_channels=n_channels,
         ppfact=ppfact,
+        stellar_diam_lod=stellar_diam_lod,
     )
     CRnf_ez_rate = noise_floor_exozodi(CRbez, ez_ppf)
     Cnf_rate = jnp.sqrt(CRnf_star_rate**2 + CRnf_ez_rate**2)
@@ -294,6 +300,9 @@ def _count_rates_exosims(
     """
     n_channels = optical_path.n_channels
     npix_multiplier = optical_path.npix_multiplier
+    stellar_diam_lod = scene.stellar_diam_mas / (
+        1000.0 * _lod_arcsec(optical_path, wavelength_nm)
+    )
 
     Cp = planet_signal(
         optical_path,
@@ -313,6 +322,7 @@ def _count_rates_exosims(
         scene.F0,
         scene.Fs_over_F0,
         n_channels=n_channels,
+        stellar_diam_lod=stellar_diam_lod,
     )
     CRbz = zodi_background(
         optical_path,
@@ -589,6 +599,15 @@ def _sep_lod_from_arcsec(sep_arcsec, wavelength_nm, diameter_m):
     return sep_arcsec / (lod_rad * ARCSEC_PER_RAD)
 
 
+def _stellar_diam_mas_from_system(system):
+    """Read stellar angular diameter in mas for every from-system wrapper.
+
+    Convert ``system.star.diameter_arcsec`` to milliarcseconds; star models
+    without that attribute use 0 (a point star).
+    """
+    return 1000.0 * getattr(system.star, "diameter_arcsec", 0.0)
+
+
 def _extract_per_kt(system, exposure):
     """Pull the per-(K, T) astrophysics needed by every from_system call.
 
@@ -670,6 +689,7 @@ def count_rates_from_system_ayo(
             dist_pc=dist_pc,
             sep_arcsec=sep_arcsec,
             Fbinary=0.0,
+            stellar_diam_mas=_stellar_diam_mas_from_system(system),
         )
         return count_rates_ayo(
             optical_path,
@@ -721,6 +741,7 @@ def exptime_from_system_ayo(
             dist_pc=dist_pc,
             sep_arcsec=sep_arcsec,
             Fbinary=0.0,
+            stellar_diam_mas=_stellar_diam_mas_from_system(system),
         )
         return exptime_ayo(
             optical_path,
@@ -777,6 +798,7 @@ def snr_from_system_ayo(
             dist_pc=dist_pc,
             sep_arcsec=sep_arcsec,
             Fbinary=0.0,
+            stellar_diam_mas=_stellar_diam_mas_from_system(system),
         )
         return snr_ayo(
             optical_path,
@@ -831,6 +853,7 @@ def count_rates_from_system_exosims_det(
             dist_pc=dist_pc,
             sep_arcsec=sep_arcsec,
             Fbinary=0.0,
+            stellar_diam_mas=_stellar_diam_mas_from_system(system),
         )
         return count_rates_exosims_det(
             optical_path,
@@ -880,6 +903,7 @@ def exptime_from_system_exosims_det(
             dist_pc=dist_pc,
             sep_arcsec=sep_arcsec,
             Fbinary=0.0,
+            stellar_diam_mas=_stellar_diam_mas_from_system(system),
         )
         return exptime_exosims_det(
             optical_path,
@@ -933,6 +957,7 @@ def snr_from_system_exosims_det(
             dist_pc=dist_pc,
             sep_arcsec=sep_arcsec,
             Fbinary=0.0,
+            stellar_diam_mas=_stellar_diam_mas_from_system(system),
         )
         return snr_exosims_det(
             optical_path,
@@ -988,6 +1013,7 @@ def count_rates_from_system_exosims_char(
             dist_pc=dist_pc,
             sep_arcsec=sep_arcsec,
             Fbinary=0.0,
+            stellar_diam_mas=_stellar_diam_mas_from_system(system),
         )
         return count_rates_exosims_char(
             optical_path,
@@ -1037,6 +1063,7 @@ def exptime_from_system_exosims_char(
             dist_pc=dist_pc,
             sep_arcsec=sep_arcsec,
             Fbinary=0.0,
+            stellar_diam_mas=_stellar_diam_mas_from_system(system),
         )
         return exptime_exosims_char(
             optical_path,
@@ -1090,6 +1117,7 @@ def snr_from_system_exosims_char(
             dist_pc=dist_pc,
             sep_arcsec=sep_arcsec,
             Fbinary=0.0,
+            stellar_diam_mas=_stellar_diam_mas_from_system(system),
         )
         return snr_exosims_char(
             optical_path,
