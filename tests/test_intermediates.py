@@ -420,7 +420,9 @@ def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
     assert float(CRnf_star_layer2) == float(CRnf_star_ref)
 
 
-@pytest.mark.parametrize("separation_lod", [5.0, 10.0])
+# Inside about 2 lambda/D the profile has structure on the scale of a pixel, and the
+# curve departs from the circle mean by more than the tolerance; not covered here.
+@pytest.mark.parametrize("separation_lod", [3.0, 5.0, 10.0])
 def test_stellar_leakage_is_the_star_light_in_the_aperture(
     optical_path, etc_scene, observation, separation_lod
 ):
@@ -430,12 +432,17 @@ def test_stellar_leakage_is_the_star_light_in_the_aperture(
     pixel. Its azimuthal mean on the circle at the separation, divided by one
     pixel's solid angle and multiplied by the core area, is the fraction of the
     star's light inside the photometric aperture, independent of the curve
-    jaxedith reads. The mean is taken of a quintic spline of the map on 2048
-    position angles about the optical axis, between the four central pixels;
-    a one-pixel ring of pixel centers mixes a range of radii and reads high
-    by tens of percent where the leakage profile is curved. Reading a
-    per-pixel fraction as an intensity per (lambda/D)^2 would make the
-    leakage low by the pixel area, a factor of 16 at 0.25 lambda/D pixels.
+    jaxedith reads and of the profile code that builds it. The mean is taken
+    of a quintic spline of the map on 2048 position angles about the optical
+    axis, between the four central pixels; a one-pixel ring of pixel centers
+    mixes a range of radii and reads high by tens of percent where the
+    leakage profile is curved. Reading a per-pixel fraction as an intensity
+    per (lambda/D)^2 would make the leakage low by the pixel area, a factor
+    of 16 at 0.25 lambda/D pixels.
+
+    Tolerance basis (spike): the curve departs from the circle mean by
+    0.3%, 0.6% and 0.06% at 3, 5 and 10 lambda/D on this package; 1% passes
+    that and fails a 2% error in the leakage in either direction.
     """
     wl = observation["wavelength_nm"]
     dl = observation["dlambda_nm"]
@@ -450,6 +457,7 @@ def test_stellar_leakage_is_the_star_light_in_the_aperture(
         (ny - 1) / 2.0 + radius_pix * np.sin(theta),
         (nx - 1) / 2.0 + radius_pix * np.cos(theta),
     ).mean()
+    assert np.isfinite(per_pixel) and per_pixel > 0
     aperture_fraction = per_pixel / pixel_lod**2 * coro.core_area(separation_lod, wl)
     star_photon_rate = (
         etc_scene.F0
