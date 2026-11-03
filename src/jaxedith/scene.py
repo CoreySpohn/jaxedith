@@ -2,6 +2,8 @@
 
 import equinox as eqx
 
+from jaxedith._types import Num
+
 
 class ETCScene(eqx.Module):
     """Astrophysical scene parameters for the JAX ETC.
@@ -23,12 +25,12 @@ class ETCScene(eqx.Module):
         stellar_diam_mas: Stellar angular diameter [milliarcseconds]; 0 = point star.
     """
 
-    F0: float
-    Fs_over_F0: float
-    Fp_over_Fs: float
-    Fzodi: float = 0.0
-    Fexozodi: float = 0.0
-    dist_pc: float = 10.0
-    sep_arcsec: float = 0.1
-    Fbinary: float = 0.0
-    stellar_diam_mas: float = 0.0
+    F0: Num
+    Fs_over_F0: Num
+    Fp_over_Fs: Num
+    Fzodi: Num = 0.0
+    Fexozodi: Num = 0.0
+    dist_pc: Num = 10.0
+    sep_arcsec: Num = 0.1
+    Fbinary: Num = 0.0
+    stellar_diam_mas: Num = 0.0

@@ -16,6 +16,8 @@ behavior without a string argument).
 import jax.numpy as jnp
 from skyscapes.background.leinert import ayo_default_zodi_mag, leinert_zodi_mag
 
+from jaxedith._types import ScalarArray
+
 
 def _fzodi_ayo(wavelength_nm):
     """AYO-default Fzodi = 10**(-0.4 * mag); arcsec^-2, dimensionless."""
@@ -29,7 +31,7 @@ def _fzodi_leinert(wavelength_nm, ecliptic_lat_deg=0.0, solar_lon_deg=135.0):
     )
 
 
-def zodi_fn_ayo(observatory, exposure, star):
+def zodi_fn_ayo(observatory, exposure, star) -> ScalarArray:
     """AYO default zodi: position-independent wavelength-only helper.
 
     ``observatory`` and ``star`` are accepted for interface conformance
@@ -39,7 +41,7 @@ def zodi_fn_ayo(observatory, exposure, star):
     return _fzodi_ayo(exposure.central_wavelength_nm)
 
 
-def zodi_fn_leinert(observatory, exposure, star):
+def zodi_fn_leinert(observatory, exposure, star) -> ScalarArray:
     """Leinert position-dependent zodi.
 
     Uses ``star.ra_deg`` / ``star.dec_deg`` and the first element of

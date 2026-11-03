@@ -20,19 +20,21 @@ All inputs are raw floats in consistent units:
 import jax.numpy as jnp
 from hwoutils.constants import c, h, k_B, nm2m
 
+from jaxedith._types import FloatOut, Num
+
 # -- Planet signal -------------------------------------------------------------
 
 
 def planet_rate(
-    F0,
-    Fs_over_F0,
-    Fp_over_Fs,
-    area_m2,
-    throughput,
-    core_throughput,
-    dlambda_nm,
-    n_channels,
-):
+    F0: Num,
+    Fs_over_F0: Num,
+    Fp_over_Fs: Num,
+    area_m2: Num,
+    throughput: Num,
+    core_throughput: Num,
+    dlambda_nm: Num,
+    n_channels: Num,
+) -> FloatOut:
     """Planet signal count rate Cp [e/s].
 
     This is a direct product of the flux chain. Matches
@@ -64,15 +66,15 @@ def planet_rate(
 
 
 def stellar_leakage_rate(
-    F0,
-    Fs_over_F0,
-    area_m2,
-    throughput,
-    dlambda_nm,
-    n_channels,
-    core_area_lod2,
-    core_mean_intensity,
-):
+    F0: Num,
+    Fs_over_F0: Num,
+    area_m2: Num,
+    throughput: Num,
+    dlambda_nm: Num,
+    n_channels: Num,
+    core_area_lod2: Num,
+    core_mean_intensity: Num,
+) -> FloatOut:
     r"""Stellar leakage count rate CRbs [e/s].
 
     Uses the coronagraph's ``core_mean_intensity(sep, wl)``, the azimuthal
@@ -347,15 +349,15 @@ def binary_rate(
 
 
 def noise_floor_stellar(
-    F0,
-    Fs_over_F0,
-    area_m2,
-    throughput,
-    dlambda_nm,
-    n_channels,
-    noisefloor_value,
-    core_area_lod2,
-):
+    F0: Num,
+    Fs_over_F0: Num,
+    area_m2: Num,
+    throughput: Num,
+    dlambda_nm: Num,
+    n_channels: Num,
+    noisefloor_value: Num,
+    core_area_lod2: Num,
+) -> FloatOut:
     """Stellar noise floor *rate* CRnf_star_rate [e/s].
 
     Returns the SNR=1 rate. Callers multiply by their target SNR
@@ -390,7 +392,7 @@ def noise_floor_stellar(
     )
 
 
-def noise_floor_exozodi(CRbez, ez_ppf):
+def noise_floor_exozodi(CRbez: Num, ez_ppf: Num) -> FloatOut:
     """Exozodi noise floor *rate* CRnf_ez_rate [e/s].
 
     Returns the SNR=1 rate. Callers multiply by their target SNR in
@@ -405,7 +407,7 @@ def noise_floor_exozodi(CRbez, ez_ppf):
 # -- Speckle residual (EXOSIMS path) ------------------------------------------
 
 
-def speckle_residual(C_sr, ppfact, stability_fact):
+def speckle_residual(C_sr: Num, ppfact: Num, stability_fact: Num) -> FloatOut:
     """EXOSIMS-style speckle residual Csp [e/s].
 
     ``C_sr`` is the raw stellar residual count rate (e.g. from
@@ -419,7 +421,7 @@ def speckle_residual(C_sr, ppfact, stability_fact):
 # -- Photon counting time (helper) --------------------------------------------
 
 
-def photon_counting_time(det_CR, det_npix):
+def photon_counting_time(det_CR: Num, det_npix: Num) -> FloatOut:
     """Average time to detect one photon per pixel [s].
 
     Used to compute the CIC timing in ``detector_noise_rate``.

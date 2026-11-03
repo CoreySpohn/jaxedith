@@ -29,6 +29,7 @@ import jax
 import jax.numpy as jnp
 from hwoutils.conversions import jy_to_photons_per_nm_per_m2, mag_to_flux_jy
 
+from jaxedith._types import PerKT, PerT, Scalar
 from jaxedith.etc import (
     exptime_from_rates_ayo,
     exptime_from_rates_exosims_char,
@@ -608,7 +609,9 @@ def _stellar_diam_mas_from_system(system):
     return 1000.0 * getattr(system.star, "diameter_arcsec", 0.0)
 
 
-def _extract_per_kt(system, exposure):
+def _extract_per_kt(
+    system, exposure
+) -> tuple[Scalar, Scalar, PerT, PerKT, PerKT, Scalar, PerT]:
     """Pull the per-(K, T) astrophysics needed by every from_system call.
 
     ``F0`` is the flux zero point (a magnitude-0 source), NOT the star flux:
@@ -665,7 +668,7 @@ def count_rates_from_system_ayo(
     zodi_fn=zodi_fn_ayo,
     Fexozodi=0.0,
     eps_warm_T_cold=0.0,
-):
+) -> tuple[PerKT, PerKT, PerKT]:
     """AYO rate triple ``(Cp, Cb, Cnf_rate)`` with shape ``(K, T)`` each.
 
     TODO(skyscapes): replace the ``Fexozodi=0.0`` default with
@@ -718,7 +721,7 @@ def exptime_from_system_ayo(
     Fexozodi=0.0,
     bg_multiplier=2.0,
     eps_warm_T_cold=0.0,
-):
+) -> PerKT:
     """AYO exposure time with shape ``(K, T)``.
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
@@ -775,7 +778,7 @@ def snr_from_system_ayo(
     Fexozodi=0.0,
     bg_multiplier=2.0,
     eps_warm_T_cold=0.0,
-):
+) -> PerKT:
     """AYO achieved SNR with shape ``(K, T)`` for a fixed ``t_obs`` [s].
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
@@ -830,7 +833,7 @@ def count_rates_from_system_exosims_det(
     zodi_fn=zodi_fn_ayo,
     Fexozodi=0.0,
     eps_warm_T_cold=0.0,
-):
+) -> tuple[PerKT, PerKT, PerKT]:
     """EXOSIMS detection rate triple ``(Cp, Cb, Csp)`` with shape ``(K, T)``.
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
@@ -881,7 +884,7 @@ def exptime_from_system_exosims_det(
     zodi_fn=zodi_fn_ayo,
     Fexozodi=0.0,
     eps_warm_T_cold=0.0,
-):
+) -> PerKT:
     """EXOSIMS detection exposure time with shape ``(K, T)``.
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
@@ -935,7 +938,7 @@ def snr_from_system_exosims_det(
     zodi_fn=zodi_fn_ayo,
     Fexozodi=0.0,
     eps_warm_T_cold=0.0,
-):
+) -> PerKT:
     """EXOSIMS detection achieved SNR with shape ``(K, T)``.
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
@@ -988,7 +991,7 @@ def count_rates_from_system_exosims_char(
     zodi_fn=zodi_fn_ayo,
     Fexozodi=0.0,
     eps_warm_T_cold=0.0,
-):
+) -> tuple[PerKT, PerKT, PerKT]:
     """EXOSIMS characterization rate triple ``(Cp, Cb, Csp)`` with shape ``(K, T)``.
 
     Same rates as the detection variant; the equations differ at the
@@ -1041,7 +1044,7 @@ def exptime_from_system_exosims_char(
     zodi_fn=zodi_fn_ayo,
     Fexozodi=0.0,
     eps_warm_T_cold=0.0,
-):
+) -> PerKT:
     """EXOSIMS characterization exposure time with shape ``(K, T)``.
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
@@ -1095,7 +1098,7 @@ def snr_from_system_exosims_char(
     zodi_fn=zodi_fn_ayo,
     Fexozodi=0.0,
     eps_warm_T_cold=0.0,
-):
+) -> PerKT:
     """EXOSIMS characterization achieved SNR with shape ``(K, T)``.
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.

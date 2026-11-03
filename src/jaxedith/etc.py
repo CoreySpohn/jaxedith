@@ -13,17 +13,21 @@ rate triple is computed upstream in ``intermediates`` + ``public``.
 
 import jax.numpy as jnp
 
+from jaxedith._types import FloatOut, Num
+
 # -- Shared overhead / guard helpers ------------------------------------------
 
 
-def _apply_overheads(t_science, overhead_multi, overhead_fixed, n_rolls):
+def _apply_overheads(
+    t_science: Num, overhead_multi: Num, overhead_fixed: Num, n_rolls: Num
+) -> FloatOut:
     """Apply multiplicative + fixed overheads and telescope rolls."""
     t_total = t_science * overhead_multi + overhead_fixed
     t_total = jnp.where(t_total > 0, t_total, jnp.inf)
     return t_total * n_rolls
 
 
-def _safe_divide(numerator, denominator):
+def _safe_divide(numerator: Num, denominator: Num) -> FloatOut:
     """Divide with NaN-gradient-safe guard for non-positive denominators.
 
     When ``denominator <= 0`` the result is ``jnp.inf``, but we substitute
@@ -40,15 +44,15 @@ def _safe_divide(numerator, denominator):
 
 
 def exptime_from_rates_ayo(
-    Cp,
-    Cb,
-    Cnf_rate,
-    snr,
-    bg_multiplier=2.0,
-    overhead_multi=1.0,
-    overhead_fixed=0.0,
-    n_rolls=1,
-):
+    Cp: Num,
+    Cb: Num,
+    Cnf_rate: Num,
+    snr: Num,
+    bg_multiplier: Num = 2.0,
+    overhead_multi: Num = 1.0,
+    overhead_fixed: Num = 0.0,
+    n_rolls: Num = 1,
+) -> FloatOut:
     r"""Solve for exposure time -- AYO/jaxedith equation.
 
     .. math::
@@ -78,15 +82,15 @@ def exptime_from_rates_ayo(
 
 
 def snr_from_rates_ayo(
-    Cp,
-    Cb,
-    Cnf_rate,
-    t_obs,
-    bg_multiplier=2.0,
-    overhead_multi=1.0,
-    overhead_fixed=0.0,
-    n_rolls=1,
-):
+    Cp: Num,
+    Cb: Num,
+    Cnf_rate: Num,
+    t_obs: Num,
+    bg_multiplier: Num = 2.0,
+    overhead_multi: Num = 1.0,
+    overhead_fixed: Num = 0.0,
+    n_rolls: Num = 1,
+) -> FloatOut:
     r"""Solve for achieved SNR -- AYO/jaxedith equation.
 
     Inverse of :func:`exptime_from_rates_ayo`:
@@ -124,14 +128,14 @@ def snr_from_rates_ayo(
 
 
 def exptime_from_rates_exosims_det(
-    Cp,
-    Cb,
-    Csp,
-    snr,
-    overhead_multi=1.0,
-    overhead_fixed=0.0,
-    n_rolls=1,
-):
+    Cp: Num,
+    Cb: Num,
+    Csp: Num,
+    snr: Num,
+    overhead_multi: Num = 1.0,
+    overhead_fixed: Num = 0.0,
+    n_rolls: Num = 1,
+) -> FloatOut:
     r"""Solve for exposure time -- EXOSIMS detection equation.
 
     .. math::
@@ -156,14 +160,14 @@ def exptime_from_rates_exosims_det(
 
 
 def snr_from_rates_exosims_det(
-    Cp,
-    Cb,
-    Csp,
-    t_obs,
-    overhead_multi=1.0,
-    overhead_fixed=0.0,
-    n_rolls=1,
-):
+    Cp: Num,
+    Cb: Num,
+    Csp: Num,
+    t_obs: Num,
+    overhead_multi: Num = 1.0,
+    overhead_fixed: Num = 0.0,
+    n_rolls: Num = 1,
+) -> FloatOut:
     r"""Solve for achieved SNR -- EXOSIMS detection equation.
 
     .. math::
@@ -194,14 +198,14 @@ def snr_from_rates_exosims_det(
 
 
 def exptime_from_rates_exosims_char(
-    Cp,
-    Cb,
-    Csp,
-    snr,
-    overhead_multi=1.0,
-    overhead_fixed=0.0,
-    n_rolls=1,
-):
+    Cp: Num,
+    Cb: Num,
+    Csp: Num,
+    snr: Num,
+    overhead_multi: Num = 1.0,
+    overhead_fixed: Num = 0.0,
+    n_rolls: Num = 1,
+) -> FloatOut:
     r"""Solve for exposure time -- EXOSIMS characterization equation.
 
     Same as EXOSIMS detection but with :math:`C_p` added to :math:`C_b`:
@@ -229,14 +233,14 @@ def exptime_from_rates_exosims_char(
 
 
 def snr_from_rates_exosims_char(
-    Cp,
-    Cb,
-    Csp,
-    t_obs,
-    overhead_multi=1.0,
-    overhead_fixed=0.0,
-    n_rolls=1,
-):
+    Cp: Num,
+    Cb: Num,
+    Csp: Num,
+    t_obs: Num,
+    overhead_multi: Num = 1.0,
+    overhead_fixed: Num = 0.0,
+    n_rolls: Num = 1,
+) -> FloatOut:
     r"""Solve for achieved SNR -- EXOSIMS characterization equation.
 
     .. math::

@@ -2,7 +2,8 @@
 
 Three axes verified per wrapper:
 
-1. Shape: return is always ``(K, T)``.
+1. Shape: return is always ``(K, T)``, enforced by the ``PerKT`` return
+   annotations that the jaxtyping hook in ``conftest.py`` checks at call time.
 2. Parity: element ``[k, t]`` of the vmapped result equals the scalar
    public called on the same ``(k, t)`` scene.
 3. Zodi swap: passing ``zodi_fn_leinert`` changes ``Fzodi`` as expected
@@ -242,24 +243,6 @@ def _expected_sep_lod(alpha_arcsec, wavelength_nm, diameter_m):
     return alpha_arcsec / (lod_rad * ARCSEC_PER_RAD)
 
 
-def test_count_rates_from_system_ayo_shape(
-    optical_path, system, observatory, exposure, ppconfig
-):
-    Cp, Cb, Cnf_rate = count_rates_from_system_ayo(
-        system,
-        optical_path,
-        observatory,
-        exposure,
-        ppconfig,
-        zodi_fn=zodi_fn_ayo,
-    )
-    K = system.n_planets
-    T = jnp.atleast_1d(exposure.start_time_jd).shape[0]
-    assert Cp.shape == (K, T)
-    assert Cb.shape == (K, T)
-    assert Cnf_rate.shape == (K, T)
-
-
 def test_exptime_from_system_ayo_matches_scalar(
     optical_path, system, observatory, exposure, ppconfig
 ):
@@ -272,9 +255,6 @@ def test_exptime_from_system_ayo_matches_scalar(
         SNR,
         zodi_fn=zodi_fn_ayo,
     )
-    K = system.n_planets
-    T = jnp.atleast_1d(exposure.start_time_jd).shape[0]
-    assert t_new.shape == (K, T)
 
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
@@ -326,9 +306,6 @@ def test_snr_from_system_ayo_matches_scalar(
         T_OBS,
         zodi_fn=zodi_fn_ayo,
     )
-    K = system.n_planets
-    T = jnp.atleast_1d(exposure.start_time_jd).shape[0]
-    assert snr_new.shape == (K, T)
 
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
@@ -392,6 +369,20 @@ def test_exptime_from_system_ayo_respects_zodi_swap(
     assert not jnp.allclose(t_ayo, t_leinert)
 
 
+def test_count_rates_from_system_exosims_det_runs(
+    optical_path, system, observatory, exposure, ppconfig
+):
+    """Smoke call; the (K, T) shape contract is the return annotation."""
+    count_rates_from_system_exosims_det(
+        system,
+        optical_path,
+        observatory,
+        exposure,
+        ppconfig,
+        zodi_fn=zodi_fn_ayo,
+    )
+
+
 def test_count_rates_from_system_ayo_matches_scalar(
     optical_path, system, observatory, exposure, ppconfig
 ):
@@ -452,24 +443,6 @@ def _scalar_scene(system, sep_arcsec, Fp_over_Fs, F0, Fzodi, wl):
         sep_arcsec=sep_arcsec,
         Fbinary=0.0,
     )
-
-
-def test_count_rates_from_system_exosims_det_shape(
-    optical_path, system, observatory, exposure, ppconfig
-):
-    Cp, Cb, Csp = count_rates_from_system_exosims_det(
-        system,
-        optical_path,
-        observatory,
-        exposure,
-        ppconfig,
-        zodi_fn=zodi_fn_ayo,
-    )
-    K = system.n_planets
-    T = jnp.atleast_1d(exposure.start_time_jd).shape[0]
-    assert Cp.shape == (K, T)
-    assert Cb.shape == (K, T)
-    assert Csp.shape == (K, T)
 
 
 def test_exptime_from_system_exosims_det_matches_scalar(

@@ -54,12 +54,6 @@ def test_zodi_fn_ayo_matches_fzodi_helper(observatory, exposure, star):
     assert jnp.allclose(fz_new, fz_ref)
 
 
-def test_zodi_fn_ayo_returns_scalar(observatory, exposure, star):
-    """zodi_fn_ayo returns a 0-d scalar suitable for ETC composition."""
-    fz = zodi_fn_ayo(observatory, exposure, star)
-    assert fz.shape == ()
-
-
 def test_zodi_fn_leinert_matches_fzodi_helper(observatory, exposure, star):
     """zodi_fn_leinert matches _fzodi_leinert with helio-ecliptic geometry."""
     from jaxedith.zodi import _fzodi_leinert
@@ -73,9 +67,3 @@ def test_zodi_fn_leinert_matches_fzodi_helper(observatory, exposure, star):
     fz_new = zodi_fn_leinert(observatory, exposure, star)
     fz_ref = _fzodi_leinert(exposure.central_wavelength_nm, ecl_lat, sol_lon)
     assert jnp.allclose(fz_new, fz_ref)
-
-
-def test_zodi_fn_leinert_returns_scalar(observatory, exposure, star):
-    """zodi_fn_leinert returns a 0-d scalar suitable for ETC composition."""
-    fz = zodi_fn_leinert(observatory, exposure, star)
-    assert fz.shape == ()
