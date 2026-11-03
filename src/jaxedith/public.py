@@ -29,6 +29,7 @@ import jax
 import jax.numpy as jnp
 from hwoutils.conversions import jy_to_photons_per_nm_per_m2, mag_to_flux_jy
 
+from jaxedith._checks import check_finite_nonneg
 from jaxedith._types import PerKT, PerT, Scalar
 from jaxedith.etc import (
     exptime_from_rates_ayo,
@@ -164,7 +165,11 @@ def _count_rates_ayo(
     CRnf_ez_rate = noise_floor_exozodi(CRbez, ez_ppf)
     Cnf_rate = jnp.sqrt(CRnf_star_rate**2 + CRnf_ez_rate**2)
 
-    return Cp, Cb, Cnf_rate
+    return (
+        check_finite_nonneg(Cp, "Cp"),
+        check_finite_nonneg(Cb, "Cb"),
+        check_finite_nonneg(Cnf_rate, "Cnf_rate"),
+    )
 
 
 def count_rates_ayo(
@@ -373,7 +378,11 @@ def _count_rates_exosims(
     Cb = CRbs + CRbz + CRbez + CRbbin + CRbth + CRbd
 
     Csp = speckle_residual(CRbs, ppfact, stability_fact)
-    return Cp, Cb, Csp
+    return (
+        check_finite_nonneg(Cp, "Cp"),
+        check_finite_nonneg(Cb, "Cb"),
+        check_finite_nonneg(Csp, "Csp"),
+    )
 
 
 def count_rates_exosims_det(

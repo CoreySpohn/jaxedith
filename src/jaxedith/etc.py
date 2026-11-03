@@ -13,6 +13,7 @@ rate triple is computed upstream in ``intermediates`` + ``public``.
 
 import jax.numpy as jnp
 
+from jaxedith._checks import check_not_nan
 from jaxedith._types import FloatOut, Num
 
 # -- Shared overhead / guard helpers ------------------------------------------
@@ -33,6 +34,8 @@ def _safe_divide(numerator: Num, denominator: Num) -> FloatOut:
     When ``denominator <= 0`` the result is ``jnp.inf``, but we substitute
     ``1.0`` before dividing so that ``jax.grad`` never sees ``x / 0``.
     """
+    numerator = check_not_nan(numerator, "numerator")
+    denominator = check_not_nan(denominator, "denominator")
     safe_denom = jnp.where(denominator > 0, denominator, 1.0)
     result = numerator / safe_denom
     return jnp.where(denominator > 0, result, jnp.inf)

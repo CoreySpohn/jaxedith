@@ -85,19 +85,6 @@ def sun_like_scene():
 class TestEndToEnd:
     """Full pipeline: optixstuff OpticalPath -> jaxedith equations."""
 
-    def test_count_rates_ayo_finite(self, optical_path, sun_like_scene):
-        Cp, Cb, Cnf_rate = count_rates_ayo(
-            optical_path,
-            sun_like_scene,
-            wavelength_nm=500.0,
-            separation_lod=5.0,
-            dlambda_nm=100.0,
-            ppfact=30.0,
-        )
-        assert jnp.isfinite(Cp), f"Cp not finite: {Cp}"
-        assert jnp.isfinite(Cb), f"Cb not finite: {Cb}"
-        assert jnp.isfinite(Cnf_rate), f"Cnf_rate not finite: {Cnf_rate}"
-
     def test_count_rates_ayo_positive_planet(self, optical_path, sun_like_scene):
         Cp, _, _ = count_rates_ayo(
             optical_path,
@@ -278,8 +265,10 @@ _EXOSIMS_PPFACT = 0.1
 class TestEXOSIMSEndToEnd:
     """Full pipeline: optixstuff OpticalPath -> EXOSIMS Layer 3 publics."""
 
-    def test_count_rates_exosims_det_finite(self, optical_path, sun_like_scene):
-        Cp, Cb, Csp = count_rates_exosims_det(
+    def test_count_rates_exosims_det_positive_planet(
+        self, optical_path, sun_like_scene
+    ):
+        Cp, _, _ = count_rates_exosims_det(
             optical_path,
             sun_like_scene,
             wavelength_nm=500.0,
@@ -287,13 +276,12 @@ class TestEXOSIMSEndToEnd:
             dlambda_nm=100.0,
             temp_K=270.0,
         )
-        assert jnp.isfinite(Cp), f"Cp not finite: {Cp}"
-        assert jnp.isfinite(Cb), f"Cb not finite: {Cb}"
-        assert jnp.isfinite(Csp), f"Csp not finite: {Csp}"
         assert float(Cp) > 0
 
-    def test_count_rates_exosims_char_finite(self, optical_path, sun_like_scene):
-        Cp, Cb, Csp = count_rates_exosims_char(
+    def test_count_rates_exosims_char_positive_planet(
+        self, optical_path, sun_like_scene
+    ):
+        Cp, _, _ = count_rates_exosims_char(
             optical_path,
             sun_like_scene,
             wavelength_nm=500.0,
@@ -301,9 +289,6 @@ class TestEXOSIMSEndToEnd:
             dlambda_nm=100.0,
             temp_K=270.0,
         )
-        assert jnp.isfinite(Cp), f"Cp not finite: {Cp}"
-        assert jnp.isfinite(Cb), f"Cb not finite: {Cb}"
-        assert jnp.isfinite(Csp), f"Csp not finite: {Csp}"
         assert float(Cp) > 0
 
     def test_exptime_exosims_det_finite_positive(self, optical_path, sun_like_scene):
