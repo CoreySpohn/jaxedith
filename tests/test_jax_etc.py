@@ -443,68 +443,10 @@ class TestVmap:
 
 
 class TestGrad:
-    """Verify differentiability."""
+    """Gradients stay finite below the noise floor.
 
-    def test_grad_planet_rate_wrt_contrast(self):
-        """d(CRp)/d(contrast) should be positive and finite."""
-        grad_fn = jax.grad(
-            lambda c: planet_rate(
-                F0,
-                Fs_over_F0,
-                c,
-                area_m2,
-                throughput,
-                core_throughput,
-                dlambda_nm,
-                n_channels,
-            )
-        )
-        grad_val = grad_fn(1e-9)
-        assert jnp.isfinite(grad_val)
-        assert float(grad_val) > 0
-
-    def test_grad_exptime_from_rates_ayo_wrt_contrast(self):
-        """d(t_exp)/d(contrast) should be negative.
-
-        Brighter planet -> shorter required exposure time.
-        """
-
-        def exptime_of_contrast(c):
-            Cp = planet_rate(
-                F0,
-                Fs_over_F0,
-                c,
-                area_m2,
-                throughput,
-                core_throughput,
-                dlambda_nm,
-                n_channels,
-            )
-            return exptime_from_rates_ayo(Cp, 0.5, 0.0, 7.0)
-
-        grad_val = jax.grad(exptime_of_contrast)(1e-9)
-        assert jnp.isfinite(grad_val)
-        assert float(grad_val) < 0
-
-    def test_grad_exptime_from_rates_exosims_wrt_contrast(self):
-        """d(t_exp)/d(contrast) should be negative for EXOSIMS too."""
-
-        def exptime_of_contrast(c):
-            Cp = planet_rate(
-                F0,
-                Fs_over_F0,
-                c,
-                area_m2,
-                throughput,
-                core_throughput,
-                dlambda_nm,
-                n_channels,
-            )
-            return exptime_from_rates_exosims_det(Cp, 0.5, 0.01, 7.0)
-
-        grad_val = jax.grad(exptime_of_contrast)(1e-9)
-        assert jnp.isfinite(grad_val)
-        assert float(grad_val) < 0
+    Derivative correctness is checked in ``test_gradients.py``.
+    """
 
     def test_grad_below_noise_floor_ayo(self):
         """Gradient should be finite even when planet is below noise floor.
