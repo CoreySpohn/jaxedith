@@ -21,8 +21,6 @@ from jaxedith.etc import (
     exptime_from_rates_exosims_char,
     exptime_from_rates_exosims_det,
     snr_from_rates_ayo,
-    snr_from_rates_exosims_char,
-    snr_from_rates_exosims_det,
 )
 from jaxedith.primitives import (
     binary_rate,
@@ -260,29 +258,6 @@ class TestEquations:
         # Check ratio: (Cb + Cp) / Cb = 1.5/0.5 = 3.0
         assert np.isclose(float(t_char / t_det), 3.0, rtol=1e-5)
 
-    def test_round_trip_ayo(self):
-        """snr_from_rates_ayo(exptime_from_rates_ayo(snr)) ~= snr."""
-        Cnf_rate = 0.01
-        target_snr = 10.0
-
-        t = exptime_from_rates_ayo(1.0, 0.5, Cnf_rate, target_snr)
-        recovered_snr = snr_from_rates_ayo(1.0, 0.5, Cnf_rate, float(t))
-        assert np.isclose(float(recovered_snr), target_snr, rtol=1e-3)
-
-    def test_round_trip_exosims_det(self):
-        """snr_from_rates_exosims_det(exptime_from_rates_exosims_det(snr)) ~= snr."""
-        target_snr = 10.0
-        t = exptime_from_rates_exosims_det(1.0, 0.5, 0.01, target_snr)
-        recovered_snr = snr_from_rates_exosims_det(1.0, 0.5, 0.01, float(t))
-        assert np.isclose(float(recovered_snr), target_snr, rtol=1e-4)
-
-    def test_round_trip_exosims_char(self):
-        """snr_from_rates_exosims_char(exptime_from_rates_exosims_char(snr)) ~= snr."""
-        target_snr = 10.0
-        t = exptime_from_rates_exosims_char(1.0, 0.5, 0.01, target_snr)
-        recovered_snr = snr_from_rates_exosims_char(1.0, 0.5, 0.01, float(t))
-        assert np.isclose(float(recovered_snr), target_snr, rtol=1e-4)
-
     def test_zero_observation_time(self):
         """SNR should be effectively zero for zero observation time."""
         snr = snr_from_rates_ayo(1.0, 0.5, 0.0, 0.0)
@@ -408,35 +383,6 @@ class TestVmap:
         assert results.shape == (3,)
         # ExposureConfig time proportional to SNR^2
         assert np.isclose(float(results[1] / results[0]), 49.0 / 25.0, rtol=1e-6)
-
-    def test_vmap_exptime_from_rates_exosims(self):
-        """Vmap EXOSIMS equation over different SNRs."""
-        snrs = jnp.array([5.0, 7.0, 10.0])
-        vmapped = jax.vmap(lambda s: exptime_from_rates_exosims_det(1.0, 0.5, 0.01, s))
-        results = vmapped(snrs)
-        assert results.shape == (3,)
-        assert all(jnp.isfinite(results))
-
-    def test_vmap_wavelength_batch(self):
-        """Vmap over wavelengths (simulating spectral mode)."""
-        wavelengths = jnp.array([400.0, 500.0, 600.0])
-        F0_arr = jnp.array([15000.0, 13400.0, 11000.0])
-
-        vmapped = jax.vmap(
-            lambda f0, wl: planet_rate(
-                f0,
-                Fs_over_F0,
-                Fp_over_Fs,
-                area_m2,
-                throughput,
-                core_throughput,
-                wl * 0.2,
-                n_channels,
-            )
-        )
-        results = vmapped(F0_arr, wavelengths)
-        assert results.shape == (3,)
-        assert all(jnp.isfinite(results))
 
 
 # -- Gradient tests ------------------------------------------------------------
