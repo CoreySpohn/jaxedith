@@ -357,7 +357,7 @@ class TestVmap:
     """Verify functions work with jax.vmap."""
 
     def test_vmap_planet_rate(self):
-        """Vmap over different contrasts."""
+        """Map contrasts alone, then flux and bandwidth together."""
         contrasts = jnp.array([1e-9, 1e-10, 1e-11])
         vmapped = jax.vmap(
             lambda c: planet_rate(
@@ -375,12 +375,50 @@ class TestVmap:
         assert results.shape == (3,)
         assert np.isclose(float(results[0] / results[1]), 10.0, rtol=1e-6)
 
-    def test_vmap_exptime_from_rates_ayo(self):
-        """Vmap over different SNRs."""
+        # Map flux and bandwidth together, as in a wavelength batch.
+        fluxes = jnp.array([F0, 0.8 * F0, 0.6 * F0])
+        bandwidths = jnp.array([50.0, 100.0, 150.0])
+        args = (
+            fluxes,
+            Fs_over_F0,
+            Fp_over_Fs,
+            area_m2,
+            throughput,
+            core_throughput,
+            bandwidths,
+            n_channels,
+        )
+        results = jax.vmap(planet_rate, (0, None, None, None, None, None, 0, None))(
+            *args
+        )
+        expected = jnp.array(
+            [
+                planet_rate(f, *args[1:6], bw, n_channels)
+                for f, bw in zip(fluxes, bandwidths, strict=True)
+            ]
+        )
+        assert results.shape == fluxes.shape
+        assert jnp.all(jnp.isfinite(results))
+        np.testing.assert_allclose(results, expected, rtol=1e-6)
+
+    @pytest.mark.parametrize(
+        "exptime",
+        [
+            exptime_from_rates_ayo,
+            exptime_from_rates_exosims_det,
+            exptime_from_rates_exosims_char,
+        ],
+        ids=["ayo", "exosims_det", "exosims_char"],
+    )
+    def test_vmap_exptime_from_rates(self, exptime):
+        """Mapped target SNRs agree with a scalar loop for every variant."""
         snrs = jnp.array([5.0, 7.0, 10.0])
-        vmapped = jax.vmap(lambda s: exptime_from_rates_ayo(1.0, 0.5, 0.0, s))
+        vmapped = jax.vmap(lambda s: exptime(1.0, 0.5, 0.0, s))
         results = vmapped(snrs)
+        expected = jnp.array([exptime(1.0, 0.5, 0.0, s) for s in snrs])
         assert results.shape == (3,)
+        assert jnp.all(jnp.isfinite(results))
+        np.testing.assert_allclose(results, expected, rtol=1e-6)
         # ExposureConfig time proportional to SNR^2
         assert np.isclose(float(results[1] / results[0]), 49.0 / 25.0, rtol=1e-6)
 
