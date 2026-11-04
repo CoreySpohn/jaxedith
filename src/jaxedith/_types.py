@@ -16,6 +16,9 @@ Num = Real[ArrayLike, "..."]
 # fed only Python floats returns a Python float.
 FloatOut = Float[ArrayLike, "..."]
 
+# Product-only primitives preserve integer or floating arithmetic.
+NumOut = Real[ArrayLike, "..."]
+
 # Per-planet, per-epoch grids used by the ``*_from_system_*`` wrappers. The
 # names ``k`` (planets) and ``t`` (epochs) bind across every annotation in one
 # function, so a (K, T) result built from a (K, T') input fails.
