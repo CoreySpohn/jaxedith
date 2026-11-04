@@ -1,4 +1,10 @@
-# Unreleased sibling libraries, one requirement per line, installed after the package.
-# Leave this file with only comments to test against the released PyPI versions.
-# Example (a pinned SHA keeps CI reproducible; update it deliberately):
-# orbix @ git+https://github.com/CoreySpohn/orbix@0123456789abcdef0123456789abcdef01234567
+# Unreleased sibling libraries, applied as uv overrides so each is installed at a pinned main
+# commit whatever version bounds other packages declare (a breaking change waiting for its
+# release tag reports the old major version). Move a pin deliberately; drop it once PyPI covers it.
+hwoutils @ git+https://github.com/CoreySpohn/hwoutils@20f6973e39954321feba7efcf781fc217016a46f
+orbix @ git+https://github.com/CoreySpohn/orbix@b74aa8cb0ab6edda98fdb351de35b452372b5b43
+skyscapes @ git+https://github.com/CoreySpohn/skyscapes@35d59895ac66db52f39011250d303a7f9db57f5b
+optixstuff @ git+https://github.com/CoreySpohn/optixstuff@8cd97496c3434ea7bd4effaf2b6f2f1fb095a294
+yippy @ git+https://github.com/HabitableWorldsObservatory/yippy@df53e4463a903bc54418886de4ced4606c23b8a6
+coronalyze @ git+https://github.com/CoreySpohn/coronalyze@cb32d3060a59902ae65f2282e7fd8e06aa782390
+coronagraphoto @ git+https://github.com/CoreySpohn/coronagraphoto@0a4efb1e5a8b54c270f7b29204c2985f16d4827b

@@ -69,10 +69,8 @@ jobs:
           uv venv .venv --python ${{ matrix.python-version }}
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-          uv pip install --python .venv/bin/python -e ".[test]" ruff==0.15.18 deptry ty==0.0.96
-          if grep -qv '^\s*\(#\|$\)' .github/sibling-pins.txt; then
-            uv pip install --python .venv/bin/python -r .github/sibling-pins.txt
-          fi
+          # One resolve, so pinned siblings satisfy the package floors.
+          uv pip install --python .venv/bin/python -e ".[test]" --override .github/sibling-pins.txt ruff==0.15.18 deptry ty==0.0.96
 
       - name: Lint and formatting
         run: |
@@ -124,10 +122,8 @@ jobs:
         run: |
           uv venv .venv --python 3.12
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-          uv pip install --python .venv/bin/python -e ".[docs,test]"
-          if grep -qv '^\s*\(#\|$\)' .github/sibling-pins.txt; then
-            uv pip install --python .venv/bin/python -r .github/sibling-pins.txt
-          fi
+          # One resolve, so pinned siblings satisfy the package floors.
+          uv pip install --python .venv/bin/python -e ".[docs,test]" --override .github/sibling-pins.txt
 
       # Every Python fence in README.md and docs runs as a test. A block that cannot run on a
       # runner carries the info string `python notest` and a one-line reason above it.
@@ -174,10 +170,8 @@ jobs:
         run: |
           uv venv .venv --python 3.12
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-          uv pip install --python .venv/bin/python -e ".[test]"
-          if grep -qv '^\s*\(#\|$\)' .github/sibling-pins.txt; then
-            uv pip install --python .venv/bin/python -r .github/sibling-pins.txt
-          fi
+          # One resolve, so pinned siblings satisfy the package floors.
+          uv pip install --python .venv/bin/python -e ".[test]" --override .github/sibling-pins.txt
 
       - name: Slow tier (hypothesis nightly profile)
         env:
