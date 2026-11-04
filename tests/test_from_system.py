@@ -2,8 +2,8 @@
 
 Three axes verified per wrapper:
 
-1. Shape: return is always ``(K, T)``, enforced by the ``PerKT`` return
-   annotations that the jaxtyping hook in ``conftest.py`` checks at call time.
+1. Shape: return is always ``(system.n_planets, n_epochs)``, checked against
+   the inputs below; the ``PerKT`` annotations also enforce rank and dtype.
 2. Parity: element ``[k, t]`` of the vmapped result equals the scalar
    public called on the same ``(k, t)`` scene.
 3. Zodi swap: passing ``zodi_fn_leinert`` changes ``Fzodi`` as expected
@@ -291,6 +291,7 @@ def test_exptime_from_system_ayo_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
+    assert t_new.shape == (system.n_planets, t_jd.size)
     assert jnp.allclose(t_new[0, 0], t_scalar)
 
 
@@ -341,6 +342,7 @@ def test_snr_from_system_ayo_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
+    assert snr_new.shape == (system.n_planets, t_jd.size)
     assert jnp.allclose(snr_new[0, 0], snr_scalar)
 
 
@@ -372,8 +374,8 @@ def test_exptime_from_system_ayo_respects_zodi_swap(
 def test_count_rates_from_system_exosims_det_runs(
     optical_path, system, observatory, exposure, ppconfig
 ):
-    """Smoke call; the (K, T) shape contract is the return annotation."""
-    count_rates_from_system_exosims_det(
+    """All three rates have the input-derived planet and epoch sizes."""
+    rates = count_rates_from_system_exosims_det(
         system,
         optical_path,
         observatory,
@@ -381,6 +383,8 @@ def test_count_rates_from_system_exosims_det_runs(
         ppconfig,
         zodi_fn=zodi_fn_ayo,
     )
+    expected_shape = (system.n_planets, jnp.atleast_1d(exposure.start_time_jd).size)
+    assert all(rate.shape == expected_shape for rate in rates)
 
 
 def test_count_rates_from_system_ayo_matches_scalar(
@@ -425,6 +429,10 @@ def test_count_rates_from_system_ayo_matches_scalar(
         temp_K=observatory.temperature_K,
         ez_ppf=ppconfig.ez_ppf,
         ppfact=ppconfig.ppfact,
+    )
+    assert all(
+        rate.shape == (system.n_planets, t_jd.size)
+        for rate in (Cp_new, Cb_new, Cnf_new)
     )
     assert jnp.allclose(Cp_new[0, 0], Cp_scalar)
     assert jnp.allclose(Cb_new[0, 0], Cb_scalar)
@@ -481,6 +489,7 @@ def test_exptime_from_system_exosims_det_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
+    assert t_new.shape == (system.n_planets, t_jd.size)
     assert jnp.allclose(t_new[0, 0], t_scalar)
 
 
@@ -520,6 +529,7 @@ def test_snr_from_system_exosims_det_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
+    assert snr_new.shape == (system.n_planets, t_jd.size)
     assert jnp.allclose(snr_new[0, 0], snr_scalar)
 
 
@@ -559,6 +569,7 @@ def test_exptime_from_system_exosims_char_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
+    assert t_new.shape == (system.n_planets, t_jd.size)
     assert jnp.allclose(t_new[0, 0], t_scalar)
 
 
@@ -598,4 +609,5 @@ def test_snr_from_system_exosims_char_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
+    assert snr_new.shape == (system.n_planets, t_jd.size)
     assert jnp.allclose(snr_new[0, 0], snr_scalar)
