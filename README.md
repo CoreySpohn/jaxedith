@@ -123,7 +123,9 @@ dispatch.
 
 Scalar mode (you've got the astrophysical scalars in hand):
 
-```python
+This template needs a configured optical path; the ellipsis is a placeholder.
+
+```python notest
 from jaxedith import ETCScene, exptime_ayo
 import optixstuff as ox
 
@@ -151,7 +153,9 @@ t_exp = exptime_ayo(
 
 System mode (you have a `skyscapes.System`):
 
-```python
+This example needs a user-supplied system, optical path, and orbit data.
+
+```python notest
 import jax.numpy as jnp
 import optixstuff as ox
 from coronalyze import PPConfig

@@ -34,10 +34,10 @@ types:
 | `coronalyze` | `PPConfig` (post-processing knobs) |
 | `hwoutils` | Shared unit conversions, transforms, constants |
 
-Runtime dependencies are just `hwoutils`, `jax`, `jaxlib`, and
-`orbix`. The other workspace libs are needed only for the
-`_from_system_*` wrappers and are installed via the `test` extra (or
-explicitly):
+Runtime dependencies are `equinox`, `hwoutils`, `jax`, `jaxlib`,
+`jaxtyping`, and `skyscapes`. The additional libraries used to build
+optical paths, observatories, and post-processing configurations are
+available through the `test` extra (or can be installed explicitly):
 
 ```bash
 pip install jaxedith[test]

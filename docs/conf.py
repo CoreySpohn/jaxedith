@@ -14,6 +14,7 @@ extensions = [
     "myst_nb",
     "autoapi.extension",
     "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx.ext.mathjax",
@@ -35,11 +36,13 @@ intersphinx_mapping = {
 templates_path = ["_templates"]
 exclude_patterns = ["_build", ".build", "Thumbs.db", ".DS_Store"]
 
-language = "Python"
+language = "en"
 
 autoapi_dirs = ["../src"]
 autoapi_ignore = ["**/*version.py"]
 autodoc_typehints = "description"
+# AutoAPI already indexes fields; Napoleon should render their descriptions only.
+napoleon_use_ivar = True
 
 myst_enable_extensions = ["amsmath", "dollarmath"]
 myst_fence_as_directive = ["mermaid"]

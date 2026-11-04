@@ -56,7 +56,9 @@ small set of scalars, unpack the optical path, and call the
 corresponding Layer 1 primitive. There is one intermediate per
 noise-budget term (signal, background, noise floor).
 
-```python
+This adapter example needs a configured optical path supplied by the caller.
+
+```python notest
 from jaxedith.intermediates import (
     planet_signal, stellar_leakage,
     zodi_background, exozodi_background, binary_background,
@@ -89,6 +91,8 @@ from jaxedith.etc import (
     exptime_from_rates_exosims_char, snr_from_rates_exosims_char,
 )
 
+# Example count rates in electrons per second.
+Cp, Cb, Cnf_rate = 1.0, 0.1, 0.001
 t_exp = exptime_from_rates_ayo(Cp, Cb, Cnf_rate, snr=7.0)
 snr = snr_from_rates_ayo(Cp, Cb, Cnf_rate, t_obs=3600.0)
 ```
@@ -136,7 +140,9 @@ expects.
 
 **(1) Whole pipeline, system-level (most common):**
 
-```python
+This schematic call needs system inputs and omits required observation arguments.
+
+```python notest
 t_exp = exptime_from_system_ayo(system, optical_path, ...)
 ```
 
@@ -147,7 +153,9 @@ vmaps over `(K, T)`.
 
 **(2) Whole pipeline, scalar (sensitivity studies, sweeps):**
 
-```python
+This schematic call needs hardware and scene inputs and omits required arguments.
+
+```python notest
 t_exp = exptime_ayo(optical_path, scene, wavelength_nm, ...)
 ```
 
@@ -157,7 +165,9 @@ skyscapes scene in the loop.
 
 **(3) Per-term composition (testing, custom budgets):**
 
-```python
+This composition sketch needs a configured optical path and complete rate inputs.
+
+```python notest
 from jaxedith.intermediates import planet_signal, zodi_background
 from jaxedith.etc import exptime_from_rates_ayo
 

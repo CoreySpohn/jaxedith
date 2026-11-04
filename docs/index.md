@@ -43,7 +43,9 @@ System mode -- pass a {class}`skyscapes.System` directly. The
 wrappers extract per-(planet, epoch) astrophysics and `jax.vmap` the
 scalar core over `(K, T)`:
 
-```python
+This example needs a user-supplied system, optical path, and orbit data.
+
+```python notest
 import jax.numpy as jnp
 import optixstuff as ox
 from coronalyze import PPConfig
@@ -73,7 +75,9 @@ Scalar mode -- supply your own astrophysical scalars via an
 sensitivity studies, and tests that do not need a full skyscapes
 scene:
 
-```python
+This example needs a configured optical path supplied by the caller.
+
+```python notest
 from jaxedith import ETCScene, exptime_ayo
 
 scene = ETCScene(
@@ -128,5 +132,5 @@ explanation/variants
 :caption: API Reference
 :hidden:
 
-autoapi/jaxedith/index
+autoapi/index
 ```
