@@ -87,6 +87,27 @@ packages = ["src/jaxedith"]
 exclude = ["/scripts", "/docs", "/tests", "/.github"]
 
 [tool.pytest.ini_options]
+filterwarnings = [
+    "error",
+    # ExoJAX's HITRAN adapter redirects stdout without closing its devnull file.
+    'ignore:unclosed file .*dev/null.*:ResourceWarning:exojax\.database\._common\.hitranapi$',
+    # HITRAN HAPI's regex strings contain invalid escapes on Python 3.12.
+    "ignore:invalid escape sequence:SyntaxWarning:.*/hapi/hapi$",
+    # ExoJAX's isotope table separator uses a non-raw regex string.
+    "ignore:invalid escape sequence:SyntaxWarning:.*/exojax/utils/isotopes$",
+    # Vaex's string-function docstrings contain non-raw regex examples.
+    "ignore:invalid escape sequence:SyntaxWarning:.*/vaex/functions$",
+    # Vaex's plotting parser uses non-raw regex strings.
+    "ignore:invalid escape sequence:SyntaxWarning:.*/vaex/viz/(mpl|contour)$",
+    # ExoJAX's line-shape docstrings contain non-raw LaTeX escapes.
+    "ignore:invalid escape sequence:SyntaxWarning:.*/exojax/opacity/_common/lsd$",
+    # ExoJAX's atomic-broadening and Mie docstrings contain non-raw LaTeX escapes.
+    "ignore:invalid escape sequence:SyntaxWarning:.*/exojax/database/(core_atom/broadening|mie)$",
+    # ExoJAX's atmospheric-profile docstrings contain non-raw LaTeX escapes.
+    "ignore:invalid escape sequence:SyntaxWarning:.*/exojax/atm/atmprof$",
+    # ExoJAX's two-stream transfer docstrings contain non-raw LaTeX escapes.
+    "ignore:invalid escape sequence:SyntaxWarning:.*/exojax/rt/(toon|twostream)$",
+]
 markers = [
     "medium: tests with a 30-second default time budget",
     "slow: tests with a 300-second default time budget, run nightly",
