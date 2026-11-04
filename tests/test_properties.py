@@ -28,7 +28,7 @@ VARIANTS = {
     ),
 }
 
-SMALL = settings(max_examples=25, deadline=None)
+SMALL = settings(deadline=None)
 
 
 def _rate_arrays(shapes):
