@@ -16,7 +16,14 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
-dependencies = ["hwoutils", "jax>=0.8.1", "jaxlib>=0.8.1", "jaxtyping", "orbix", "skyscapes"]
+dependencies = [
+    "equinox",
+    "hwoutils",
+    "jax>=0.8.1",
+    "jaxlib>=0.8.1",
+    "jaxtyping",
+    "skyscapes",
+]
 [project.optional-dependencies]
 dev = ["pre-commit"]
 docs = [
@@ -29,7 +36,25 @@ docs = [
     "ipython",
     "matplotlib",
 ]
-test = ["nox", "pytest", "beartype", "hypothesis", "pytest-cov", "orbix", "optixstuff>3.0.0", "skyscapes", "yippy", "coronalyze", "coronagraphoto"]
+test = [
+    "pytest",
+    "beartype",
+    "hypothesis",
+    "pytest-cov",
+    "pytest-xdist",
+    "pytest-testmon",
+    "pytest-markdown-docs",
+    "pytest-timeout",
+    "pytest-fail-slow",
+    "numpy",
+    "scipy",
+    "orbix",
+    "optixstuff>3.0.0",
+    "skyscapes",
+    "yippy",
+    "coronalyze",
+    "coronagraphoto",
+]
 
 [project.urls]
 Homepage = "https://github.com/CoreySpohn/jaxedith"
@@ -61,3 +86,37 @@ packages = ["src/jaxedith"]
 
 [tool.hatch.build.targets.sdist]
 exclude = ["/scripts", "/docs", "/tests", "/.github"]
+
+[tool.pytest.ini_options]
+markers = [
+    "medium: tests with a 30-second default time budget",
+    "slow: tests with a 300-second default time budget, run nightly",
+]
+
+[tool.testbudget]
+library = "jaxedith"
+mode = "report"
+unit_s = 5
+medium_s = 30
+slow_s = 300
+
+[tool.deptry]
+known_first_party = ["jaxedith"]
+optional_dependencies_dev_groups = ["dev", "docs", "test"]
+
+[tool.deptry.per_rule_ignores]
+# JAX loads its compiled backend; keep the explicit minimum version constraint.
+DEP002 = ["jaxlib"]
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.src]
+include = ["src/jaxedith"]
+
+[tool.ty.rules]
+# Equinox abstract fields and metaclasses are not fully modeled yet.
+invalid-attribute-override = "ignore"
+invalid-property-type-override = "ignore"
+invalid-argument-type = "warn"
+invalid-return-type = "warn"
