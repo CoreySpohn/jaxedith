@@ -1,0 +1,4 @@
+# Unreleased sibling libraries, one requirement per line, installed after the package.
+# Leave this file with only comments to test against the released PyPI versions.
+# Example (a pinned SHA keeps CI reproducible; update it deliberately):
+# orbix @ git+https://github.com/CoreySpohn/orbix@0123456789abcdef0123456789abcdef01234567
