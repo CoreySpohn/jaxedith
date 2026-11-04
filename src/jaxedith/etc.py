@@ -9,6 +9,10 @@ noise term happens inside the equation, not at the caller.
 Naming convention: ``{exptime,snr}_from_rates_{ayo,exosims_det,exosims_char}``.
 The ``_from_rates_`` suffix marks this module as closed-form math; the
 rate triple is computed upstream in ``intermediates`` + ``public``.
+
+With ``JAXEDITH_DEBUG_CHECKS=1``, exposure solvers check their division
+numerator and denominator for NaNs before applying the below-floor fallback.
+SNR solvers and overhead arguments are outside the scope of these checks.
 """
 
 import jax.numpy as jnp

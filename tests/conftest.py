@@ -4,8 +4,8 @@ import os
 
 from jaxtyping import install_import_hook
 
-# Library invariants (finite, non-negative rates; no NaN into the solvers) raise
-# during the whole suite instead of being re-asserted in individual tests.
+# Library checks (finite, non-negative rates; NaN-free exposure division
+# intermediates) raise during tests. SNR solvers and overheads are not checked.
 os.environ.setdefault("JAXEDITH_DEBUG_CHECKS", "1")
 
 # Runtime shape and dtype checking of the jaxtyping annotations, tests only.
