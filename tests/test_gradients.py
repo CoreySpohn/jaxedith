@@ -54,8 +54,11 @@ def test_equation_derivatives(name):
     )
 
 
-def test_planet_rate_derivatives():
-    """Contrast and bandwidth enter linearly; scale 1e-9 and 100 nm to order one."""
+@pytest.mark.parametrize(
+    "name", [name for name in CASES if name.startswith("exptime_")]
+)
+def test_planet_rate_derivatives(name):
+    """Check AD and physical contrast signs, scaled by 1e-9 and 100 nm."""
 
     def rate(contrast_scaled, dlambda_scaled):
         return planet_rate(
@@ -78,3 +81,17 @@ def test_planet_rate_derivatives():
         atol=1e-4,
         rtol=1e-4,
     )
+
+    planet_slope = jax.grad(rate, argnums=0)(1.0, 1.0)
+    assert jnp.isfinite(planet_slope)
+    assert planet_slope > 0.0
+
+    exptime, args = CASES[name]
+
+    def exposure(contrast_scaled):
+        return exptime(rate(contrast_scaled, 1.0), *args[1:])
+
+    assert jnp.isfinite(exposure(1.0))
+    exposure_slope = jax.grad(exposure)(1.0)
+    assert jnp.isfinite(exposure_slope)
+    assert exposure_slope < 0.0
