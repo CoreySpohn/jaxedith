@@ -1,8 +1,9 @@
 <p align="center">
-  <a href="https://pypi.org/project/jaxedith/"><img src="https://img.shields.io/pypi/v/jaxedith.svg?style=flat-square" alt="PyPI"/></a>
+  <a href="https://pypi.org/project/jaxedith/"><img src="https://img.shields.io/pypi/v/jaxedith.svg?style=flat-square&logo=pypi" alt="PyPI"/></a>
   <a href="https://jaxedith.readthedocs.io"><img src="https://readthedocs.org/projects/jaxedith/badge/?version=latest&style=flat-square" alt="Documentation Status"/></a>
-  <a href="https://github.com/coreyspohn/jaxedith/blob/main/LICENSE"><img src="https://img.shields.io/github/license/coreyspohn/jaxedith?style=flat-square" alt="License"/></a>
-  <a href="https://pypi.org/project/jaxedith/"><img src="https://img.shields.io/pypi/pyversions/jaxedith?style=flat-square" alt="Python"/></a>
+  <a href="https://github.com/CoreySpohn/jaxEDITH/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/CoreySpohn/jaxEDITH/ci.yml?branch=main&style=flat-square&logo=github&label=tests" alt="Tests"/></a>
+  <a href="https://github.com/CoreySpohn/jaxEDITH/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License"/></a>
+  <a href="https://github.com/CoreySpohn/jaxEDITH/blob/main/pyproject.toml"><img src="https://img.shields.io/badge/python-3.12%2B-blue.svg?style=flat-square&logo=python" alt="Python 3.12+"/></a>
 </p>
 
 # jaxedith
