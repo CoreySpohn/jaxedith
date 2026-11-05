@@ -59,6 +59,7 @@ member, which is what you want when developing across the stack.
 
 ```python
 import jaxedith
+
 print(jaxedith.__version__)
 ```
 

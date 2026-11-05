@@ -134,20 +134,23 @@ optical_path = ox.OpticalPath(...)
 
 # Build the scene (8 dimensionless scalars + 2 geometric)
 scene = ETCScene(
-    F0=1.34e8,           # flux zero point [ph/s/m^2/nm]
-    Fs_over_F0=0.005,    # stellar / zeropoint
-    Fp_over_Fs=1e-10,    # planet-star contrast
-    Fzodi=3.5e-10,       # local zodi surface brightness ratio
-    Fexozodi=7.15e-9,    # exozodi at 1 AU
+    F0=1.34e8,  # flux zero point [ph/s/m^2/nm]
+    Fs_over_F0=0.005,  # stellar / zeropoint
+    Fp_over_Fs=1e-10,  # planet-star contrast
+    Fzodi=3.5e-10,  # local zodi surface brightness ratio
+    Fexozodi=7.15e-9,  # exozodi at 1 AU
     dist_pc=10.0,
     sep_arcsec=0.1,
     Fbinary=0.0,
 )
 
 t_exp = exptime_ayo(
-    optical_path, scene,
-    wavelength_nm=500.0, separation_lod=5.0,
-    dlambda_nm=100.0, snr=7.0,
+    optical_path,
+    scene,
+    wavelength_nm=500.0,
+    separation_lod=5.0,
+    dlambda_nm=100.0,
+    snr=7.0,
 )
 ```
 

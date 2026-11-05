@@ -53,8 +53,8 @@ from jaxedith import exptime_from_system_ayo, zodi_fn_ayo
 from orbix.observatory import Observatory, ObservatoryL2Halo
 
 t_exp = exptime_from_system_ayo(
-    system,                                # skyscapes.System
-    optical_path,                          # optixstuff.OpticalPath
+    system,  # skyscapes.System
+    optical_path,  # optixstuff.OpticalPath
     observatory=Observatory(orbit=ObservatoryL2Halo.from_default()),
     exposure=ox.ExposureConfig(
         start_time_jd=jnp.array([2_460_000.5]),
@@ -92,9 +92,12 @@ scene = ETCScene(
 )
 
 t_exp = exptime_ayo(
-    optical_path, scene,
-    wavelength_nm=500.0, separation_lod=5.0,
-    dlambda_nm=100.0, snr=7.0,
+    optical_path,
+    scene,
+    wavelength_nm=500.0,
+    separation_lod=5.0,
+    dlambda_nm=100.0,
+    snr=7.0,
 )
 ```
 

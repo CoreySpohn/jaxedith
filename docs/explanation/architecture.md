@@ -31,17 +31,28 @@ inputs and returns a count rate or a derived scalar. No
 
 ```python
 from jaxedith.primitives import (
-    planet_rate, stellar_leakage_rate,
-    zodi_rate, exozodi_rate, binary_rate,
-    thermal_rate, detector_noise_rate,
-    noise_floor_stellar, noise_floor_exozodi,
-    speckle_residual, photon_counting_time,
+    planet_rate,
+    stellar_leakage_rate,
+    zodi_rate,
+    exozodi_rate,
+    binary_rate,
+    thermal_rate,
+    detector_noise_rate,
+    noise_floor_stellar,
+    noise_floor_exozodi,
+    speckle_residual,
+    photon_counting_time,
 )
 
 Cp = planet_rate(
-    F0=1.34e8, Fs_over_F0=0.005, Fp_over_Fs=1e-10,
-    area_m2=42.76, throughput=0.36, core_throughput=0.30,
-    dlambda_nm=100.0, n_channels=2,
+    F0=1.34e8,
+    Fs_over_F0=0.005,
+    Fp_over_Fs=1e-10,
+    area_m2=42.76,
+    throughput=0.36,
+    core_throughput=0.30,
+    dlambda_nm=100.0,
+    n_channels=2,
 )
 ```
 
@@ -60,15 +71,24 @@ This adapter example needs a configured optical path supplied by the caller.
 
 ```python notest
 from jaxedith.intermediates import (
-    planet_signal, stellar_leakage,
-    zodi_background, exozodi_background, binary_background,
-    thermal_background, detector_noise, stellar_noise_floor,
+    planet_signal,
+    stellar_leakage,
+    zodi_background,
+    exozodi_background,
+    binary_background,
+    thermal_background,
+    detector_noise,
+    stellar_noise_floor,
 )
 
 Cp = planet_signal(
     optical_path,
-    wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=100.0,
-    F0=1.34e8, Fs_over_F0=0.005, Fp_over_Fs=1e-10,
+    wavelength_nm=500.0,
+    separation_lod=5.0,
+    dlambda_nm=100.0,
+    F0=1.34e8,
+    Fs_over_F0=0.005,
+    Fp_over_Fs=1e-10,
     n_channels=optical_path.n_channels,
 )
 ```
@@ -86,9 +106,12 @@ in) and returns either an exposure time or an achieved SNR.
 
 ```python
 from jaxedith.etc import (
-    exptime_from_rates_ayo, snr_from_rates_ayo,
-    exptime_from_rates_exosims_det, snr_from_rates_exosims_det,
-    exptime_from_rates_exosims_char, snr_from_rates_exosims_char,
+    exptime_from_rates_ayo,
+    snr_from_rates_ayo,
+    exptime_from_rates_exosims_det,
+    snr_from_rates_exosims_det,
+    exptime_from_rates_exosims_char,
+    snr_from_rates_exosims_char,
 )
 
 # Example count rates in electrons per second.
@@ -110,17 +133,27 @@ scalar flavour and a system-wrapped flavour:
 ```python
 # Scalar mode -- pass an ETCScene of astrophysical scalars
 from jaxedith import (
-    count_rates_ayo, exptime_ayo, snr_ayo,
-    count_rates_exosims_det, exptime_exosims_det, snr_exosims_det,
-    count_rates_exosims_char, exptime_exosims_char, snr_exosims_char,
+    count_rates_ayo,
+    exptime_ayo,
+    snr_ayo,
+    count_rates_exosims_det,
+    exptime_exosims_det,
+    snr_exosims_det,
+    count_rates_exosims_char,
+    exptime_exosims_char,
+    snr_exosims_char,
 )
 
 # System mode -- pass a skyscapes.System; vmap'd over (K planets, T epochs)
 from jaxedith import (
-    count_rates_from_system_ayo, exptime_from_system_ayo, snr_from_system_ayo,
-    count_rates_from_system_exosims_det, exptime_from_system_exosims_det,
+    count_rates_from_system_ayo,
+    exptime_from_system_ayo,
+    snr_from_system_ayo,
+    count_rates_from_system_exosims_det,
+    exptime_from_system_exosims_det,
     snr_from_system_exosims_det,
-    count_rates_from_system_exosims_char, exptime_from_system_exosims_char,
+    count_rates_from_system_exosims_char,
+    exptime_from_system_exosims_char,
     snr_from_system_exosims_char,
 )
 ```
