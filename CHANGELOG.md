@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.0](https://github.com/CoreySpohn/jaxedith/compare/v1.0.1...v2.0.0) (2026-11-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deps:** the test extra needs optixstuff>3.0.0 (4.0.0 or later), whose core_mean_intensity is per (lambda/D)^2. With it, stellar leakage, background and the EXOSIMS speckle residual from YippyCoronagraph rise by 1/pixel_scale_lod**2 (16x at 0.25 lambda/D pixels) while its AYO noise floor is unchanged. Noise floors from coronagraphs that already report a density, such as physical-optics backends and custom scalar coronagraphs, drop by pixel_scale_lod**2; recalibrate any ppfact tuned to the old floor.
+
+### Features
+
+* **etc:** opt-in error_if invariants on rates and solver inputs, drop finite-only tests ([ea27f8d](https://github.com/CoreySpohn/jaxedith/commit/ea27f8d404ab3172f85b773bfe1a961659bba922))
+* **etc:** pass stellar angular diameter to coronagraph leakage ([202b4c3](https://github.com/CoreySpohn/jaxedith/commit/202b4c37c6dce3cd73eb1c2a253426b5df04f669))
+
+
+### Bug Fixes
+
+* **deps:** require optixstuff with per-(lambda/D)^2 core intensity ([3bba081](https://github.com/CoreySpohn/jaxedith/commit/3bba08135867c5144bd68995eb1c840699349813))
+* **intermediates:** read core mean intensity per (lambda/D)^2 in the noise floor ([ab82e3b](https://github.com/CoreySpohn/jaxedith/commit/ab82e3b9a0e09995337e48a9632f27172f760945))
+* **jaxedith:** allow integer returns from product-only primitives ([02128f7](https://github.com/CoreySpohn/jaxedith/commit/02128f7de2e30a0f5745768f5c8a3e0a51b7b6a0))
+
 ## [1.0.1](https://github.com/CoreySpohn/jaxedith/compare/v1.0.0...v1.0.1) (2026-07-18)
 
 
