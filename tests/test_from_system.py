@@ -432,13 +432,13 @@ def test_count_rates_from_system_ayo_matches_scalar(
         ppfact=ppconfig.ppfact,
     )
     # Photon flux times collecting area, optics, aperture, bandwidth and
-    # channels, with the detector's additive QE factor 0.9 + 1.0 = 1.9.
+    # channels, with the detector's effective QE 0.9 * 1.0 = 0.9.
     expected_planet = (
         F0
         * contrasts[0, 0]
         * optical_path.primary.area_m2
         * 0.5
-        * 1.9
+        * 0.9
         * optical_path.coronagraph.throughput(sep_lod, wl)
         * dlambda
         * optical_path.n_channels

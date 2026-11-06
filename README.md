@@ -18,7 +18,7 @@ retrievals where the ETC has to be differentiable, `vmap`-able, and
 JIT-able end-to-end.
 
 Count rates are in electrons per second. The intermediate adapters apply
-`detector.get_qe(wavelength_nm) + detector.dqe` exactly once; attenuating
+`detector.get_qe(wavelength_nm) * detector.dqe` exactly once; attenuating
 elements in the optical path must not also include detector QE. Read-noise
 variance is divided by the detector frame time, with one read per frame.
 

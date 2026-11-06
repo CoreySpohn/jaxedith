@@ -283,7 +283,8 @@ def thermal_rate(
         lod_rad: lam/D in radians.
         eps_warm_T_cold: effective emissivity x cold transmission [dimensionless].
         QE: quantum efficiency [e/photon].
-        dQE: additive QE correction [e/photon], used as ``QE + dQE``.
+        dQE: multiplicative QE degradation factor [dimensionless], 1 for none;
+            the effective QE is ``QE * dQE``.
         core_area_lod2: solid angle of photometric aperture [(lam/D)^2].
     """
     lam_m = wavelength_nm * nm2m  # nm -> m
@@ -301,7 +302,7 @@ def thermal_rate(
     return (
         planck_photons
         * eps_warm_T_cold
-        * (QE + dQE)
+        * (QE * dQE)
         * area_m2
         * dlambda_nm
         * nm2m

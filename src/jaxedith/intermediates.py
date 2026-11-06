@@ -5,7 +5,7 @@ observation scalars, unpacks the optical path, and calls the corresponding
 pure scalar function in :mod:`jaxedith.primitives`.
 
 Photon-to-electron conversion is applied here: rates are electrons per second,
-using ``detector.get_qe(wavelength_nm) + detector.dqe``. Optical-path attenuating
+using ``detector.get_qe(wavelength_nm) * detector.dqe``. Optical-path attenuating
 elements must not also include detector QE. Thermal emission uses its own
 emissivity and cold transmission rather than the system optical throughput.
 
@@ -45,9 +45,12 @@ def _lod_arcsec(optical_path, wavelength_nm):
 
 
 def _detector_qe(optical_path, wavelength_nm):
-    """Electron yield per photon, including the additive QE correction."""
+    """Electron yield per photon: ``get_qe(wavelength_nm) * dqe``.
+
+    ``dqe`` is the multiplicative QE degradation factor (1 means none).
+    """
     detector = optical_path.detector
-    return detector.get_qe(wavelength_nm) + detector.dqe
+    return detector.get_qe(wavelength_nm) * detector.dqe
 
 
 def planet_signal(
@@ -236,8 +239,8 @@ def thermal_background(
         temp_K,
         _lod_rad(optical_path, wavelength_nm),
         eps_warm_T_cold,
-        _detector_qe(optical_path, wavelength_nm),
-        0.0,
+        optical_path.detector.get_qe(wavelength_nm),
+        optical_path.detector.dqe,
         coro.core_area(separation_lod, wavelength_nm),
     )
 

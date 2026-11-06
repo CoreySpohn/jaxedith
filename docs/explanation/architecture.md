@@ -103,7 +103,7 @@ intermediate layer is the right level to drop in if you want
 per-term control without the variant orchestrator.
 
 These adapters convert photon rates to electrons per second using
-`detector.get_qe(wavelength_nm) + detector.dqe`, including for the stellar
+`detector.get_qe(wavelength_nm) * detector.dqe`, including for the stellar
 noise floor. Optical-path attenuating elements must not also include detector
 QE. Thermal emission uses the same QE factor with its emissivity and cold
 transmission. Detector read variance uses `detector.frame_time_s`.

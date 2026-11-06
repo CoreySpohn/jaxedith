@@ -56,7 +56,7 @@ def optical_path():
         primary=ox.SimplePrimary(diameter_m=7.877, obscuration=0.0),
         attenuating_elements=(ox.ConstantThroughput(throughput=0.5),),
         coronagraph=DiameterCoronagraph(),
-        detector=ox.Detector(pixel_scale_arcsec=0.01, shape=(10, 10)),
+        detector=ox.Detector(pixel_scale_arcsec=0.01, shape=(10, 10), dqe=1.0),
     )
 
 
