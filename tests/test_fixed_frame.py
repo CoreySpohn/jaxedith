@@ -216,35 +216,70 @@ def test_solver_feasibility_and_minimality(planner, x64):
             )
 
 
-def test_whole_frame_roundtrip():
-    """Fails if a whole-frame target rounds up to an extra read."""
-    with jax.enable_x64():
-        rates = (2.0, 3.0, 0.02)
-        hardware = (4.0, 0.01, 3.0, 0.1, 10.0)
+def test_float32_fractional_frame_boundaries():
+    """Fails if float32 roundoff charges an extra read or CIC at a boundary."""
+    with jax.enable_x64(False):
+        n = jnp.arange(1, 14, dtype=jnp.float32)
+        t = n * 0.1
 
-        @jax.jit
-        def roundtrip(t):
-            target = snr_fixed_frame(*rates, t, *hardware)
-            return exptime_whole_frames(target, *rates, *hardware, n_max=32)
+        def evaluate(t):
+            return frame_count(t, 0.1), detector_variance_counts(
+                t, 2.0, 0.0, 3.0, 0.5, 0.1
+            )
 
-        t = jnp.arange(1.0, 17.0) * 10
-        np.testing.assert_array_equal(roundtrip(t), t)
+        for evaluate_fn in (evaluate, jax.jit(evaluate)):
+            frames, detector = evaluate_fn(t)
+            np.testing.assert_array_equal(frames, n)
+            np.testing.assert_array_equal(detector, 19 * n)
+            # A resolved partial frame must still incur another read.
+            frames, _ = evaluate_fn(t * (1 + 1e-5))
+            np.testing.assert_array_equal(frames, n + 1)
 
 
 @pytest.mark.parametrize("planner", [exptime_whole_frames, exptime_min_duration])
-def test_solver_floor_ceiling_and_bounds(planner):
-    """Fails if impossible, zero-target, or search-bound cases do not terminate."""
+@pytest.mark.parametrize("n_max", [10, 32])
+def test_whole_frame_roundtrip(planner, n_max):
+    """Fails if JIT rejects an eagerly computed attainable boundary target."""
     with jax.enable_x64():
+        rates = (2.0, 3.0, 0.02)
+        hardware = (4.0, 0.01, 3.0, 0.1, 10.0)
+        t = jnp.arange(1.0, 11.0) * 10
+        target = snr_fixed_frame(*rates, t, *hardware)
 
-        @jax.jit
+        def solve(target):
+            return planner(target, *rates, *hardware, n_max=n_max)
+
+        np.testing.assert_array_equal(solve(target), t)
+        np.testing.assert_array_equal(jax.jit(solve)(target), t)
+
+
+@pytest.mark.parametrize("planner", [exptime_whole_frames, exptime_min_duration])
+@pytest.mark.parametrize("x64", [False, True])
+def test_solver_floor_ceiling_and_bounds(planner, x64):
+    """Fails if impossible exposures or their SNR round trips return NaN."""
+    with jax.enable_x64(x64):
+
         def solve(targets, Cp):
             return planner(targets, Cp, 3.0, 0.02, 4.0, 0.01, 3.0, 0.1, 10.0, n_max=1)
 
-        result = solve(
-            jnp.array([0.0, 100.0, 101.0, 1.0, 15.0]),
-            jnp.array([2.0, 2.0, 2.0, 0.0, 2.0]),
-        )
-        np.testing.assert_array_equal(result, [0.0, jnp.inf, jnp.inf, jnp.inf, jnp.inf])
+        targets = jnp.array([0.0, 100.0, 101.0, 1.0, 15.0])
+        Cp = jnp.array([2.0, 2.0, 2.0, 0.0, 2.0])
+
+        def evaluate(t, floor):
+            return snr_fixed_frame(Cp, 3.0, floor, t, 4.0, 0.01, 3.0, 0.1, 10.0)
+
+        evaluate_fns = (evaluate, jax.jit(evaluate))
+        for solve_fn in (solve, jax.jit(solve)):
+            result = solve_fn(targets, Cp)
+            np.testing.assert_array_equal(
+                result, [0.0, jnp.inf, jnp.inf, jnp.inf, jnp.inf]
+            )
+            for evaluate_fn in evaluate_fns:
+                np.testing.assert_array_equal(evaluate_fn(result, 0.02), 0.0)
+                np.testing.assert_array_equal(
+                    evaluate_fn(jnp.array([0.0, jnp.inf, -jnp.inf, jnp.nan, 0.0]), 0.0),
+                    0.0,
+                )
 
 
 def test_partial_solver_respects_read_discontinuity():

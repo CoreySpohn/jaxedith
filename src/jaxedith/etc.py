@@ -30,14 +30,16 @@ def frame_count(t: Num, frame_time: Num) -> FloatOut:
     """Count reads, including a partial final frame; zero time needs no reads.
 
     Durations and frame times are seconds, with ``t >= 0`` and
-    ``frame_time > 0``. Ratios within relative tolerance 1e-12 of a positive
-    integer are treated as exact multiples. Every positive sub-frame duration
-    incurs one read. The derivative is zero, including at frame boundaries
-    (JAX's convention for rounding). Use float64 to resolve the tolerance.
+    ``frame_time > 0``. Ratios within relative tolerance
+    ``max(1e-12, 4 * eps)`` of a positive integer are treated as exact
+    multiples, where ``eps`` is machine epsilon of the ratio dtype. Every
+    positive sub-frame duration incurs one read. The derivative is zero,
+    including at frame boundaries (JAX's convention for rounding).
     """
     ratio = jnp.asarray(t) / frame_time
     nearest = jnp.round(ratio)
-    exact = (nearest > 0) & (jnp.abs(ratio - nearest) <= 1e-12 * nearest)
+    rtol = max(1e-12, 4 * jnp.finfo(ratio.dtype).eps)
+    exact = (nearest > 0) & (jnp.abs(ratio - nearest) <= rtol * nearest)
     frames = jnp.maximum(jnp.ceil(jnp.where(exact, nearest, ratio)), 1.0)
     return jnp.where(t > 0, frames, 0.0)
 
@@ -94,13 +96,15 @@ def snr_fixed_frame(
     *,
     bg_multiplier: Num = 2.0,
 ) -> FloatOut:
-    """Return finite-exposure SNR with fixed frames and zero SNR at ``t=0``.
+    """Return finite-exposure SNR; zero or non-finite durations give zero.
 
     ``Cp`` and ``Cb`` are planet and photon-background electron rates;
     ``Cnf_rate`` is leakage / ppfact (zero disables the systematic floor).
     Only photon backgrounds receive ``bg_multiplier``. Detector parameters
     follow :func:`detector_variance_counts`. No overheads are included.
     """
+    # Mask planner sentinels before count arithmetic can form inf / sqrt(inf).
+    t = jnp.where(jnp.isfinite(t), t, 0.0)
     detector = detector_variance_counts(t, n_pix, dark, read_noise, cic, frame_time)
     components = _variance_components(Cp, Cb, Cnf_rate, t, detector, bg_multiplier)
     return _snr_from_count_variance(components["planet"], components["total"])
@@ -135,6 +139,7 @@ def exptime_whole_frames(
     including targets at or above the floor ceiling ``Cp / Cnf_rate``.
     A non-positive target needs zero time. Rates and detector parameters
     follow :func:`snr_fixed_frame`; outputs contain no overheads.
+    SNR feasibility allows eight machine epsilons of relative roundoff.
     """
     n = _frame_grid(
         n_max,
@@ -162,7 +167,8 @@ def exptime_whole_frames(
         frame_time,
         bg_multiplier=bg_multiplier,
     )
-    feasible = (achieved >= target_snr) & (Cp > target_snr * Cnf_rate)
+    threshold = target_snr * (1 - 8 * jnp.finfo(achieved.dtype).eps)
+    feasible = (achieved >= threshold) & (Cp > target_snr * Cnf_rate)
     result = jnp.min(jnp.where(feasible, t, jnp.inf), axis=0)
     return jnp.where(target_snr <= 0, 0.0, result)
 
@@ -227,7 +233,8 @@ def exptime_min_duration(
         bg_multiplier=bg_multiplier,
     )
     feasible = (a > 0) & (candidate > (n - 1) * frame_time)
-    feasible = feasible & (achieved >= target_snr)
+    threshold = target_snr * (1 - 8 * jnp.finfo(achieved.dtype).eps)
+    feasible = feasible & (achieved >= threshold)
     result = jnp.min(jnp.where(feasible, candidate, jnp.inf), axis=0)
     return jnp.where(target_snr <= 0, 0.0, result)
 
