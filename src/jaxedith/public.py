@@ -6,7 +6,8 @@ Two surfaces, both defined in this file:
   accept an ``optixstuff.OpticalPath`` and an ``ETCScene`` plus observation
   geometry and scalar kwargs. Post-processing, thermal, and overhead knobs
   are plain keyword arguments with defaults. Variant is baked into the
-  function name -- there is no runtime dispatch.
+  function name. AYO additionally accepts a static cadence selector;
+  the default remains the legacy photon-counting equation.
 * System-level ``*_from_system_{ayo,exosims_det,exosims_char}`` wrappers
   accept a ``skyscapes.System`` + ``OpticalPath`` + ``Observatory`` +
   ``ExposureConfig`` + ``PPConfig``, extract per-(planet, epoch) astrophysics,
@@ -37,14 +38,20 @@ from hwoutils.conversions import jy_to_photons_per_nm_per_m2, mag_to_flux_jy
 from jaxedith._checks import check_finite_nonneg
 from jaxedith._types import PerKT, PerT, Scalar
 from jaxedith.etc import (
+    _variance_components,
+    detector_variance_counts,
     exptime_from_rates_ayo,
     exptime_from_rates_exosims_char,
     exptime_from_rates_exosims_det,
+    exptime_min_duration,
+    exptime_whole_frames,
+    snr_fixed_frame,
     snr_from_rates_ayo,
     snr_from_rates_exosims_char,
     snr_from_rates_exosims_det,
 )
 from jaxedith.intermediates import (
+    _detector_n_pix,
     _lod_arcsec,
     binary_background,
     detector_noise,
@@ -60,6 +67,75 @@ from jaxedith.scene import ETCScene
 from jaxedith.zodi import zodi_fn_ayo
 
 
+def _check_cadence(cadence):
+    """Validate the static cadence selector before tracing its arithmetic."""
+    if cadence not in ("fixed_frame", "photon_counting_ayo"):
+        raise ValueError("cadence must be 'fixed_frame' or 'photon_counting_ayo'")
+
+
+def _fixed_frame_parameters(optical_path, wavelength_nm, separation_lod):
+    """Map detector hardware and aperture geometry to finite-frame inputs."""
+    detector = optical_path.detector
+    return dict(
+        n_pix=_detector_n_pix(
+            optical_path, wavelength_nm, separation_lod, optical_path.npix_multiplier
+        ),
+        dark=detector.dark_current_rate_e_per_s,
+        read_noise=detector.read_noise_e,
+        cic=detector.clock_induced_charge_rate_e_per_frame,
+        frame_time=detector.frame_time_s,
+    )
+
+
+def count_variance_components_ayo(
+    optical_path,
+    scene,
+    wavelength_nm,
+    separation_lod,
+    dlambda_nm,
+    t,
+    *,
+    cadence="photon_counting_ayo",
+    bg_multiplier=2.0,
+    ppfact=1.0,
+    temp_K=270.0,
+    ez_ppf=jnp.inf,
+    eps_warm_T_cold=0.0,
+):
+    """Return planet, background, detector, systematic and total count variances.
+
+    ``t`` is science integration time in seconds, with no overheads.
+    Fixed-frame background is photon-only: leakage, zodi, exozodi, binary
+    and thermal. Its variance is ``bg_multiplier * Cb * t``; detector
+    variance is paid separately once per frame, including a partial frame.
+    The fixed-frame floor is exactly ``(t * leakage / ppfact)**2``, zero
+    for infinite ``ppfact``; ``ez_ppf`` applies only to the legacy cadence.
+    The legacy cadence retains its rate-based detector variance, including
+    the background multiplier on that term. All components are electrons^2.
+    ``cadence`` is static under JIT; numeric options can be batched.
+    """
+    Cp, Cb, Cnf_rate, CRbd = _count_rates_ayo(
+        optical_path,
+        scene,
+        wavelength_nm,
+        separation_lod,
+        dlambda_nm,
+        temp_K=temp_K,
+        ez_ppf=ez_ppf,
+        ppfact=ppfact,
+        eps_warm_T_cold=eps_warm_T_cold,
+        cadence=cadence,
+        _separate_detector=True,
+    )
+    if cadence == "fixed_frame":
+        detector = detector_variance_counts(
+            t, **_fixed_frame_parameters(optical_path, wavelength_nm, separation_lod)
+        )
+    else:
+        detector = bg_multiplier * CRbd * t
+    return _variance_components(Cp, Cb, Cnf_rate, t, detector, bg_multiplier)
+
+
 def _count_rates_ayo(
     optical_path,
     scene,
@@ -71,6 +147,8 @@ def _count_rates_ayo(
     ez_ppf=jnp.inf,
     ppfact=1.0,
     eps_warm_T_cold=0.0,
+    cadence="photon_counting_ayo",
+    _separate_detector=False,
 ):
     """Assemble the AYO rate triple ``(Cp, Cb, Cnf_rate)``.
 
@@ -83,6 +161,7 @@ def _count_rates_ayo(
     contribution and reduces the floor to the stellar term alone.
     ``ppfact`` divides here: the stellar floor is the leakage / ``ppfact``.
     """
+    _check_cadence(cadence)
     n_channels = optical_path.n_channels
     npix_multiplier = optical_path.npix_multiplier
     stellar_diam_lod = scene.stellar_diam_mas / (
@@ -146,29 +225,42 @@ def _count_rates_ayo(
         temp_K,
         eps_warm_T_cold=eps_warm_T_cold,
     )
-    total_photon_cr = Cp + CRbs + CRbz + CRbez
-    CRbd = detector_noise(
-        optical_path,
-        wavelength_nm,
-        separation_lod,
-        total_photon_cr,
-        npix_multiplier=npix_multiplier,
-    )
+    CRbd = 0.0
+    if cadence == "photon_counting_ayo":
+        total_photon_cr = Cp + CRbs + CRbz + CRbez
+        CRbd = detector_noise(
+            optical_path,
+            wavelength_nm,
+            separation_lod,
+            total_photon_cr,
+            npix_multiplier=npix_multiplier,
+        )
     Cb = CRbs + CRbz + CRbez + CRbbin + CRbth + CRbd
 
-    CRnf_star_rate = stellar_noise_floor(
-        optical_path,
-        wavelength_nm,
-        separation_lod,
-        dlambda_nm,
-        scene.F0,
-        scene.Fs_over_F0,
-        n_channels=n_channels,
-        ppfact=ppfact,
-        stellar_diam_lod=stellar_diam_lod,
-    )
-    CRnf_ez_rate = noise_floor_exozodi(CRbez, ez_ppf)
-    Cnf_rate = jnp.sqrt(CRnf_star_rate**2 + CRnf_ez_rate**2)
+    if cadence == "fixed_frame":
+        Cnf_rate = jnp.where(jnp.isinf(ppfact), 0.0, CRbs / ppfact)
+    else:
+        CRnf_star_rate = stellar_noise_floor(
+            optical_path,
+            wavelength_nm,
+            separation_lod,
+            dlambda_nm,
+            scene.F0,
+            scene.Fs_over_F0,
+            n_channels=n_channels,
+            ppfact=ppfact,
+            stellar_diam_lod=stellar_diam_lod,
+        )
+        CRnf_ez_rate = noise_floor_exozodi(CRbez, ez_ppf)
+        Cnf_rate = jnp.sqrt(CRnf_star_rate**2 + CRnf_ez_rate**2)
+
+    if _separate_detector:
+        return (
+            check_finite_nonneg(Cp, "Cp"),
+            check_finite_nonneg(CRbs + CRbz + CRbez + CRbbin + CRbth, "Cb_photon"),
+            check_finite_nonneg(Cnf_rate, "Cnf_rate"),
+            check_finite_nonneg(CRbd, "CRbd"),
+        )
 
     return (
         check_finite_nonneg(Cp, "Cp"),
@@ -188,11 +280,14 @@ def count_rates_ayo(
     ez_ppf=jnp.inf,
     ppfact=1.0,
     eps_warm_T_cold=0.0,
+    cadence="photon_counting_ayo",
 ):
     """AYO rate triple ``(Cp, Cb, Cnf_rate)``.
 
     ``Cnf_rate`` is the noise-floor *rate* (no SNR factor); equations
-    multiply by SNR internally.
+    multiply by SNR internally. With ``cadence="fixed_frame"``, ``Cb``
+    contains photon backgrounds only and ``Cnf_rate = leakage / ppfact``;
+    use :func:`count_variance_components_ayo` for detector count variance.
     """
     return _count_rates_ayo(
         optical_path,
@@ -204,6 +299,7 @@ def count_rates_ayo(
         ez_ppf=ez_ppf,
         ppfact=ppfact,
         eps_warm_T_cold=eps_warm_T_cold,
+        cadence=cadence,
     )
 
 
@@ -223,8 +319,18 @@ def exptime_ayo(
     overhead_fixed_s=0.0,
     n_rolls=1,
     eps_warm_T_cold=0.0,
+    cadence="photon_counting_ayo",
+    planning="whole_frames",
+    n_max=4096,
 ):
-    """AYO / jaxedith exposure time [s]."""
+    """AYO / jaxedith exposure time [s], including configured overheads.
+
+    The default cadence preserves the rate-based photon-counting equation.
+    ``cadence="fixed_frame"`` uses ``planning="whole_frames"`` by default;
+    ``planning="min_duration"`` permits a partial final frame. Both search
+    up to static ``n_max`` frames per roll and return infinity if infeasible.
+    Cadence and planning must be static under JIT.
+    """
     Cp, Cb, Cnf_rate = _count_rates_ayo(
         optical_path,
         scene,
@@ -235,7 +341,24 @@ def exptime_ayo(
         ez_ppf=ez_ppf,
         ppfact=ppfact,
         eps_warm_T_cold=eps_warm_T_cold,
+        cadence=cadence,
     )
+    if cadence == "fixed_frame":
+        if planning not in ("whole_frames", "min_duration"):
+            raise ValueError("planning must be 'whole_frames' or 'min_duration'")
+        solver = (
+            exptime_whole_frames if planning == "whole_frames" else exptime_min_duration
+        )
+        t_science = solver(
+            snr,
+            Cp,
+            Cb,
+            Cnf_rate,
+            **_fixed_frame_parameters(optical_path, wavelength_nm, separation_lod),
+            bg_multiplier=bg_multiplier,
+            n_max=n_max,
+        )
+        return (t_science * overhead_multi + overhead_fixed_s) * n_rolls
     return exptime_from_rates_ayo(
         Cp,
         Cb,
@@ -264,8 +387,14 @@ def snr_ayo(
     overhead_fixed_s=0.0,
     n_rolls=1,
     eps_warm_T_cold=0.0,
+    cadence="photon_counting_ayo",
 ):
-    """AYO / jaxedith achieved SNR for a fixed ``t_obs`` [s]."""
+    """AYO achieved SNR after removing overheads from ``t_obs`` [s].
+
+    ``cadence="fixed_frame"`` uses finite-frame detector variance separately
+    from photon backgrounds and the stellar floor. The default cadence
+    retains the legacy rate-based equation. Cadence must be static under JIT.
+    """
     Cp, Cb, Cnf_rate = _count_rates_ayo(
         optical_path,
         scene,
@@ -276,7 +405,20 @@ def snr_ayo(
         ez_ppf=ez_ppf,
         ppfact=ppfact,
         eps_warm_T_cold=eps_warm_T_cold,
+        cadence=cadence,
     )
+    if cadence == "fixed_frame":
+        t_science = (
+            jnp.maximum(t_obs / n_rolls - overhead_fixed_s, 0.0) / overhead_multi
+        )
+        return snr_fixed_frame(
+            Cp,
+            Cb,
+            Cnf_rate,
+            t_science,
+            **_fixed_frame_parameters(optical_path, wavelength_nm, separation_lod),
+            bg_multiplier=bg_multiplier,
+        )
     return snr_from_rates_ayo(
         Cp,
         Cb,
@@ -672,6 +814,72 @@ def _vmap_over_kt(per_element):
     )
 
 
+def count_variance_components(
+    system,
+    optical_path,
+    observatory,
+    exposure,
+    ppconfig,
+    t,
+    *,
+    cadence="photon_counting_ayo",
+    bg_multiplier=2.0,
+    ppfact=None,
+    zodi_fn=zodi_fn_ayo,
+    Fexozodi=0.0,
+    eps_warm_T_cold=0.0,
+) -> dict[str, PerKT]:
+    """Return the AYO variance budget for each planet and epoch.
+
+    Inputs match :func:`snr_from_system_ayo`; ``t`` is total observation
+    time in seconds. Overheads and rolls are removed before computing each
+    per-roll science budget, as for that SNR wrapper. The result has keys
+    ``planet``, ``background``, ``detector``, ``systematic`` and ``total``,
+    each with shape ``(K, T)`` and units electrons^2.
+    ``ppfact=None`` uses ``ppconfig.ppfact``; infinity disables the stellar
+    floor. ``bg_multiplier`` (k) scales photon backgrounds on the fixed-frame
+    path. See :func:`count_variance_components_ayo` for cadence conventions.
+    """
+    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+        system, exposure
+    )
+    Fzodi = zodi_fn(observatory, exposure, system.star)
+    sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
+    t_science = (
+        jnp.maximum(t / ppconfig.n_rolls - observatory.overhead_fixed_s, 0.0)
+        / observatory.overhead_multi
+    )
+
+    def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
+        scene = ETCScene(
+            F0=F0_zp,
+            Fs_over_F0=Fs_over_F0,
+            Fp_over_Fs=Fp_over_Fs,
+            Fzodi=Fzodi,
+            Fexozodi=Fexozodi,
+            dist_pc=system.star.dist_pc,
+            sep_arcsec=sep_arcsec,
+            Fbinary=0.0,
+            stellar_diam_mas=_stellar_diam_mas_from_system(system),
+        )
+        return count_variance_components_ayo(
+            optical_path,
+            scene,
+            wl,
+            sep_lod_kt,
+            dlambda,
+            t_science,
+            cadence=cadence,
+            bg_multiplier=bg_multiplier,
+            ppfact=ppconfig.ppfact if ppfact is None else ppfact,
+            temp_K=observatory.temperature_K,
+            ez_ppf=ppconfig.ez_ppf,
+            eps_warm_T_cold=eps_warm_T_cold,
+        )
+
+    return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
+
+
 def count_rates_from_system_ayo(
     system,
     optical_path,
@@ -682,8 +890,14 @@ def count_rates_from_system_ayo(
     zodi_fn=zodi_fn_ayo,
     Fexozodi=0.0,
     eps_warm_T_cold=0.0,
+    cadence="photon_counting_ayo",
+    ppfact=None,
 ) -> tuple[PerKT, PerKT, PerKT]:
     """AYO rate triple ``(Cp, Cb, Cnf_rate)`` with shape ``(K, T)`` each.
+
+    ``cadence="fixed_frame"`` returns photon-only ``Cb``; detector noise
+    requires :func:`count_variance_components`. ``ppfact=None`` reads the
+    post-processing config; an explicit value overrides it.
 
     TODO(skyscapes): replace the ``Fexozodi=0.0`` default with
     ``system.disk.fexozodi_at(...)`` once
@@ -716,8 +930,9 @@ def count_rates_from_system_ayo(
             dlambda,
             temp_K=observatory.temperature_K,
             ez_ppf=ppconfig.ez_ppf,
-            ppfact=ppconfig.ppfact,
+            ppfact=ppconfig.ppfact if ppfact is None else ppfact,
             eps_warm_T_cold=eps_warm_T_cold,
+            cadence=cadence,
         )
 
     return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
@@ -735,8 +950,18 @@ def exptime_from_system_ayo(
     Fexozodi=0.0,
     bg_multiplier=2.0,
     eps_warm_T_cold=0.0,
+    cadence="photon_counting_ayo",
+    ppfact=None,
+    planning="whole_frames",
+    n_max=4096,
 ) -> PerKT:
     """AYO exposure time with shape ``(K, T)``.
+
+    ``cadence="fixed_frame"`` defaults to whole-frame planning; use
+    ``planning="min_duration"`` to allow a partial final frame. ``n_max``
+    bounds the search per roll. ``ppfact=None`` reads ``ppconfig.ppfact``;
+    infinity disables the stellar floor. Cadence, planning and n_max must
+    be static under JIT; numeric options can be vmapped.
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
     once ``AbstractDisk.fexozodi_at`` lands.
@@ -769,12 +994,15 @@ def exptime_from_system_ayo(
             snr,
             temp_K=observatory.temperature_K,
             ez_ppf=ppconfig.ez_ppf,
-            ppfact=ppconfig.ppfact,
+            ppfact=ppconfig.ppfact if ppfact is None else ppfact,
             bg_multiplier=bg_multiplier,
             overhead_multi=observatory.overhead_multi,
             overhead_fixed_s=observatory.overhead_fixed_s,
             n_rolls=ppconfig.n_rolls,
             eps_warm_T_cold=eps_warm_T_cold,
+            cadence=cadence,
+            planning=planning,
+            n_max=n_max,
         )
 
     return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)
@@ -792,8 +1020,15 @@ def snr_from_system_ayo(
     Fexozodi=0.0,
     bg_multiplier=2.0,
     eps_warm_T_cold=0.0,
+    cadence="photon_counting_ayo",
+    ppfact=None,
 ) -> PerKT:
     """AYO achieved SNR with shape ``(K, T)`` for a fixed ``t_obs`` [s].
+
+    ``cadence="fixed_frame"`` separates photon, detector and systematic
+    variance. ``bg_multiplier`` scales only photon backgrounds on this path;
+    ``ppfact=None`` reads ``ppconfig.ppfact`` and infinity disables the floor.
+    The default cadence retains the legacy equation and config defaults.
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
     once ``AbstractDisk.fexozodi_at`` lands.
@@ -826,12 +1061,13 @@ def snr_from_system_ayo(
             t_obs,
             temp_K=observatory.temperature_K,
             ez_ppf=ppconfig.ez_ppf,
-            ppfact=ppconfig.ppfact,
+            ppfact=ppconfig.ppfact if ppfact is None else ppfact,
             bg_multiplier=bg_multiplier,
             overhead_multi=observatory.overhead_multi,
             overhead_fixed_s=observatory.overhead_fixed_s,
             n_rolls=ppconfig.n_rolls,
             eps_warm_T_cold=eps_warm_T_cold,
+            cadence=cadence,
         )
 
     return _vmap_over_kt(per_element)(contrasts, alpha, sep_lod, Fs_over_F0_t)

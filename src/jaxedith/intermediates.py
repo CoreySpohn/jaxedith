@@ -245,6 +245,20 @@ def thermal_background(
     )
 
 
+def _detector_n_pix(optical_path, wavelength_nm, separation_lod, npix_multiplier):
+    """Aperture pixels including spectral channels and aperture correction."""
+    core_area_lod2 = optical_path.coronagraph.core_area(separation_lod, wavelength_nm)
+    det_pixscale_lod = optical_path.detector.pixel_scale_arcsec / _lod_arcsec(
+        optical_path, wavelength_nm
+    )
+    return (
+        core_area_lod2
+        / (det_pixscale_lod**2)
+        * optical_path.n_channels
+        * npix_multiplier
+    )
+
+
 def detector_noise(
     optical_path,
     wavelength_nm,
@@ -267,17 +281,9 @@ def detector_noise(
             to derive t_photon. Read variance uses ``detector.frame_time_s``.
         npix_multiplier: Aperture pixel-count correction (ETC config).
     """
-    coro = optical_path.coronagraph
     detector = optical_path.detector
-    core_area_lod2 = coro.core_area(separation_lod, wavelength_nm)
-    det_pixscale_lod = detector.pixel_scale_arcsec / _lod_arcsec(
-        optical_path, wavelength_nm
-    )
-    n_pix = (
-        core_area_lod2
-        / (det_pixscale_lod**2)
-        * optical_path.n_channels
-        * npix_multiplier
+    n_pix = _detector_n_pix(
+        optical_path, wavelength_nm, separation_lod, npix_multiplier
     )
 
     t_photon = photon_counting_time(

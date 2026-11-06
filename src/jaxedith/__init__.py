@@ -5,6 +5,13 @@ try:
 except ImportError:
     __version__ = "unknown"
 
+from .etc import (
+    detector_variance_counts,
+    exptime_min_duration,
+    exptime_whole_frames,
+    frame_count,
+    snr_fixed_frame,
+)
 from .intermediates import (
     binary_background,
     detector_noise,
@@ -22,6 +29,8 @@ from .public import (
     count_rates_from_system_ayo,
     count_rates_from_system_exosims_char,
     count_rates_from_system_exosims_det,
+    count_variance_components,
+    count_variance_components_ayo,
     exptime_ayo,
     exptime_exosims_char,
     exptime_exosims_det,
@@ -48,7 +57,10 @@ __all__ = [
     "count_rates_from_system_ayo",
     "count_rates_from_system_exosims_char",
     "count_rates_from_system_exosims_det",
+    "count_variance_components",
+    "count_variance_components_ayo",
     "detector_noise",
+    "detector_variance_counts",
     "exozodi_background",
     "exptime_ayo",
     "exptime_exosims_char",
@@ -56,10 +68,14 @@ __all__ = [
     "exptime_from_system_ayo",
     "exptime_from_system_exosims_char",
     "exptime_from_system_exosims_det",
+    "exptime_min_duration",
+    "exptime_whole_frames",
+    "frame_count",
     "planet_signal",
     "snr_ayo",
     "snr_exosims_char",
     "snr_exosims_det",
+    "snr_fixed_frame",
     "snr_from_system_ayo",
     "snr_from_system_exosims_char",
     "snr_from_system_exosims_det",

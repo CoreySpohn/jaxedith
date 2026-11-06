@@ -38,8 +38,9 @@ parallel function families.
 
 Three properties define the design:
 
-- **Pure JAX.** Every public function is JIT-compatible, `vmap`-able,
-  and differentiable end-to-end.
+- **Pure JAX.** Public functions are JIT-compatible and `vmap`-able.
+  Continuous rate equations are differentiable; fixed-frame boundaries
+  and discrete exposure planning have the derivative conventions below.
 - **Variant-explicit API.** Three ETC equations (AYO, EXOSIMS
   detection, EXOSIMS characterization) live in three parallel function
   families (`exptime_ayo`, `exptime_exosims_det`,
@@ -55,6 +56,111 @@ Three properties define the design:
     `orbix.observatory.Observatory` + `optixstuff.ExposureConfig` +
     `coronalyze.PPConfig`, extracts per-(planet, epoch) astrophysics,
     and `jax.vmap`s the scalar core over `(K, T)`.
+
+## Fixed-frame finite exposures
+
+The AYO defaults retain `cadence="photon_counting_ayo"`. Select
+`cadence="fixed_frame"` on `count_rates_ayo`, `snr_ayo`, `exptime_ayo`, or
+their `*_from_system_ayo` wrappers for a detector with fixed integration
+frames. `count_rates_ayo` then returns photon-only `Cb` and the stellar floor
+rate `Cnf = leakage / ppfact`. An infinite `ppfact` disables that floor.
+The fixed-frame cadence uses only the stellar systematic floor; `ez_ppf`
+continues to apply to the legacy cadence.
+
+For science integration time `t`, the count variance is
+
+```text
+Cp*t + k*Cb*t + n_pix*(dark*t + (read_noise**2 + cic)*frame_count(t, frame_time))
+    + (Cnf*t)**2
+```
+
+Here `k` is the `bg_multiplier` keyword (default 2). It scales photon
+backgrounds only. Dark current accumulates with integration time, while read
+variance and CIC are paid per frame, including a partial final frame. The
+independent shot, dark, and read terms follow the CCD equation in S. B.
+Howell, *Handbook of CCD Astronomy*, second edition (Cambridge University
+Press, 2006). CIC adds an independent Poisson contribution per read; the
+systematic term is a correlated residual proportional to exposure time.
+
+Use `count_variance_components(system, optical_path, observatory, exposure,
+ppconfig, t, cadence="fixed_frame", bg_multiplier=2, ppfact=...)` to inspect
+`planet`, `background`, `detector`, `systematic`, and `total` variances as
+`(K, T)` arrays. The scalar-scene counterpart is
+`count_variance_components_ayo(optical_path, scene, wavelength_nm,
+separation_lod, dlambda_nm, t, ...)`. The system budget and SNR wrappers
+remove observatory overheads and divide time among rolls; the scalar budget
+and rate-level functions take science time directly. System wrappers accept
+`ppfact=None` to use `ppconfig.ppfact`, or an explicit value to override it.
+They also thread `cadence` and, for variance/SNR/exposure, `bg_multiplier`.
+
+Fixed-frame exposure planning defaults to `planning="whole_frames"`:
+
+```python
+t = exptime_from_system_ayo(
+    system,
+    optical_path,
+    observatory,
+    exposure,
+    ppconfig,
+    target_snr,
+    cadence="fixed_frame",
+    planning="whole_frames",
+    n_max=4096,
+    bg_multiplier=2.0,
+    ppfact=float("inf"),
+)
+```
+
+`planning="min_duration"` permits a partial final frame and selects the first
+feasible quadratic root across frame intervals. SNR drops at each additional
+read, so its feasible durations can have gaps. Both planners return infinity
+when no duration through `n_max` frames per roll meets the target, including
+targets at or above the systematic ceiling `Cp / Cnf`. Exposure wrappers add
+configured overheads after solving for science time.
+
+The rate-level API is also exported from `jaxedith`:
+
+```python
+frame_count(t, frame_time)
+detector_variance_counts(t, n_pix, dark, read_noise, cic, frame_time)
+snr_fixed_frame(
+    Cp, Cb, Cnf_rate, t, n_pix, dark, read_noise, cic, frame_time, bg_multiplier=2.0
+)
+exptime_whole_frames(
+    target_snr,
+    Cp,
+    Cb,
+    Cnf_rate,
+    n_pix,
+    dark,
+    read_noise,
+    cic,
+    frame_time,
+    bg_multiplier=2.0,
+    n_max=4096,
+)
+exptime_min_duration(
+    target_snr,
+    Cp,
+    Cb,
+    Cnf_rate,
+    n_pix,
+    dark,
+    read_noise,
+    cic,
+    frame_time,
+    bg_multiplier=2.0,
+    n_max=4096,
+)
+```
+
+Zero science time incurs no frames or detector variance and gives SNR zero;
+a non-positive target needs zero science time. All numeric inputs can be
+batched with JAX. `cadence`, `planning`, and `n_max` must be static under JIT.
+`frame_count` treats ratios within relative tolerance `1e-12` of a positive
+integer as exact; enable JAX float64 to resolve this tolerance. Its JAX
+derivative is zero, including at discontinuities. Frame-based planning is
+discrete; its derivatives are not a continuous exposure sensitivity model.
 
 ## What jaxedith is *not*
 
