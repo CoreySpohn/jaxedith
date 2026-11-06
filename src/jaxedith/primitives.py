@@ -15,6 +15,9 @@ All inputs are raw real numbers in consistent units:
 - Wavelengths: nm
 - Angles: lam/D (dimensionless) unless otherwise noted
 - Count rates: electrons / s (output)
+
+The throughput arguments include detector QE. The intermediate wrappers multiply
+optical throughput by QE; direct callers must supply it exactly once.
 """
 
 import jax.numpy as jnp
@@ -142,7 +145,7 @@ def zodi_rate(
         lod_arcsec: lam/D in arcseconds.
         sky_trans: coronagraph sky (occulter) transmission [dimensionless].
         area_m2: telescope collecting area [m^2].
-        throughput: total throughput.
+        throughput: total throughput (optics x QE x contamination).
         dlambda_nm: bandwidth [nm].
         n_channels: number of spectral channels.
         core_area_lod2: solid angle of photometric aperture [(lam/D)^2].
@@ -191,7 +194,7 @@ def exozodi_rate(
         lod_arcsec: lam/D in arcseconds.
         sky_trans: coronagraph sky (occulter) transmission [dimensionless].
         area_m2: telescope collecting area [m^2].
-        throughput: total throughput.
+        throughput: total throughput (optics x QE x contamination).
         dlambda_nm: bandwidth [nm].
         n_channels: number of spectral channels.
         core_area_lod2: solid angle of photometric aperture [(lam/D)^2].
@@ -228,6 +231,10 @@ def detector_noise_rate(
     Uses the variance trick from pyEDITH: ``RN_variance = read_noise_e^2``
     but keeps the same units as ``read_noise_e`` alone (i.e. RN x RN.value).
 
+    With one read per frame, the read variance rate is the variance of one
+    read divided by the frame duration (Howell, 2006, Handbook of CCD
+    Astronomy, 2nd ed.).
+
     ``t_photon`` is the inverse of the photon arrival rate per pixel, used
     for the CIC timing term.
 
@@ -237,7 +244,7 @@ def detector_noise_rate(
         n_pix: number of detector pixels in photometric aperture.
         dark_current: dark current rate [e/pix/s].
         read_noise_e: read noise [e/pix/read].
-        t_read: time per read [s].
+        t_read: time per frame over which one read is taken [s].
         clock_induced_charge: clock-induced charge [e/pix/frame].
         t_photon: photon counting time [s/frame].
     """
@@ -276,7 +283,7 @@ def thermal_rate(
         lod_rad: lam/D in radians.
         eps_warm_T_cold: effective emissivity x cold transmission [dimensionless].
         QE: quantum efficiency [e/photon].
-        dQE: QE degradation factor [dimensionless].
+        dQE: additive QE correction [e/photon], used as ``QE + dQE``.
         core_area_lod2: solid angle of photometric aperture [(lam/D)^2].
     """
     lam_m = wavelength_nm * nm2m  # nm -> m
@@ -328,7 +335,7 @@ def binary_rate(
         Fbinary: binary flux ratio [dimensionless].
         sky_trans: coronagraph sky transmission [dimensionless].
         area_m2: telescope collecting area [m^2].
-        throughput: total throughput.
+        throughput: total throughput (optics x QE x contamination).
         dlambda_nm: bandwidth [nm].
         n_channels: number of spectral channels.
         core_area_lod2: solid angle of photometric aperture [(lam/D)^2].
@@ -374,7 +381,7 @@ def noise_floor_stellar(
         F0: flux zero point [ph/s/m^2/nm].
         Fs_over_F0: stellar flux ratio [dimensionless].
         area_m2: telescope collecting area [m^2].
-        throughput: total throughput.
+        throughput: total throughput (optics x QE x contamination).
         dlambda_nm: bandwidth [nm].
         n_channels: parallel optical-path copies (multiplicative).
         noisefloor_value: noise floor level [dimensionless].

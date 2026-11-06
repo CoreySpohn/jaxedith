@@ -390,6 +390,7 @@ def test_count_rates_from_system_exosims_det_runs(
 def test_count_rates_from_system_ayo_matches_scalar(
     optical_path, system, observatory, exposure, ppconfig
 ):
+    """Fails if system or scalar paths omit or apply detector QE twice."""
     from jaxedith import count_rates_ayo
 
     Cp_new, Cb_new, Cnf_new = count_rates_from_system_ayo(
@@ -430,6 +431,20 @@ def test_count_rates_from_system_ayo_matches_scalar(
         ez_ppf=ppconfig.ez_ppf,
         ppfact=ppconfig.ppfact,
     )
+    # Photon flux times collecting area, optics, aperture, bandwidth and
+    # channels, with the detector's additive QE factor 0.9 + 1.0 = 1.9.
+    expected_planet = (
+        F0
+        * contrasts[0, 0]
+        * optical_path.primary.area_m2
+        * 0.5
+        * 1.9
+        * optical_path.coronagraph.throughput(sep_lod, wl)
+        * dlambda
+        * optical_path.n_channels
+    )
+    assert float(Cp_new[0, 0]) == pytest.approx(float(expected_planet), rel=1e-6)
+    assert float(Cp_scalar) == pytest.approx(float(expected_planet), rel=1e-6)
     assert all(
         rate.shape == (system.n_planets, t_jd.size)
         for rate in (Cp_new, Cb_new, Cnf_new)

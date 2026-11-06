@@ -1,4 +1,4 @@
-"""Parity tests for Layer 2 intermediates.
+"""Conversion regressions and parity tests for Layer 2 intermediates.
 
 Each Layer 2 function is a pass-through wrapper over a Layer 1
 primitive. These tests assert that, for a canonical
@@ -6,15 +6,19 @@ primitive. These tests assert that, for a canonical
 matching decomposed output from ``count_rates_ayo``.
 
 Because both paths call the identical Layer 1 function with identical
-scalar arguments, outputs must be bitwise identical -- no rtol.
+scalar arguments, parity outputs must be bitwise identical -- no rtol.
+Independent electron-rate expectations also guard the detector conversion.
 """
 
+from types import SimpleNamespace
+
+import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
 import pytest
 from coronagraphoto.datasets import fetch_coronagraph
-from hwoutils.constants import nm2m, rad2arcsec
+from hwoutils.constants import c, h, k_B, nm2m, rad2arcsec
 from scipy.interpolate import RectBivariateSpline
 
 from jaxedith import ETCScene, intermediates
@@ -25,7 +29,6 @@ from jaxedith.primitives import (
     noise_floor_stellar,
     photon_counting_time,
     stellar_leakage_rate,
-    thermal_rate,
     zodi_rate,
 )
 from jaxedith.public import count_rates_ayo
@@ -35,6 +38,96 @@ from jaxedith.public import count_rates_ayo
 # The Layer 1 calls below use these directly for parity with Layer 2.
 N_CHANNELS = 1.0
 TEMP_K = 270.0
+
+
+@pytest.fixture
+def scalar_optical_path():
+    """Small optical path with nonzero rates and no downloaded tables."""
+    return ox.OpticalPath(
+        primary=ox.SimplePrimary(diameter_m=2.0, obscuration=0.0),
+        coronagraph=SimpleNamespace(
+            throughput=lambda sep, wl: 0.3,
+            core_area=lambda sep, wl: 2.0,
+            core_mean_intensity=lambda sep, wl, **kwargs: 1e-8,
+            occulter_transmission=lambda sep, wl: 0.8,
+        ),
+        attenuating_elements=(ox.ConstantThroughput(throughput=0.5),),
+        detector=ox.IdealDetector(
+            pixel_scale_arcsec=500.0 * nm2m / 2.0 * rad2arcsec,
+            shape=(4, 4),
+        ),
+        n_channels=3.0,
+    )
+
+
+@pytest.mark.parametrize(
+    "wrapper,kwargs",
+    [
+        (intermediates.planet_signal, dict(F0=1e8, Fs_over_F0=0.01, Fp_over_Fs=1e-9)),
+        (intermediates.stellar_leakage, dict(F0=1e8, Fs_over_F0=0.01)),
+        (intermediates.zodi_background, dict(F0=1e8, Fzodi=1e-9)),
+        (
+            intermediates.exozodi_background,
+            dict(F0=1e8, Fexozodi=1e-9, dist_pc=10.0, sep_arcsec=0.2),
+        ),
+        (intermediates.binary_background, dict(F0=1e8, Fbinary=1e-9)),
+        (intermediates.stellar_noise_floor, dict(F0=1e8, Fs_over_F0=0.01)),
+        (intermediates.thermal_background, dict(temp_K=2000.0, eps_warm_T_cold=0.2)),
+    ],
+    ids=lambda value: getattr(value, "__name__", None),
+)
+def test_photon_rates_apply_detector_qe_once(scalar_optical_path, wrapper, kwargs):
+    """Fails if any photon rate omits, duplicates or multiplies the QE offset.
+
+    Doubling QE and its additive offset doubles the electron rate. A spectral
+    detector must use the interpolated QE rather than its scalar attribute.
+    """
+    path = scalar_optical_path
+    observation = dict(wavelength_nm=500.0, separation_lod=5.0, dlambda_nm=20.0)
+    unity_rate = float(wrapper(path, **observation, **kwargs))
+    assert unity_rate > 0.0
+    rates = []
+    for qe, dqe in [(0.3, -0.05), (0.6, -0.1)]:
+        changed = eqx.tree_at(
+            lambda p: (p.detector.quantum_efficiency, p.detector.dqe),
+            path,
+            (qe, dqe),
+        )
+        rates.append(float(wrapper(changed, **observation, **kwargs)))
+    assert rates[0] / unity_rate == pytest.approx(0.25, rel=1e-6)
+    assert rates[1] / rates[0] == pytest.approx(2.0, rel=1e-6)
+
+    spectral_detector = ox.Detector(
+        pixel_scale_arcsec=path.detector.pixel_scale_arcsec,
+        shape=(4, 4),
+        quantum_efficiency=0.9,
+        dqe=-0.05,
+        qe_curve=(jnp.array([400.0, 600.0]), jnp.array([0.2, 0.6])),
+    )
+    spectral_path = eqx.tree_at(lambda p: p.detector, path, spectral_detector)
+    spectral_rate = float(wrapper(spectral_path, **observation, **kwargs))
+    # At 500 nm, linear interpolation gives QE=0.4; 0.4 - 0.05 = 0.35.
+    assert spectral_rate / unity_rate == pytest.approx(0.35, rel=1e-6)
+
+
+def test_detector_noise_uses_frame_time(scalar_optical_path):
+    """Fails if read variance is divided by readout time instead of frame time."""
+    detector = ox.IdealDetector(
+        pixel_scale_arcsec=scalar_optical_path.detector.pixel_scale_arcsec,
+        shape=(4, 4),
+        dark_current_rate_e_per_s=0.03,
+        read_noise_e=4.0,
+        clock_induced_charge_rate_e_per_frame=0.002,
+        frame_time_s=20.0,
+        read_time_s=0.05,
+    )
+    path = eqx.tree_at(lambda p: p.detector, scalar_optical_path, detector)
+    rate = intermediates.detector_noise(
+        path, 500.0, 5.0, total_photon_rate=5.0, npix_multiplier=2.0
+    )
+    # One pixel per (lambda/D)^2: 2 * 3 channels * 2 spread = 12 pixels.
+    # 12 * (0.03 + 4^2 / 20) + 0.002 * 6.73 * 5 = 10.0273 e/s.
+    assert float(rate) == pytest.approx(10.0273, rel=1e-6)
 
 
 @pytest.fixture(scope="module")
@@ -150,7 +243,7 @@ def test_stellar_leakage_parity(optical_path, etc_scene, observation):
         etc_scene.F0,
         etc_scene.Fs_over_F0,
         primary.area_m2,
-        optical_path.system_throughput(wl),
+        optical_path.system_throughput(wl) * 1.9,
         dl,
         N_CHANNELS,
         coro.core_area(sep, wl),
@@ -186,7 +279,7 @@ def test_zodi_background_parity(optical_path, etc_scene, observation):
         lod_arcsec,
         coro.occulter_transmission(sep, wl),
         primary.area_m2,
-        optical_path.system_throughput(wl),
+        optical_path.system_throughput(wl) * 1.9,
         dl,
         N_CHANNELS,
         coro.core_area(sep, wl),
@@ -221,7 +314,7 @@ def test_exozodi_background_parity(optical_path, etc_scene, observation):
         lod_arcsec,
         coro.occulter_transmission(sep, wl),
         primary.area_m2,
-        optical_path.system_throughput(wl),
+        optical_path.system_throughput(wl) * 1.9,
         dl,
         N_CHANNELS,
         coro.core_area(sep, wl),
@@ -257,7 +350,7 @@ def test_binary_background_parity(optical_path, etc_scene, observation):
         etc_scene.Fbinary,
         coro.occulter_transmission(sep, wl),
         primary.area_m2,
-        optical_path.system_throughput(wl),
+        optical_path.system_throughput(wl) * 1.9,
         dl,
         N_CHANNELS,
         coro.core_area(sep, wl),
@@ -276,27 +369,30 @@ def test_binary_background_parity(optical_path, etc_scene, observation):
 
 
 def test_thermal_background_parity(optical_path, etc_scene, observation):
-    """thermal_background must equal the decomposed CRbth call."""
+    """Fails if thermal emission changes its single additive QE factor."""
     wl = observation["wavelength_nm"]
     sep = observation["separation_lod"]
     dl = observation["dlambda_nm"]
 
     primary = optical_path.primary
     coro = optical_path.coronagraph
-    detector = optical_path.detector
     lod_rad = (wl * nm2m) / primary.diameter_m
-    eps_warm_T_cold = 0.0
-
-    CRbth_ref = thermal_rate(
-        wl,
-        primary.area_m2,
-        dl,
-        TEMP_K,
-        lod_rad,
-        eps_warm_T_cold,
-        detector.quantum_efficiency,
-        detector.dqe,
-        coro.core_area(sep, wl),
+    # A warm source keeps the Planck rate nonzero at visible wavelengths.
+    temp_K = 2000.0
+    eps_warm_T_cold = 0.2
+    lam_m = wl * nm2m
+    # Planck photon spectral radiance integrated over area, band and aperture.
+    # Rybicki & Lightman (1979), Radiative Processes in Astrophysics, Ch. 1.
+    photon_radiance = 2.0 * c / lam_m**4 / np.expm1(h * c / (lam_m * k_B * temp_K))
+    CRbth_ref = (
+        photon_radiance
+        * eps_warm_T_cold
+        * 1.9
+        * primary.area_m2
+        * dl
+        * nm2m
+        * lod_rad**2
+        * coro.core_area(sep, wl)
     )
 
     CRbth_layer2 = intermediates.thermal_background(
@@ -304,10 +400,10 @@ def test_thermal_background_parity(optical_path, etc_scene, observation):
         wavelength_nm=wl,
         separation_lod=sep,
         dlambda_nm=dl,
-        temp_K=TEMP_K,
+        temp_K=temp_K,
         eps_warm_T_cold=eps_warm_T_cold,
     )
-    assert float(CRbth_layer2) == float(CRbth_ref)
+    assert float(CRbth_layer2) == pytest.approx(float(CRbth_ref), rel=2e-6)
 
 
 def test_detector_noise_parity(optical_path, etc_scene, observation):
@@ -370,7 +466,7 @@ def test_detector_noise_parity(optical_path, etc_scene, observation):
         n_pix,
         detector.dark_current_rate_e_per_s,
         detector.read_noise_e,
-        detector.read_time_s,
+        detector.frame_time_s,
         detector.clock_induced_charge_rate_e_per_frame,
         t_photon,
     )
@@ -400,7 +496,7 @@ def test_stellar_noise_floor_parity(optical_path, etc_scene, observation):
         etc_scene.F0,
         etc_scene.Fs_over_F0,
         primary.area_m2,
-        optical_path.system_throughput(wl),
+        optical_path.system_throughput(wl) * 1.9,
         dl,
         N_CHANNELS,
         noisefloor_value,
@@ -464,6 +560,7 @@ def test_stellar_leakage_is_the_star_light_in_the_aperture(
         * etc_scene.Fs_over_F0
         * optical_path.primary.area_m2
         * optical_path.system_throughput(wl)
+        * 1.9  # Detector QE + dqe: 0.9 + 1.0.
         * dl
         * N_CHANNELS
     )

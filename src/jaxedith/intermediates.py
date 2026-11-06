@@ -4,6 +4,11 @@ Each function accepts an ``optixstuff.OpticalPath`` and astrophysical /
 observation scalars, unpacks the optical path, and calls the corresponding
 pure scalar function in :mod:`jaxedith.primitives`.
 
+Photon-to-electron conversion is applied here: rates are electrons per second,
+using ``detector.get_qe(wavelength_nm) + detector.dqe``. Optical-path attenuating
+elements must not also include detector QE. Thermal emission uses its own
+emissivity and cold transmission rather than the system optical throughput.
+
 Layer 2 turns the 8-to-12-argument pure-float call sites in
 :mod:`jaxedith.primitives` into structured calls that take an
 ``OpticalPath`` + a few scalars, without introducing heavy scene objects.
@@ -39,6 +44,12 @@ def _lod_arcsec(optical_path, wavelength_nm):
     return _lod_rad(optical_path, wavelength_nm) * rad2arcsec
 
 
+def _detector_qe(optical_path, wavelength_nm):
+    """Electron yield per photon, including the additive QE correction."""
+    detector = optical_path.detector
+    return detector.get_qe(wavelength_nm) + detector.dqe
+
+
 def planet_signal(
     optical_path,
     wavelength_nm,
@@ -51,7 +62,7 @@ def planet_signal(
 ):
     """Planet signal count rate Cp [e/s].
 
-    Wraps :func:`jaxedith.primitives.planet_rate`.
+    Wraps :func:`jaxedith.primitives.planet_rate` and applies detector QE here.
 
     Args:
         optical_path: ``optixstuff.OpticalPath`` eqx.Module.
@@ -68,7 +79,8 @@ def planet_signal(
         Fs_over_F0,
         Fp_over_Fs,
         optical_path.primary.area_m2,
-        optical_path.system_throughput(wavelength_nm),
+        optical_path.system_throughput(wavelength_nm)
+        * _detector_qe(optical_path, wavelength_nm),
         optical_path.coronagraph.throughput(separation_lod, wavelength_nm),
         dlambda_nm,
         n_channels,
@@ -88,7 +100,7 @@ def stellar_leakage(
 ):
     """Stellar leakage count rate CRbs [e/s].
 
-    Wraps :func:`jaxedith.primitives.stellar_leakage_rate`.
+    Wraps :func:`jaxedith.primitives.stellar_leakage_rate` and applies detector QE here.
     ``stellar_diam_lod`` is the stellar angular diameter in lambda/D
     at ``wavelength_nm``; 0 means a point star.
     """
@@ -97,7 +109,8 @@ def stellar_leakage(
         F0,
         Fs_over_F0,
         optical_path.primary.area_m2,
-        optical_path.system_throughput(wavelength_nm),
+        optical_path.system_throughput(wavelength_nm)
+        * _detector_qe(optical_path, wavelength_nm),
         dlambda_nm,
         n_channels,
         coro.core_area(separation_lod, wavelength_nm),
@@ -118,7 +131,7 @@ def zodi_background(
 ):
     """Local zodiacal light count rate CRbz [e/s].
 
-    Wraps :func:`jaxedith.primitives.zodi_rate`.
+    Wraps :func:`jaxedith.primitives.zodi_rate` and applies detector QE here.
     """
     coro = optical_path.coronagraph
     return zodi_rate(
@@ -127,7 +140,8 @@ def zodi_background(
         _lod_arcsec(optical_path, wavelength_nm),
         coro.occulter_transmission(separation_lod, wavelength_nm),
         optical_path.primary.area_m2,
-        optical_path.system_throughput(wavelength_nm),
+        optical_path.system_throughput(wavelength_nm)
+        * _detector_qe(optical_path, wavelength_nm),
         dlambda_nm,
         n_channels,
         coro.core_area(separation_lod, wavelength_nm),
@@ -147,7 +161,7 @@ def exozodi_background(
 ):
     """Exozodiacal light count rate CRbez [e/s].
 
-    Wraps :func:`jaxedith.primitives.exozodi_rate`.
+    Wraps :func:`jaxedith.primitives.exozodi_rate` and applies detector QE here.
     """
     coro = optical_path.coronagraph
     return exozodi_rate(
@@ -156,7 +170,8 @@ def exozodi_background(
         _lod_arcsec(optical_path, wavelength_nm),
         coro.occulter_transmission(separation_lod, wavelength_nm),
         optical_path.primary.area_m2,
-        optical_path.system_throughput(wavelength_nm),
+        optical_path.system_throughput(wavelength_nm)
+        * _detector_qe(optical_path, wavelength_nm),
         dlambda_nm,
         n_channels,
         coro.core_area(separation_lod, wavelength_nm),
@@ -176,7 +191,7 @@ def binary_background(
 ):
     """Binary / neighbor stray light count rate CRbbin [e/s].
 
-    Wraps :func:`jaxedith.primitives.binary_rate`.
+    Wraps :func:`jaxedith.primitives.binary_rate` and applies detector QE here.
     """
     coro = optical_path.coronagraph
     return binary_rate(
@@ -184,7 +199,8 @@ def binary_background(
         Fbinary,
         coro.occulter_transmission(separation_lod, wavelength_nm),
         optical_path.primary.area_m2,
-        optical_path.system_throughput(wavelength_nm),
+        optical_path.system_throughput(wavelength_nm)
+        * _detector_qe(optical_path, wavelength_nm),
         dlambda_nm,
         n_channels,
         coro.core_area(separation_lod, wavelength_nm),
@@ -201,7 +217,7 @@ def thermal_background(
 ):
     """Thermal background count rate CRbth [e/s].
 
-    Wraps :func:`jaxedith.primitives.thermal_rate`.
+    Wraps :func:`jaxedith.primitives.thermal_rate` and applies detector QE here.
 
     Args:
         optical_path: ``optixstuff.OpticalPath`` eqx.Module.
@@ -213,7 +229,6 @@ def thermal_background(
             Defaults to 0.0 (no thermal background).
     """
     coro = optical_path.coronagraph
-    detector = optical_path.detector
     return thermal_rate(
         wavelength_nm,
         optical_path.primary.area_m2,
@@ -221,8 +236,8 @@ def thermal_background(
         temp_K,
         _lod_rad(optical_path, wavelength_nm),
         eps_warm_T_cold,
-        detector.quantum_efficiency,
-        detector.dqe,
+        _detector_qe(optical_path, wavelength_nm),
+        0.0,
         coro.core_area(separation_lod, wavelength_nm),
     )
 
@@ -244,8 +259,9 @@ def detector_noise(
             core-area lookup).
         separation_lod: Planet separation in lam/D (passed to coronagraph
             core-area lookup).
-        total_photon_rate: Total photon count rate Cp + CRbs + CRbz + CRbez
-            [e/s], used by ``photon_counting_time`` to derive t_photon.
+        total_photon_rate: Total detected electron rate Cp + CRbs + CRbz + CRbez
+            [e/s], already including QE, used by ``photon_counting_time``
+            to derive t_photon. Read variance uses ``detector.frame_time_s``.
         npix_multiplier: Aperture pixel-count correction (ETC config).
     """
     coro = optical_path.coronagraph
@@ -269,7 +285,7 @@ def detector_noise(
         n_pix,
         detector.dark_current_rate_e_per_s,
         detector.read_noise_e,
-        detector.read_time_s,
+        detector.frame_time_s,
         detector.clock_induced_charge_rate_e_per_frame,
         t_photon,
     )
@@ -289,7 +305,8 @@ def stellar_noise_floor(
 ):
     """Stellar noise floor *rate* CRnf_star_rate [e/s].
 
-    Wraps :func:`jaxedith.primitives.noise_floor_stellar`. The
+    Applies detector QE here and wraps
+    :func:`jaxedith.primitives.noise_floor_stellar`. The
     coronagraph's ``core_mean_intensity`` is already an intensity per
     (lambda/D)^2, so ``noisefloor_value`` is
     ``core_mean_intensity(sep, wl, stellar_diam_lod=stellar_diam_lod) / ppfact``
@@ -311,7 +328,8 @@ def stellar_noise_floor(
         F0,
         Fs_over_F0,
         optical_path.primary.area_m2,
-        optical_path.system_throughput(wavelength_nm),
+        optical_path.system_throughput(wavelength_nm)
+        * _detector_qe(optical_path, wavelength_nm),
         dlambda_nm,
         n_channels,
         noisefloor_value,

@@ -60,6 +60,11 @@ Cp = planet_rate(
 consistent units; no astropy units, no side effects. Every primitive
 is pure JAX and JIT-compatible.
 
+Rate outputs are electrons per second. Direct primitive callers supply a
+`throughput` that includes optics, detector QE, and contamination exactly once.
+The `t_read` argument to `detector_noise_rate` is the frame duration over which
+one read is taken, in seconds.
+
 ## Layer 2: `intermediates`
 
 Adapter functions that take an {class}`optixstuff.OpticalPath` + a
@@ -96,6 +101,12 @@ Cp = planet_signal(
 **Signature shape:** `(optical_path, scalars...) → rate`. The
 intermediate layer is the right level to drop in if you want
 per-term control without the variant orchestrator.
+
+These adapters convert photon rates to electrons per second using
+`detector.get_qe(wavelength_nm) + detector.dqe`, including for the stellar
+noise floor. Optical-path attenuating elements must not also include detector
+QE. Thermal emission uses the same QE factor with its emissivity and cold
+transmission. Detector read variance uses `detector.frame_time_s`.
 
 ## Layer 3: `etc`
 

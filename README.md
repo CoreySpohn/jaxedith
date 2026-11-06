@@ -17,6 +17,11 @@ predictions from a coronagraph + scene + observation triple. It is the
 retrievals where the ETC has to be differentiable, `vmap`-able, and
 JIT-able end-to-end.
 
+Count rates are in electrons per second. The intermediate adapters apply
+`detector.get_qe(wavelength_nm) + detector.dqe` exactly once; attenuating
+elements in the optical path must not also include detector QE. Read-noise
+variance is divided by the detector frame time, with one read per frame.
+
 If you want a friendly, general-purpose AYO exposure-time calculator
 with a standalone Python API,
 [pyEDITH](https://github.com/eleonoraalei/pyEDITH/) is the right tool.

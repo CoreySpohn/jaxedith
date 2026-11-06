@@ -23,6 +23,11 @@ from the Layer 2 ``intermediates``; the scalar publics call them and
 dispatch to the matching ``etc.py`` equation. The from_system wrappers
 share the ``_extract_per_kt`` / ``_sep_lod_from_arcsec`` /
 ``_vmap_over_kt`` plumbing.
+
+All count rates are electrons per second. The intermediate adapters apply
+detector QE exactly once; optical-path attenuating elements must not also
+include detector QE. Scene fluxes and the from_system extraction remain in
+photon units until passed to those adapters.
 """
 
 import jax
