@@ -40,7 +40,12 @@ def _fzodi_leinert(wavelength_nm, ecliptic_lat_deg=0.0, solar_lon_deg=135.0):
 
 
 def zodi_fn_ayo(observatory, exposure, star) -> ScalarArray:
-    """AYO default zodi: position-independent wavelength-only helper.
+    """AYO default local zodi: position-independent wavelength-only helper.
+
+    This is the local zodiacal light, whose color is the Leinert (scattered
+    sunlight) color. It is not an exozodi level: the exozodi takes the host
+    star's own color, so pass ``Fexozodi`` computed from the host's flux, for
+    example with ``zodi.exozodi_flux_ratio_band``.
 
     ``observatory`` and ``star`` are accepted for interface conformance
     and ignored. Returns scalar ``Fzodi`` [arcsec^-2].
