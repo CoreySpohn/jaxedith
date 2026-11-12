@@ -50,7 +50,7 @@ test = [
     "orbix>=2.0",
     "optixstuff>3.0.0",
     "skyscapes>=2.0",
-    "yippy>=2.10.6",
+    "yippy>=2.11.0",
     "coronalyze>=1.1.1",
     "coronagraphoto>=4.1",
 ]
