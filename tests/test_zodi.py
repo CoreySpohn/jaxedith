@@ -45,11 +45,11 @@ def exposure():
 
 
 def test_zodi_fn_ayo_matches_fzodi_helper(observatory, exposure, star):
-    """zodi_fn_ayo yields Fzodi = 10**(-0.4*mag) from the skyscapes AYO magnitude."""
-    from skyscapes.background.leinert import ayo_default_zodi_mag
+    """zodi_fn_ayo yields Fzodi = 10**(-0.4*mag) from the zodi AYO magnitude."""
+    from zodi import ayo_default_ab_mag
 
     fz_new = zodi_fn_ayo(observatory, exposure, star)
-    mag = ayo_default_zodi_mag(exposure.central_wavelength_nm)
+    mag = ayo_default_ab_mag(exposure.central_wavelength_nm)
     fz_ref = 10.0 ** (-0.4 * mag)
     assert jnp.allclose(fz_new, fz_ref)
 
@@ -67,3 +67,33 @@ def test_zodi_fn_leinert_matches_fzodi_helper(observatory, exposure, star):
     fz_new = zodi_fn_leinert(observatory, exposure, star)
     fz_ref = _fzodi_leinert(exposure.central_wavelength_nm, ecl_lat, sol_lon)
     assert jnp.allclose(fz_new, fz_ref)
+
+
+@pytest.mark.parametrize("wavelength_nm", [500.0, 910.0])
+def test_zodi_fn_ayo_color_matches_leinert_color(observatory, star, wavelength_nm):
+    """zodi_fn_ayo and zodi_fn_leinert scale with wavelength identically.
+
+    The AYO default fixes the brightness at V and carries it with the
+    Table 19 color; the Leinert path at fixed geometry uses the same
+    color. Their ratios to the V-band value must match, which fails by
+    (lambda / 550)**2 (2.7 at 910 nm) if the color is not converted to
+    the AB (per unit frequency) dialect. Tolerance basis: shared tables,
+    so only float rounding remains.
+    """
+
+    def exposure_at(lam):
+        return ExposureConfig(
+            start_time_jd=jnp.asarray(2460000.5),
+            exposure_time_s=jnp.asarray(3600.0),
+            central_wavelength_nm=jnp.asarray(lam),
+            bin_width_nm=jnp.asarray(20.0),
+            position_angle_deg=jnp.asarray(0.0),
+        )
+
+    ayo = zodi_fn_ayo(observatory, exposure_at(wavelength_nm), star) / zodi_fn_ayo(
+        observatory, exposure_at(550.0), star
+    )
+    leinert = zodi_fn_leinert(
+        observatory, exposure_at(wavelength_nm), star
+    ) / zodi_fn_leinert(observatory, exposure_at(550.0), star)
+    assert jnp.allclose(ayo, leinert, rtol=1e-5)
