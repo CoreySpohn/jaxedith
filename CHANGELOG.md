@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.0](https://github.com/CoreySpohn/jaxedith/compare/v2.0.0...v2.1.0) (2026-11-12)
+
+
+### Features
+
+* **etc:** add fixed-frame finite-exposure variance, SNR and exposure planners ([8c18683](https://github.com/CoreySpohn/jaxedith/commit/8c18683c9af1511c1a3a72dc7559a16c282c3077))
+
+
+### Bug Fixes
+
+* **etc:** tolerate roundoff in fixed-frame planners and frame counts; zero SNR for non-finite durations ([9f1c13b](https://github.com/CoreySpohn/jaxedith/commit/9f1c13b7ac3dcc7c866d4c38b102765511cf689b))
+* **intermediates:** apply detector QE to photon rates and use frame time for read noise ([d4e766f](https://github.com/CoreySpohn/jaxedith/commit/d4e766f62c994c8d6dfe5788cdd58f7dd8187dbf))
+* **intermediates:** treat dqe as a multiplicative QE degradation factor ([a0db634](https://github.com/CoreySpohn/jaxedith/commit/a0db63474518ef2431f8e0d19c9f97439d633ca3))
+* **jaxedith:** jit the zodi Fzodi helpers to keep eager compile counts down ([e1c5274](https://github.com/CoreySpohn/jaxedith/commit/e1c527468ee08207d881bdf3fe45d372cada2d90))
+
 ## [2.0.0](https://github.com/CoreySpohn/jaxedith/compare/v1.0.1...v2.0.0) (2026-11-05)
 
 
