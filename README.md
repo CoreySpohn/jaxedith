@@ -93,9 +93,11 @@ and rate-level functions take science time directly. System wrappers accept
 `ppfact=None` to use `ppconfig.ppfact`, or an explicit value to override it.
 They also thread `cadence` and, for variance/SNR/exposure, `bg_multiplier`.
 
-Fixed-frame exposure planning defaults to `planning="whole_frames"`:
+Fixed-frame exposure planning defaults to `planning="whole_frames"`. The call
+below shows the keywords and is not run as a test: it needs a `system`,
+`optical_path`, `observatory`, `exposure` and `ppconfig` already built.
 
-```python
+```python notest
 t = exptime_from_system_ayo(
     system,
     optical_path,
@@ -118,9 +120,10 @@ when no duration through `n_max` frames per roll meets the target, including
 targets at or above the systematic ceiling `Cp / Cnf`. Exposure wrappers add
 configured overheads after solving for science time.
 
-The rate-level API is also exported from `jaxedith`:
+The rate-level API is also exported from `jaxedith`. The block lists the
+signatures; it is not a runnable example.
 
-```python
+```python notest
 frame_count(t, frame_time)
 detector_variance_counts(t, n_pix, dark, read_noise, cic, frame_time)
 snr_fixed_frame(
