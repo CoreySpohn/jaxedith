@@ -126,7 +126,9 @@ optional_dependencies_dev_groups = ["dev", "docs", "test"]
 
 [tool.deptry.per_rule_ignores]
 # JAX loads its compiled backend; keep the explicit minimum version constraint.
-DEP002 = ["jaxlib"]
+# skyscapes supplies the System and scene types the *_from_system wrappers accept
+# (duck-typed, so no import in src).
+DEP002 = ["jaxlib", "skyscapes"]
 
 [tool.ty.environment]
 python-version = "3.11"
