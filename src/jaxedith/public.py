@@ -779,7 +779,7 @@ def _extract_per_kt(
     Returns:
         wl: scalar central wavelength [nm].
         dlambda: scalar bandwidth [nm].
-        t_jd: shape ``(T,)`` epoch array.
+        time_jd: shape ``(T,)`` epoch array.
         contrasts: shape ``(K, T)`` planet-to-star flux ratio.
         alpha: shape ``(K, T)`` projected separation [arcsec].
         F0_zp: scalar flux zero point [ph/s/m^2/nm] at ``wl``.
@@ -787,13 +787,13 @@ def _extract_per_kt(
     """
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
-    t_jd = jnp.atleast_1d(exposure.start_time_jd)
+    time_jd = jnp.atleast_1d(exposure.start_time_jd)
 
-    contrasts = system.contrasts(jnp.atleast_1d(wl), t_jd)
-    alpha, _dMag = system.alpha_dMag(t_jd)
-    F0_t = jax.vmap(lambda t: system.star.spec_flux_density(wl, t))(t_jd)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), time_jd)
+    alpha, _dMag = system.alpha_dMag(time_jd)
+    F0_t = jax.vmap(lambda t: system.star.spec_flux_density(wl, t))(time_jd)
     F0_zp = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wl)
-    return wl, dlambda, t_jd, contrasts, alpha, F0_zp, F0_t / F0_zp
+    return wl, dlambda, time_jd, contrasts, alpha, F0_zp, F0_t / F0_zp
 
 
 def _vmap_over_kt(per_element):
