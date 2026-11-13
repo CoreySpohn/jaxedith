@@ -19,7 +19,7 @@ def star():
         ra_deg=90.0,
         dec_deg=30.0,
         diameter_arcsec=0.0,
-        luminosity_lsun=1.0,
+        luminosity_Lsun=1.0,
         wavelengths_nm=jnp.array([400.0, 800.0]),
         times_jd=jnp.array([0.0, 1.0]),
         flux_density_jy=jnp.full((2, 2), 3631.0),
