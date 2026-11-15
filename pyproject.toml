@@ -22,7 +22,7 @@ dependencies = [
     "jax>=0.8.1",
     "jaxlib>=0.8.1",
     "jaxtyping>=0.3.3",
-    "skyscapes>=2.0",
+    "skyscapes>=3.0.0",
     "zodi>=1.1.0",
 ]
 [project.optional-dependencies]
@@ -49,7 +49,7 @@ test = [
     "scipy>=1.13",
     "orbix>=4.0.0",
     "optixstuff>3.0.0",
-    "skyscapes>=2.0",
+    "skyscapes>=3.0.0",
     "yippy>=2.11.0",
     "coronalyze>=1.1.1",
     "coronagraphoto>=4.1",
