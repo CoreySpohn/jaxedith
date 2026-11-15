@@ -10,8 +10,6 @@ Three axes verified per wrapper:
    (smoke test; exact value tested in ``test_zodi.py``).
 """
 
-from types import SimpleNamespace
-
 import jax.numpy as jnp
 import optixstuff as ox
 import pytest
@@ -225,7 +223,7 @@ def ppconfig():
 
 @pytest.fixture
 def exposure():
-    return SimpleNamespace(
+    return ox.ExposureConfig(
         start_time_d=jnp.array([0.0, 0.5]),
         exposure_time_s=jnp.asarray(3600.0),
         central_wavelength_nm=jnp.asarray(500.0),

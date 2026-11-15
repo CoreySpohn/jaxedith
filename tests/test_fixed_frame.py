@@ -6,6 +6,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optixstuff as ox
 import pytest
 import test_intermediates
 import test_stellar_diameter
@@ -297,7 +298,7 @@ def test_partial_solver_respects_read_discontinuity():
 
 @pytest.fixture
 def system_args(fixed_path, system):
-    exposure = SimpleNamespace(
+    exposure = ox.ExposureConfig(
         start_time_d=jnp.array([0.0, 0.5]),
         exposure_time_s=jnp.asarray(100.0),
         central_wavelength_nm=jnp.asarray(500.0),

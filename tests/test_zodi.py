@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optixstuff as ox
 import pytest
 from hwoutils.epoch import Epoch
 from orbix.observatory import Observatory, ObservatoryL2Halo
@@ -36,7 +37,7 @@ def observatory():
 @pytest.fixture
 def exposure():
     """1 h, 500 nm exposure at MJD 60000."""
-    return SimpleNamespace(
+    return ox.ExposureConfig(
         start_time_d=jnp.asarray(0.0),
         exposure_time_s=jnp.asarray(3600.0),
         central_wavelength_nm=jnp.asarray(500.0),
@@ -83,7 +84,7 @@ def test_zodi_fn_ayo_color_matches_leinert_color(observatory, star, wavelength_n
     """
 
     def exposure_at(lam):
-        return SimpleNamespace(
+        return ox.ExposureConfig(
             start_time_d=jnp.asarray(0.0),
             exposure_time_s=jnp.asarray(3600.0),
             central_wavelength_nm=jnp.asarray(lam),

@@ -195,7 +195,7 @@ def system():
 @pytest.mark.parametrize("operation", OPERATIONS)
 def test_from_system_propagates_star_diameter(optical_path, system, variant, operation):
     fn = getattr(public, f"{operation}_from_system_{variant}")
-    exposure = SimpleNamespace(
+    exposure = ox.ExposureConfig(
         start_time_d=jnp.array([0.0, 0.5]),
         exposure_time_s=jnp.asarray(3600.0),
         central_wavelength_nm=jnp.asarray(500.0),
