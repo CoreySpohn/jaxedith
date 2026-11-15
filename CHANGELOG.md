@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/CoreySpohn/jaxedith/compare/v2.1.0...v2.1.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **jaxedith:** support orbix 4 and skyscapes 3, whose time and luminosity keywords were renamed ([dede988](https://github.com/CoreySpohn/jaxedith/commit/dede9881b257a27156c07908149ccfec762591bc))
+
 ## [2.1.0](https://github.com/CoreySpohn/jaxedith/compare/v2.0.0...v2.1.0) (2026-11-12)
 
 
