@@ -28,7 +28,7 @@ types:
 
 | Package | Role |
 |---|---|
-| `optixstuff` | `OpticalPath` (primary, throughput, coronagraph, detector) + `ExposureConfig` |
+| `optixstuff` | `OpticalPath` (primary, throughput, coronagraph, detector) |
 | `skyscapes` | `Scene` / `System` with `Star`, `Planet`, `Disk`, physical models, backgrounds |
 | `orbix` | `Observatory` -- needed for the `_from_system_*` zodi geometry helpers |
 | `coronalyze` | `PPConfig` (post-processing knobs) |

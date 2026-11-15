@@ -10,7 +10,7 @@ Two surfaces, both defined in this file:
   the default remains the legacy photon-counting equation.
 * System-level ``*_from_system_{ayo,exosims_det,exosims_char}`` wrappers
   accept a ``skyscapes.System`` + ``OpticalPath`` + ``Observatory`` +
-  ``ExposureConfig`` + ``PPConfig``, extract per-(planet, epoch) astrophysics,
+  exposure metadata + ``PPConfig``, extract per-(planet, epoch) astrophysics,
   and ``jax.vmap`` the matching scalar public over ``(K, T)``.
 
 ``ppfact`` means opposite things in the two variants. In the AYO publics
@@ -29,6 +29,11 @@ All count rates are electrons per second. The intermediate adapters apply
 detector QE exactly once; optical-path attenuating elements must not also
 include detector QE. Scene fluxes and the from_system extraction remain in
 photon units until passed to those adapters.
+
+Exposure metadata must expose ``start_time_d`` (days from ``system.epoch``),
+``central_wavelength_nm`` and ``bin_width_nm``. A zodi callable has signature
+``zodi_fn(observatory, exposure, star, *, epoch)``; wrappers supply the scene
+reference epoch as static host metadata.
 """
 
 import jax
@@ -153,7 +158,7 @@ def _count_rates_ayo(
     """Assemble the AYO rate triple ``(Cp, Cb, Cnf_rate)``.
 
     All Layer 2 intermediates are called with ``n_channels`` and
-    ``npix_multiplier`` read from ``optical_path`` (see Plan 2).
+    ``npix_multiplier`` read from ``optical_path``.
 
     The noise floor is returned in rate form: multiply by ``snr`` inside
     the equation, not here. Star and exozodi floors are combined in
@@ -744,7 +749,7 @@ def snr_exosims_char(
 
 
 # ---------------------------------------------------------------------------
-# AYO from-system wrappers (Plan 5, Task 2)
+# AYO from-system wrappers
 # ---------------------------------------------------------------------------
 
 ARCSEC_PER_RAD = 206264.80624709636
@@ -759,10 +764,13 @@ def _sep_lod_from_arcsec(sep_arcsec, wavelength_nm, diameter_m):
 def _stellar_diam_mas_from_system(system):
     """Read stellar angular diameter in mas for every from-system wrapper.
 
-    Convert ``system.star.diameter_arcsec`` to milliarcseconds; star models
-    without that attribute use 0 (a point star).
+    Physical-radius stars compute their diameter at the scene distance;
+    apparent stars supply a value. Stars without a diameter are point sources.
     """
-    return 1000.0 * getattr(system.star, "diameter_arcsec", 0.0)
+    diameter = getattr(system.star, "diameter_arcsec", 0.0)
+    if callable(diameter):
+        diameter = diameter(dist_pc=system.dist_pc)
+    return 1000.0 * diameter
 
 
 def _extract_per_kt(
@@ -779,7 +787,7 @@ def _extract_per_kt(
     Returns:
         wl: scalar central wavelength [nm].
         dlambda: scalar bandwidth [nm].
-        time_jd: shape ``(T,)`` epoch array.
+        time_d: shape ``(T,)`` days from ``system.epoch``.
         contrasts: shape ``(K, T)`` planet-to-star flux ratio.
         alpha: shape ``(K, T)`` projected separation [arcsec].
         F0_zp: scalar flux zero point [ph/s/m^2/nm] at ``wl``.
@@ -787,13 +795,16 @@ def _extract_per_kt(
     """
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
-    time_jd = jnp.atleast_1d(exposure.start_time_jd)
+    time_d = jnp.atleast_1d(exposure.start_time_d)
 
-    contrasts = system.contrasts(jnp.atleast_1d(wl), time_jd)
-    alpha, _dMag = system.alpha_dMag(time_jd)
-    F0_t = jax.vmap(lambda t: system.star.spec_flux_density(wl, t))(time_jd)
+    ephemeris = system.ephemeris(time_d)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), time_d, ephemeris=ephemeris)
+    alpha, _dMag = system.alpha_dMag(time_d, ephemeris=ephemeris)
+    F0_t = jax.vmap(
+        lambda t: system.star.spec_flux_density(wl, t, dist_pc=system.dist_pc)
+    )(time_d)
     F0_zp = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wl)
-    return wl, dlambda, time_jd, contrasts, alpha, F0_zp, F0_t / F0_zp
+    return wl, dlambda, time_d, contrasts, alpha, F0_zp, F0_t / F0_zp
 
 
 def _vmap_over_kt(per_element):
@@ -840,10 +851,10 @@ def count_variance_components(
     floor. ``bg_multiplier`` (k) scales photon backgrounds on the fixed-frame
     path. See :func:`count_variance_components_ayo` for cadence conventions.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+    wl, dlambda, _t_d, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
         system, exposure
     )
-    Fzodi = zodi_fn(observatory, exposure, system.star)
+    Fzodi = zodi_fn(observatory, exposure, system.star, epoch=system.epoch)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
     t_science = (
         jnp.maximum(t / ppconfig.n_rolls - observatory.overhead_fixed_s, 0.0)
@@ -857,7 +868,7 @@ def count_variance_components(
             Fp_over_Fs=Fp_over_Fs,
             Fzodi=Fzodi,
             Fexozodi=Fexozodi,
-            dist_pc=system.star.dist_pc,
+            dist_pc=system.dist_pc,
             sep_arcsec=sep_arcsec,
             Fbinary=0.0,
             stellar_diam_mas=_stellar_diam_mas_from_system(system),
@@ -903,12 +914,12 @@ def count_rates_from_system_ayo(
     ``system.disk.fexozodi_at(...)`` once
     ``skyscapes.AbstractDisk.fexozodi_at`` lands.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+    wl, dlambda, _t_d, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
         system, exposure
     )
-    Fzodi = zodi_fn(observatory, exposure, system.star)
+    Fzodi = zodi_fn(observatory, exposure, system.star, epoch=system.epoch)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
-    dist_pc = system.star.dist_pc
+    dist_pc = system.dist_pc
 
     def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
@@ -966,12 +977,12 @@ def exptime_from_system_ayo(
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
     once ``AbstractDisk.fexozodi_at`` lands.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+    wl, dlambda, _t_d, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
         system, exposure
     )
-    Fzodi = zodi_fn(observatory, exposure, system.star)
+    Fzodi = zodi_fn(observatory, exposure, system.star, epoch=system.epoch)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
-    dist_pc = system.star.dist_pc
+    dist_pc = system.dist_pc
 
     def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
@@ -1033,12 +1044,12 @@ def snr_from_system_ayo(
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
     once ``AbstractDisk.fexozodi_at`` lands.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+    wl, dlambda, _t_d, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
         system, exposure
     )
-    Fzodi = zodi_fn(observatory, exposure, system.star)
+    Fzodi = zodi_fn(observatory, exposure, system.star, epoch=system.epoch)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
-    dist_pc = system.star.dist_pc
+    dist_pc = system.dist_pc
 
     def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
@@ -1089,12 +1100,12 @@ def count_rates_from_system_exosims_det(
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``
     once ``AbstractDisk.fexozodi_at`` lands.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+    wl, dlambda, _t_d, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
         system, exposure
     )
-    Fzodi = zodi_fn(observatory, exposure, system.star)
+    Fzodi = zodi_fn(observatory, exposure, system.star, epoch=system.epoch)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
-    dist_pc = system.star.dist_pc
+    dist_pc = system.dist_pc
 
     def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
@@ -1139,12 +1150,12 @@ def exptime_from_system_exosims_det(
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+    wl, dlambda, _t_d, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
         system, exposure
     )
-    Fzodi = zodi_fn(observatory, exposure, system.star)
+    Fzodi = zodi_fn(observatory, exposure, system.star, epoch=system.epoch)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
-    dist_pc = system.star.dist_pc
+    dist_pc = system.dist_pc
 
     def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
@@ -1193,12 +1204,12 @@ def snr_from_system_exosims_det(
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+    wl, dlambda, _t_d, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
         system, exposure
     )
-    Fzodi = zodi_fn(observatory, exposure, system.star)
+    Fzodi = zodi_fn(observatory, exposure, system.star, epoch=system.epoch)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
-    dist_pc = system.star.dist_pc
+    dist_pc = system.dist_pc
 
     def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
@@ -1249,12 +1260,12 @@ def count_rates_from_system_exosims_char(
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+    wl, dlambda, _t_d, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
         system, exposure
     )
-    Fzodi = zodi_fn(observatory, exposure, system.star)
+    Fzodi = zodi_fn(observatory, exposure, system.star, epoch=system.epoch)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
-    dist_pc = system.star.dist_pc
+    dist_pc = system.dist_pc
 
     def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
@@ -1299,12 +1310,12 @@ def exptime_from_system_exosims_char(
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+    wl, dlambda, _t_d, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
         system, exposure
     )
-    Fzodi = zodi_fn(observatory, exposure, system.star)
+    Fzodi = zodi_fn(observatory, exposure, system.star, epoch=system.epoch)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
-    dist_pc = system.star.dist_pc
+    dist_pc = system.dist_pc
 
     def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(
@@ -1353,12 +1364,12 @@ def snr_from_system_exosims_char(
 
     TODO(skyscapes): Fexozodi default auto-sourced from ``system.disk``.
     """
-    wl, dlambda, _t_jd, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
+    wl, dlambda, _t_d, contrasts, alpha, F0_zp, Fs_over_F0_t = _extract_per_kt(
         system, exposure
     )
-    Fzodi = zodi_fn(observatory, exposure, system.star)
+    Fzodi = zodi_fn(observatory, exposure, system.star, epoch=system.epoch)
     sep_lod = _sep_lod_from_arcsec(alpha, wl, optical_path.primary.diameter_m)
-    dist_pc = system.star.dist_pc
+    dist_pc = system.dist_pc
 
     def per_element(Fp_over_Fs, sep_arcsec, sep_lod_kt, Fs_over_F0):
         scene = ETCScene(

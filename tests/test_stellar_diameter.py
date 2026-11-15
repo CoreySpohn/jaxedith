@@ -9,11 +9,10 @@ import numpy as np
 import optixstuff as ox
 import pytest
 from coronalyze import PPConfig
-from hwoutils.constants import Msun2kg
-from orbix.kepler.shortcuts.grid import get_grid_solver
-from orbix.orbit import KeplerianOrbit
+from hwoutils.constants import Mearth2kg, Msun2kg
+from hwoutils.epoch import Epoch
 from skyscapes.physical_model import GridPhysicalModel
-from skyscapes.scene import FlatStar, Planet, Star, System
+from skyscapes.scene import BlackbodyStar, FlatStar, Planet, Star, System
 
 from jaxedith import public
 from jaxedith.intermediates import stellar_leakage, stellar_noise_floor
@@ -161,37 +160,34 @@ def test_diameter_jit_and_vmap_match_eager(optical_path, variant, operation):
 @pytest.fixture
 def system():
     star = Star(
-        Ms_kg=Msun2kg,
-        dist_pc=10.0,
         diameter_arcsec=0.0,
         wavelengths_nm=jnp.array([400.0, 800.0]),
-        times_jd=jnp.array([2460000.5]),
+        times_d=jnp.array([0.0]),
         flux_density_jy=jnp.full((2, 1), 3631.0),
         interpolation_method="linear",
     )
-    orbit = KeplerianOrbit(
-        a_AU=jnp.array([1.0]),
-        e=jnp.array([0.0]),
-        W_rad=jnp.array([0.0]),
-        i_rad=jnp.array([0.0]),
-        w_rad=jnp.array([0.0]),
-        M0_rad=jnp.array([0.0]),
-        t0_d=jnp.array([0.0]),
-    )
     planet = Planet(
         Rp_Rearth=jnp.array([1.0]),
-        Mp_Mearth=jnp.array([1.0]),
-        orbit=orbit,
         physical_model=GridPhysicalModel(
             wavelengths_nm=jnp.array([400.0, 800.0]),
             phase_angle_deg=jnp.array([0.0, 180.0]),
             contrast_grid=jnp.full((1, 2, 2), 1e-8),
         ),
     )
-    return System(
+    return System.from_classical(
         star=star,
         planets=(planet,),
-        trig_solver=get_grid_solver(level="scalar", E=False, trig=True, jit=True),
+        star_mass_Msun=1.0,
+        planet_mass_Msun=Mearth2kg / Msun2kg,
+        dist_pc=10.0,
+        epoch=Epoch(2460000.5),
+        a_AU=jnp.array([1.0]),
+        e=jnp.array([0.0]),
+        W_rad=jnp.array([0.0]),
+        i_rad=jnp.array([0.0]),
+        w_rad=jnp.array([0.0]),
+        M0_rad=jnp.array([0.0]),
+        epoch_d=-2460000.5,
     )
 
 
@@ -199,8 +195,8 @@ def system():
 @pytest.mark.parametrize("operation", OPERATIONS)
 def test_from_system_propagates_star_diameter(optical_path, system, variant, operation):
     fn = getattr(public, f"{operation}_from_system_{variant}")
-    exposure = ox.ExposureConfig(
-        start_time_jd=jnp.array([2460000.5, 2460001.0]),
+    exposure = SimpleNamespace(
+        start_time_d=jnp.array([0.0, 0.5]),
         exposure_time_s=jnp.asarray(3600.0),
         central_wavelength_nm=jnp.asarray(500.0),
         bin_width_nm=jnp.asarray(20.0),
@@ -224,7 +220,7 @@ def test_from_system_propagates_star_diameter(optical_path, system, variant, ope
                 exposure,
                 ppconfig,
                 *tail,
-                zodi_fn=lambda *_: 0.0,
+                zodi_fn=lambda *_, **__: 0.0,
             )
         )
 
@@ -245,9 +241,49 @@ def test_from_system_propagates_star_diameter(optical_path, system, variant, ope
         assert np.all(extended < point)
 
     flat_star = FlatStar(
-        Ms_kg=system.star.Ms_kg,
-        dist_pc=system.star.dist_pc,
-        flux_phot_per_nm_m2=system.star.spec_flux_density(500.0, 2460000.5),
+        flux_phot_per_nm_m2=system.star.spec_flux_density(
+            500.0, 0.0, dist_pc=system.dist_pc
+        ),
     )
     without_diameter = eqx.tree_at(lambda s: s.star, system, flat_star)
     np.testing.assert_array_equal(evaluate(without_diameter), point)
+
+
+def test_blackbody_diameter_method_reaches_system_wrapper(optical_path, system):
+    """Fails if a computed diameter is treated as a bound method or loses distance."""
+    with jax.enable_x64():
+        star = BlackbodyStar(teff_K=5772.0, radius_m=6.957e8)
+        system = eqx.tree_at(lambda s: s.star, system, star)
+        exposure = SimpleNamespace(
+            start_time_d=jnp.array([0.0]),
+            central_wavelength_nm=jnp.asarray(500.0),
+            bin_width_nm=jnp.asarray(20.0),
+        )
+        observatory = SimpleNamespace(temperature_K=270.0)
+        ppconfig = PPConfig(ppfact=30.0, ez_ppf=jnp.inf)
+
+        @eqx.filter_jit
+        def evaluate(scene):
+            return public.count_rates_from_system_ayo(
+                scene, optical_path, observatory, exposure, ppconfig
+            )
+
+        for distance in (10.0, 20.0):
+            scene = eqx.tree_at(lambda s: s.dynamics.frame.dist_pc, system, distance)
+            diameter = star.diameter_arcsec(dist_pc=distance)
+            apparent = FlatStar(
+                flux_phot_per_nm_m2=star.spec_flux_density(
+                    500.0, 0.0, dist_pc=distance
+                ),
+                diameter_arcsec=diameter,
+            )
+            np.testing.assert_allclose(
+                public._stellar_diam_mas_from_system(scene),
+                1000.0 * diameter,
+                rtol=1e-12,
+            )
+            np.testing.assert_allclose(
+                evaluate(scene),
+                evaluate(eqx.tree_at(lambda s: s.star, scene, apparent)),
+                rtol=1e-12,
+            )

@@ -53,7 +53,7 @@ Three properties define the design:
   - *System mode* (`exptime_from_system_ayo(system, optical_path,
     observatory, exposure, ppconfig)`) accepts a full
     `skyscapes.System` + `optixstuff.OpticalPath` +
-    `orbix.observatory.Observatory` + `optixstuff.ExposureConfig` +
+    `orbix.observatory.Observatory` + exposure metadata with `start_time_d` +
     `coronalyze.PPConfig`, extracts per-(planet, epoch) astrophysics,
     and `jax.vmap`s the scalar core over `(K, T)`.
 
@@ -271,11 +271,15 @@ t_exp = exptime_ayo(
 
 System mode (you have a `skyscapes.System`):
 
-This example needs a user-supplied system, optical path, and orbit data.
+This example needs a user-supplied system with an explicit epoch, optical path,
+and orbit data. Exposure times are days from `system.epoch`. Custom zodi callables
+accept `(observatory, exposure, star, *, epoch)`; direct calls to the built-in
+zodi adapters must also supply a host-side `hwoutils.epoch.Epoch`.
 
 ```python notest
 import jax.numpy as jnp
-import optixstuff as ox
+from types import SimpleNamespace
+
 from coronalyze import PPConfig
 from jaxedith import exptime_from_system_ayo, zodi_fn_ayo
 from orbix.observatory import Observatory, ObservatoryL2Halo
@@ -284,8 +288,8 @@ t_exp = exptime_from_system_ayo(
     system,
     optical_path,
     observatory=Observatory(orbit=ObservatoryL2Halo.from_default()),
-    exposure=ox.ExposureConfig(
-        start_time_jd=jnp.array([2_460_000.5]),
+    exposure=SimpleNamespace(
+        start_time_d=jnp.array([0.0]),  # Days from system.epoch
         exposure_time_s=jnp.asarray(3600.0),
         central_wavelength_nm=jnp.asarray(500.0),
         bin_width_nm=jnp.asarray(20.0),

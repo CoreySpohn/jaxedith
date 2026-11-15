@@ -1,4 +1,4 @@
-"""Tests for the *_from_system_* wrappers (Plan 5).
+"""Tests for the *_from_system_* wrappers.
 
 Three axes verified per wrapper:
 
@@ -10,6 +10,8 @@ Three axes verified per wrapper:
    (smoke test; exact value tested in ``test_zodi.py``).
 """
 
+from types import SimpleNamespace
+
 import jax.numpy as jnp
 import optixstuff as ox
 import pytest
@@ -17,10 +19,8 @@ from coronagraphoto.datasets import fetch_coronagraph
 from coronalyze import PPConfig
 from hwoutils import constants as const
 from hwoutils.conversions import jy_to_photons_per_nm_per_m2, mag_to_flux_jy
-from optixstuff import ExposureConfig
-from orbix.kepler.shortcuts.grid import get_grid_solver
+from hwoutils.epoch import Epoch
 from orbix.observatory import Observatory, ObservatoryL2Halo
-from orbix.orbit import KeplerianOrbit
 from skyscapes.physical_model import GridPhysicalModel
 from skyscapes.scene import Planet, Star, System
 
@@ -80,27 +80,15 @@ def optical_path(yip_path):
 
 @pytest.fixture
 def system():
-    solver = get_grid_solver(level="scalar", E=False, trig=True, jit=True)
-    # times_jd covers the exposure epochs (2460000.5, 2460001.0)
+    # Stellar samples bracket the exposure times, relative to the scene epoch.
     star = Star(
-        Ms_kg=const.Msun2kg,
-        dist_pc=10.0,
         ra_deg=90.0,
         dec_deg=30.0,
         diameter_arcsec=0.0,
         luminosity_Lsun=1.0,
         wavelengths_nm=jnp.array([400.0, 800.0]),
-        times_jd=jnp.array([2459999.0, 2460002.0]),
+        times_d=jnp.array([-1.5, 1.5]),
         flux_density_jy=jnp.full((2, 2), 3631.0),
-    )
-    orbit = KeplerianOrbit(
-        a_AU=jnp.array([1.0, 1.5]),
-        e=jnp.array([0.0, 0.0]),
-        W_rad=jnp.array([0.0, 0.0]),
-        i_rad=jnp.array([0.0, 0.0]),
-        w_rad=jnp.array([0.0, 0.0]),
-        M0_rad=jnp.array([0.0, 0.0]),
-        t0_d=jnp.array([0.0, 0.0]),
     )
     physical_model = GridPhysicalModel(
         wavelengths_nm=jnp.array([400.0, 800.0]),
@@ -109,39 +97,35 @@ def system():
     )
     planet = Planet(
         Rp_Rearth=jnp.array([1.0, 1.0]),
-        Mp_Mearth=jnp.array([1.0, 1.0]),
-        orbit=orbit,
         physical_model=physical_model,
     )
-    return System(
+    return System.from_classical(
         star=star,
         planets=(planet,),
-        trig_solver=solver,
+        star_mass_Msun=1.0,
+        planet_mass_Msun=const.Mearth2kg / const.Msun2kg,
+        dist_pc=10.0,
+        epoch=Epoch(2460000.5),
+        a_AU=jnp.array([1.0, 1.5]),
+        e=jnp.array([0.0, 0.0]),
+        W_rad=jnp.array([0.0, 0.0]),
+        i_rad=jnp.array([0.0, 0.0]),
+        w_rad=jnp.array([0.0, 0.0]),
+        M0_rad=jnp.array([0.0, 0.0]),
+        epoch_d=-2460000.5,
     )
 
 
 def _make_system(flux_density_jy):
     """System parametrized by star flux, for the zodi-invariance regression."""
-    solver = get_grid_solver(level="scalar", E=False, trig=True, jit=True)
     star = Star(
-        Ms_kg=const.Msun2kg,
-        dist_pc=10.0,
         ra_deg=90.0,
         dec_deg=30.0,
         diameter_arcsec=0.0,
         luminosity_Lsun=1.0,
         wavelengths_nm=jnp.array([400.0, 800.0]),
-        times_jd=jnp.array([2459999.0, 2460002.0]),
+        times_d=jnp.array([-1.5, 1.5]),
         flux_density_jy=jnp.full((2, 2), flux_density_jy),
-    )
-    orbit = KeplerianOrbit(
-        a_AU=jnp.array([1.0, 1.5]),
-        e=jnp.array([0.0, 0.0]),
-        W_rad=jnp.array([0.0, 0.0]),
-        i_rad=jnp.array([0.0, 0.0]),
-        w_rad=jnp.array([0.0, 0.0]),
-        M0_rad=jnp.array([0.0, 0.0]),
-        t0_d=jnp.array([0.0, 0.0]),
     )
     physical_model = GridPhysicalModel(
         wavelengths_nm=jnp.array([400.0, 800.0]),
@@ -150,11 +134,23 @@ def _make_system(flux_density_jy):
     )
     planet = Planet(
         Rp_Rearth=jnp.array([1.0, 1.0]),
-        Mp_Mearth=jnp.array([1.0, 1.0]),
-        orbit=orbit,
         physical_model=physical_model,
     )
-    return System(star=star, planets=(planet,), trig_solver=solver)
+    return System.from_classical(
+        star=star,
+        planets=(planet,),
+        star_mass_Msun=1.0,
+        planet_mass_Msun=const.Mearth2kg / const.Msun2kg,
+        dist_pc=10.0,
+        epoch=Epoch(2460000.5),
+        a_AU=jnp.array([1.0, 1.5]),
+        e=jnp.array([0.0, 0.0]),
+        W_rad=jnp.array([0.0, 0.0]),
+        i_rad=jnp.array([0.0, 0.0]),
+        w_rad=jnp.array([0.0, 0.0]),
+        M0_rad=jnp.array([0.0, 0.0]),
+        epoch_d=-2460000.5,
+    )
 
 
 def _noiseless_optical_path(yip_path):
@@ -189,7 +185,7 @@ def test_zodi_count_rate_invariant_to_star_flux(
     """
     optical_path = _noiseless_optical_path(yip_path)
 
-    def zero_zodi(observatory, exposure, star):
+    def zero_zodi(observatory, exposure, star, *, epoch):
         return 0.0
 
     def crbz(flux_density_jy):
@@ -229,8 +225,8 @@ def ppconfig():
 
 @pytest.fixture
 def exposure():
-    return ExposureConfig(
-        start_time_jd=jnp.array([2460000.5, 2460001.0]),
+    return SimpleNamespace(
+        start_time_d=jnp.array([0.0, 0.5]),
         exposure_time_s=jnp.asarray(3600.0),
         central_wavelength_nm=jnp.asarray(500.0),
         bin_width_nm=jnp.asarray(20.0),
@@ -258,12 +254,13 @@ def test_exptime_from_system_ayo_matches_scalar(
 
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
-    time_jd = jnp.atleast_1d(exposure.start_time_jd)
-    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
+    time_d = jnp.atleast_1d(exposure.start_time_d)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star, epoch=system.epoch)
 
-    alpha, _ = system.alpha_dMag(time_jd)
-    contrasts = system.contrasts(jnp.atleast_1d(wl), time_jd)
-    F0 = system.star.spec_flux_density(wl, time_jd[0])
+    ephemeris = system.ephemeris(time_d)
+    alpha, _ = system.alpha_dMag(time_d, ephemeris=ephemeris)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), time_d, ephemeris=ephemeris)
+    F0 = system.star.spec_flux_density(wl, time_d[0], dist_pc=system.dist_pc)
     F0_zp = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wl)
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
@@ -273,7 +270,7 @@ def test_exptime_from_system_ayo_matches_scalar(
         Fp_over_Fs=contrasts[0, 0],
         Fzodi=Fzodi,
         Fexozodi=0.0,
-        dist_pc=system.star.dist_pc,
+        dist_pc=system.dist_pc,
         sep_arcsec=alpha[0, 0],
         Fbinary=0.0,
     )
@@ -291,7 +288,7 @@ def test_exptime_from_system_ayo_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
-    assert t_new.shape == (system.n_planets, time_jd.size)
+    assert t_new.shape == (system.n_planets, time_d.size)
     assert jnp.allclose(t_new[0, 0], t_scalar)
 
 
@@ -310,11 +307,12 @@ def test_snr_from_system_ayo_matches_scalar(
 
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
-    time_jd = jnp.atleast_1d(exposure.start_time_jd)
-    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
-    alpha, _ = system.alpha_dMag(time_jd)
-    contrasts = system.contrasts(jnp.atleast_1d(wl), time_jd)
-    F0 = system.star.spec_flux_density(wl, time_jd[0])
+    time_d = jnp.atleast_1d(exposure.start_time_d)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star, epoch=system.epoch)
+    ephemeris = system.ephemeris(time_d)
+    alpha, _ = system.alpha_dMag(time_d, ephemeris=ephemeris)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), time_d, ephemeris=ephemeris)
+    F0 = system.star.spec_flux_density(wl, time_d[0], dist_pc=system.dist_pc)
     F0_zp = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wl)
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
@@ -324,7 +322,7 @@ def test_snr_from_system_ayo_matches_scalar(
         Fp_over_Fs=contrasts[0, 0],
         Fzodi=Fzodi,
         Fexozodi=0.0,
-        dist_pc=system.star.dist_pc,
+        dist_pc=system.dist_pc,
         sep_arcsec=alpha[0, 0],
         Fbinary=0.0,
     )
@@ -342,7 +340,7 @@ def test_snr_from_system_ayo_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
-    assert snr_new.shape == (system.n_planets, time_jd.size)
+    assert snr_new.shape == (system.n_planets, time_d.size)
     assert jnp.allclose(snr_new[0, 0], snr_scalar)
 
 
@@ -383,7 +381,7 @@ def test_count_rates_from_system_exosims_det_runs(
         ppconfig,
         zodi_fn=zodi_fn_ayo,
     )
-    expected_shape = (system.n_planets, jnp.atleast_1d(exposure.start_time_jd).size)
+    expected_shape = (system.n_planets, jnp.atleast_1d(exposure.start_time_d).size)
     assert all(rate.shape == expected_shape for rate in rates)
 
 
@@ -403,11 +401,12 @@ def test_count_rates_from_system_ayo_matches_scalar(
     )
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
-    time_jd = jnp.atleast_1d(exposure.start_time_jd)
-    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
-    alpha, _ = system.alpha_dMag(time_jd)
-    contrasts = system.contrasts(jnp.atleast_1d(wl), time_jd)
-    F0 = system.star.spec_flux_density(wl, time_jd[0])
+    time_d = jnp.atleast_1d(exposure.start_time_d)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star, epoch=system.epoch)
+    ephemeris = system.ephemeris(time_d)
+    alpha, _ = system.alpha_dMag(time_d, ephemeris=ephemeris)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), time_d, ephemeris=ephemeris)
+    F0 = system.star.spec_flux_density(wl, time_d[0], dist_pc=system.dist_pc)
     F0_zp = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wl)
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
@@ -417,7 +416,7 @@ def test_count_rates_from_system_ayo_matches_scalar(
         Fp_over_Fs=contrasts[0, 0],
         Fzodi=Fzodi,
         Fexozodi=0.0,
-        dist_pc=system.star.dist_pc,
+        dist_pc=system.dist_pc,
         sep_arcsec=alpha[0, 0],
         Fbinary=0.0,
     )
@@ -446,7 +445,7 @@ def test_count_rates_from_system_ayo_matches_scalar(
     assert float(Cp_new[0, 0]) == pytest.approx(float(expected_planet), rel=1e-6)
     assert float(Cp_scalar) == pytest.approx(float(expected_planet), rel=1e-6)
     assert all(
-        rate.shape == (system.n_planets, time_jd.size)
+        rate.shape == (system.n_planets, time_d.size)
         for rate in (Cp_new, Cb_new, Cnf_new)
     )
     assert jnp.allclose(Cp_new[0, 0], Cp_scalar)
@@ -462,7 +461,7 @@ def _scalar_scene(system, sep_arcsec, Fp_over_Fs, F0, Fzodi, wl):
         Fp_over_Fs=Fp_over_Fs,
         Fzodi=Fzodi,
         Fexozodi=0.0,
-        dist_pc=system.star.dist_pc,
+        dist_pc=system.dist_pc,
         sep_arcsec=sep_arcsec,
         Fbinary=0.0,
     )
@@ -482,11 +481,12 @@ def test_exptime_from_system_exosims_det_matches_scalar(
     )
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
-    time_jd = jnp.atleast_1d(exposure.start_time_jd)
-    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
-    alpha, _ = system.alpha_dMag(time_jd)
-    contrasts = system.contrasts(jnp.atleast_1d(wl), time_jd)
-    F0 = system.star.spec_flux_density(wl, time_jd[0])
+    time_d = jnp.atleast_1d(exposure.start_time_d)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star, epoch=system.epoch)
+    ephemeris = system.ephemeris(time_d)
+    alpha, _ = system.alpha_dMag(time_d, ephemeris=ephemeris)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), time_d, ephemeris=ephemeris)
+    F0 = system.star.spec_flux_density(wl, time_d[0], dist_pc=system.dist_pc)
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
     scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi, wl)
@@ -504,7 +504,7 @@ def test_exptime_from_system_exosims_det_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
-    assert t_new.shape == (system.n_planets, time_jd.size)
+    assert t_new.shape == (system.n_planets, time_d.size)
     assert jnp.allclose(t_new[0, 0], t_scalar)
 
 
@@ -522,11 +522,12 @@ def test_snr_from_system_exosims_det_matches_scalar(
     )
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
-    time_jd = jnp.atleast_1d(exposure.start_time_jd)
-    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
-    alpha, _ = system.alpha_dMag(time_jd)
-    contrasts = system.contrasts(jnp.atleast_1d(wl), time_jd)
-    F0 = system.star.spec_flux_density(wl, time_jd[0])
+    time_d = jnp.atleast_1d(exposure.start_time_d)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star, epoch=system.epoch)
+    ephemeris = system.ephemeris(time_d)
+    alpha, _ = system.alpha_dMag(time_d, ephemeris=ephemeris)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), time_d, ephemeris=ephemeris)
+    F0 = system.star.spec_flux_density(wl, time_d[0], dist_pc=system.dist_pc)
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
     scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi, wl)
@@ -544,7 +545,7 @@ def test_snr_from_system_exosims_det_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
-    assert snr_new.shape == (system.n_planets, time_jd.size)
+    assert snr_new.shape == (system.n_planets, time_d.size)
     assert jnp.allclose(snr_new[0, 0], snr_scalar)
 
 
@@ -562,11 +563,12 @@ def test_exptime_from_system_exosims_char_matches_scalar(
     )
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
-    time_jd = jnp.atleast_1d(exposure.start_time_jd)
-    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
-    alpha, _ = system.alpha_dMag(time_jd)
-    contrasts = system.contrasts(jnp.atleast_1d(wl), time_jd)
-    F0 = system.star.spec_flux_density(wl, time_jd[0])
+    time_d = jnp.atleast_1d(exposure.start_time_d)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star, epoch=system.epoch)
+    ephemeris = system.ephemeris(time_d)
+    alpha, _ = system.alpha_dMag(time_d, ephemeris=ephemeris)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), time_d, ephemeris=ephemeris)
+    F0 = system.star.spec_flux_density(wl, time_d[0], dist_pc=system.dist_pc)
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
     scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi, wl)
@@ -584,7 +586,7 @@ def test_exptime_from_system_exosims_char_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
-    assert t_new.shape == (system.n_planets, time_jd.size)
+    assert t_new.shape == (system.n_planets, time_d.size)
     assert jnp.allclose(t_new[0, 0], t_scalar)
 
 
@@ -602,11 +604,12 @@ def test_snr_from_system_exosims_char_matches_scalar(
     )
     wl = exposure.central_wavelength_nm
     dlambda = exposure.bin_width_nm
-    time_jd = jnp.atleast_1d(exposure.start_time_jd)
-    Fzodi = zodi_fn_ayo(observatory, exposure, system.star)
-    alpha, _ = system.alpha_dMag(time_jd)
-    contrasts = system.contrasts(jnp.atleast_1d(wl), time_jd)
-    F0 = system.star.spec_flux_density(wl, time_jd[0])
+    time_d = jnp.atleast_1d(exposure.start_time_d)
+    Fzodi = zodi_fn_ayo(observatory, exposure, system.star, epoch=system.epoch)
+    ephemeris = system.ephemeris(time_d)
+    alpha, _ = system.alpha_dMag(time_d, ephemeris=ephemeris)
+    contrasts = system.contrasts(jnp.atleast_1d(wl), time_d, ephemeris=ephemeris)
+    F0 = system.star.spec_flux_density(wl, time_d[0], dist_pc=system.dist_pc)
     sep_lod = _expected_sep_lod(alpha[0, 0], wl, optical_path.primary.diameter_m)
 
     scene = _scalar_scene(system, alpha[0, 0], contrasts[0, 0], F0, Fzodi, wl)
@@ -624,5 +627,5 @@ def test_snr_from_system_exosims_char_matches_scalar(
         overhead_fixed_s=observatory.overhead_fixed_s,
         n_rolls=ppconfig.n_rolls,
     )
-    assert snr_new.shape == (system.n_planets, time_jd.size)
+    assert snr_new.shape == (system.n_planets, time_d.size)
     assert jnp.allclose(snr_new[0, 0], snr_scalar)

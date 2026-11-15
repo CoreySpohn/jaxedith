@@ -6,7 +6,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-import optixstuff as ox
 import pytest
 import test_intermediates
 import test_stellar_diameter
@@ -298,8 +297,8 @@ def test_partial_solver_respects_read_discontinuity():
 
 @pytest.fixture
 def system_args(fixed_path, system):
-    exposure = ox.ExposureConfig(
-        start_time_jd=jnp.array([2460000.5, 2460001.0]),
+    exposure = SimpleNamespace(
+        start_time_d=jnp.array([0.0, 0.5]),
         exposure_time_s=jnp.asarray(100.0),
         central_wavelength_nm=jnp.asarray(500.0),
         bin_width_nm=jnp.asarray(20.0),
@@ -314,7 +313,10 @@ def system_args(fixed_path, system):
 def test_system_budget_floor_and_explicit_options(system_args):
     """Fails if system SNR omits its floor or ignores explicit k/ppfact/cadence."""
     options = dict(
-        zodi_fn=lambda *_: 0.0, cadence="fixed_frame", bg_multiplier=3.0, ppfact=2e4
+        zodi_fn=lambda *_, **__: 0.0,
+        cadence="fixed_frame",
+        bg_multiplier=3.0,
+        ppfact=2e4,
     )
 
     @jax.jit
@@ -347,7 +349,10 @@ def test_system_planner_and_batch_jit(system_args, planning):
     dynamic, static = eqx.partition(system, eqx.is_array)
     batch = eqx.combine(jax.tree.map(lambda x: jnp.stack([x, x]), dynamic), static)
     options = dict(
-        zodi_fn=lambda *_: 0.0, cadence="fixed_frame", ppfact=jnp.inf, bg_multiplier=3.0
+        zodi_fn=lambda *_, **__: 0.0,
+        cadence="fixed_frame",
+        ppfact=jnp.inf,
+        bg_multiplier=3.0,
     )
 
     @eqx.filter_jit
