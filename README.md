@@ -87,8 +87,9 @@ Scalar coronagraphs instead describe a calibrated fixed angular aperture:
 their constants and wavelength functions already refer to that aperture,
 and their area is in reference lambda/D squared. No PSF scaling is inferred.
 
-Quadrature splits at stellar, planetary, disk, optical-throughput, local-zodi,
-QE and multiband-dispatch breakpoints. Custom spectral models declare
+Quadrature splits at stellar, planetary, optical-throughput, local-zodi,
+analytic-exozodi, QE and multiband-dispatch breakpoints. Disk knots enter
+only with `exozodi="scene"`. Custom spectral models declare
 `quadrature_knots_nm` or `wavelengths_nm`; wavenumber tables use `nu_grid`.
 The reader builds quadrature if omitted. Prepare it explicitly to reuse the
 identical weights in the detector, or before tracing model table arrays.
@@ -101,7 +102,24 @@ model and `ecliptic_latitude_deg` / `solar_longitude_deg` for pointing dependenc
 or `zodi=None` to disable it. Solar longitude means target minus solar
 longitude. The caller computes pointing geometry from its observatory.
 
-Disk light comes from `System.photon_radiance`, sampled at the aperture centre
+Exozodi defaults to `jaxedith.AYOExozodi(level_zodis=3.0,
+surface_brightness_mag_arcsec2=22.0)`. Its photon radiance is the exact AB
+magnitude-zero photon flux times `level_zodis * 10**(-0.4 * 22)` per arcsec²
+at 1 AU, converted to steradians and scaled by
+`(system.dist_pc * separation_arcsec)**-2`. The brightness parameter replaces
+22 in that expression. This is the scalar AYO calculator dialect: the ratio's
+denominator is the AB zero-magnitude source, with flat AB colour and no host
+luminosity or inclination multiplier. The model has no spectral table knots.
+A model supplied as `exozodi=` must provide
+`photon_radiance(wavelength_nm, *, separation_au)` in photons/s/m²/nm/sr;
+pass the same model to `aperture_quadrature` to include any declared knots.
+
+The default evaluates one scalar per wavelength node and ignores `system.disk`
+and `disk_grid`, including for background-only apertures. `exozodi=None`
+disables exozodi. Select `exozodi="scene"` in both `aperture_quadrature` and
+`aperture_rates` to use the scene disk instead.
+
+In scene mode, disk light comes from `System.photon_radiance`, sampled at the aperture centre
 on a one-pixel sky grid and multiplied by the fixed solid angle. A missing
 disk gives zero. This approximates a footprint integral: the calibrated
 smooth face-on test bounds the difference by 5% for its stated geometry,

@@ -4,6 +4,7 @@
 import importlib.util
 import os
 
+import equinox as eqx
 import jax
 
 jax.config.update("jax_enable_x64", True)
@@ -119,9 +120,16 @@ def example():
     from jaxedith import aperture_quadrature, aperture_rates
 
     system, path, band = make_system(), make_path(), Band(500, 600)
-    quadrature = aperture_quadrature(system, path, band, zodi=None)
+    quadrature = aperture_quadrature(system, path, band, zodi=None, exozodi=None)
     rates = aperture_rates(
-        system, path, band, time_d=0.0, planet_index=0, quadrature=quadrature, zodi=None
+        system,
+        path,
+        band,
+        time_d=0.0,
+        planet_index=0,
+        quadrature=quadrature,
+        zodi=None,
+        exozodi=None,
     )
     return system, path, band, quadrature, rates
 
@@ -247,3 +255,16 @@ def fixed_angle(tmp_path_factory):
     q = aperture_quadrature(system, path, bands, zodi=None)
     prepared = prepare_aperture(path, bands, q)
     return system, path, bands, q, prepared
+
+
+class TabulatedExozodi(eqx.Module):
+    """Piecewise linear photon radiance with declared spectral breakpoints."""
+
+    wavelengths_nm: object
+    radiance: object
+
+    def photon_radiance(self, wavelength_nm, *, separation_au):
+        return (
+            jnp.interp(wavelength_nm, self.wavelengths_nm, self.radiance)
+            / separation_au**2
+        )

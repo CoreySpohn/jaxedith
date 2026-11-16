@@ -16,9 +16,15 @@ evaluates separation in node lambda/D, keeping the reference solid angle.
 Scalar models describe a calibrated fixed angular aperture without a PSF
 scaling law. Polychromatic `HalfMaximum` and `Matched` table apertures require
 upstream frozen-template dilation and currently raise `NotImplementedError`.
-Stellar leakage is already an aperture sum. Disk radiance is sampled at the
+Stellar leakage is already an aperture sum. Exozodi defaults to `AYOExozodi()`:
+an analytic AB-zero-point surface brightness at three zodis, 22 mag/arcsec²
+per zodi at 1 AU, scaled by `(dist_pc * separation_arcsec)**-2`.
+The scene disk and `disk_grid` are ignored unless `exozodi="scene"`;
+`exozodi=None` gives zero. Pass the same exozodi model to
+`aperture_quadrature`, which collects its spectral knots too.
+In scene mode, disk radiance is sampled at the
 planet and multiplied by aperture solid angle; no extra host flux is applied.
-The one-pixel default needs concrete sky geometry. Traced moving positions
+The scene-mode one-pixel grid needs concrete sky geometry. Traced moving positions
 use a caller-supplied fixed sky grid and bilinear centre sampling.
 An image comparison must bound PSF redistribution and reconstruction as well
 as centre-to-footprint radiance differences.

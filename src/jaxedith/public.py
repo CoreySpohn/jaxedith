@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from hwoutils.constants import arcsec2rad, c, h, k_B, nm2m
+from hwoutils.conversions import arcsec_to_au
 from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.map_coordinates import map_coordinates
 from hwoutils.spectral import Band, Quadrature, spectral_knots
@@ -15,8 +16,11 @@ from optixstuff.coronagraph import AbstractScalarCoronagraph
 from skyscapes.background import AYOZodi
 from yippy import Circular, HalfMaximum, Matched
 
+from .exozodi import AYOExozodi
+
 _DEFAULT_RULE = Circular(0.7)
 _DEFAULT_ZODI = AYOZodi()
+_DEFAULT_EXOZODI = AYOExozodi()
 
 
 def _bands(band_or_bands):
@@ -30,16 +34,29 @@ def aperture_quadrature(
     *,
     quadrature_order=4,
     zodi=_DEFAULT_ZODI,
+    exozodi=_DEFAULT_EXOZODI,
     companion_flux_density=None,
 ) -> Quadrature:
     """Prepare shared host quadrature, split at every declared spectral table.
 
-    Includes star, planet, disk, optics, local zodi, QE and nearest-band
-    dispatch breakpoints. Custom tabulated models must expose
+    Includes star, planet, optics, local zodi, analytic exozodi, QE and
+    nearest-band dispatch breakpoints; disk knots only for exozodi="scene".
+    Custom tabulated models must expose
     quadrature_knots_nm (property or method) or wavelengths_nm. Build before
     tracing model arrays and pass the result to aperture_rates and detector.
     """
-    knots = spectral_knots(system, optical_path, zodi, companion_flux_density)
+    scene_disk = (
+        system.disk if isinstance(exozodi, str) and exozodi == "scene" else None
+    )
+    knots = spectral_knots(
+        system.star,
+        system.planets,
+        scene_disk,
+        optical_path,
+        zodi,
+        exozodi,
+        companion_flux_density,
+    )
     return Quadrature.build(_bands(band_or_bands), knots, quadrature_order)
 
 
@@ -216,6 +233,7 @@ def aperture_rates(
     rule=_DEFAULT_RULE,
     quadrature_order=4,
     zodi=_DEFAULT_ZODI,
+    exozodi=_DEFAULT_EXOZODI,
     ecliptic_latitude_deg=0.0,
     solar_longitude_deg=135.0,
     reference_wavelength_nm=None,
@@ -235,7 +253,13 @@ def aperture_rates(
     supplied scalar reference_wavelength_nm. Separations use the primary
     Frame with the performance record's diameter convention.
 
-    Disk light is the centre radiance times aperture solid angle, not a
+    Exozodi defaults to AYOExozodi(): analytic radiance at projected physical
+    separation system.dist_pc * separation_arcsec, also for background-only
+    apertures. It evaluates one scalar per node, ignoring system.disk and
+    disk_grid. Supply exozodi=None for zero, or exozodi="scene" for disk light.
+    Pass the same model to aperture_quadrature when preparing it separately.
+
+    In scene mode, disk light is centre radiance times aperture solid angle, not a
     footprint average. Without disk_grid the one-pixel grid is built eagerly
     at the planet. For traced moving positions supply a fixed arcsec sky grid
     covering them; bilinear sampling gives NaN outside its support. No disk
@@ -263,6 +287,7 @@ def aperture_rates(
             bands,
             quadrature_order=quadrature_order,
             zodi=zodi,
+            exozodi=exozodi,
             companion_flux_density=companion_flux_density,
         )
     if quadrature.nodes_nm.shape[0] != len(bands):
@@ -289,7 +314,16 @@ def aperture_rates(
                 w, jnp.atleast_1d(time_d), ephemeris=ephemeris
             )[planet_index, 0]
         )(wave.reshape(-1)).reshape(wave.shape)
-    disk = _disk_radiance(system, wave, time_d, east, north, disk_grid)
+    if exozodi is None:
+        disk = jnp.zeros_like(wave)
+    elif isinstance(exozodi, str):
+        if exozodi != "scene":
+            raise ValueError('exozodi must be a radiance model, "scene", or None')
+        disk = _disk_radiance(system, wave, time_d, east, north, disk_grid)
+    else:
+        disk = exozodi.photon_radiance(
+            wave, separation_au=arcsec_to_au(separation, system.dist_pc)
+        )
     local = (
         jnp.zeros_like(wave)
         if zodi is None

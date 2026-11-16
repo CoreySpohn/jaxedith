@@ -170,13 +170,14 @@ def test_disk_absolute_scale_and_centre_approximation():
         make_path(chromatic=False),
         Band(549.99, 550.01),
     )
-    q = aperture_quadrature(system, path, band, zodi=None)
+    q = aperture_quadrature(system, path, band, zodi=None, exozodi="scene")
     kwargs = dict(
         time_d=0.0,
         separation_arcsec=0.1,
         position_angle_deg=90.0,
         zodi=None,
         quadrature=q,
+        exozodi="scene",
     )
     rates = aperture_rates(system, path, band, **kwargs)
     arcsec_rad = np.pi / (180 * 3600)
@@ -447,7 +448,7 @@ def test_disk_fixed_grid_traced_position():
     )
     system = make_system(FlatStar(1e6), chromatic=False, disk=disk)
     path, band = make_path(chromatic=False), Band(549.0, 551.0)
-    q = aperture_quadrature(system, path, band, zodi=None)
+    q = aperture_quadrature(system, path, band, zodi=None, exozodi="scene")
 
     def read(t):
         return (
@@ -459,6 +460,7 @@ def test_disk_fixed_grid_traced_position():
                 planet_index=0,
                 quadrature=q,
                 disk_grid=grid,
+                exozodi="scene",
                 zodi=None,
             )
             .integrate(q)
