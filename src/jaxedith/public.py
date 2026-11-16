@@ -1,6 +1,6 @@
 """Read photon-native scenes into one aperture's spectral photon budget."""
 
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import equinox as eqx
 import jax
@@ -208,7 +208,8 @@ def prepare_aperture(
             if scalar or w == ref:
                 scaled = rule
             elif isinstance(rule, Circular):
-                scaled = Circular(rule.radius_lod * ref / float(w))
+                # replace keeps every other rule field, such as the centre.
+                scaled = replace(rule, radius_lod=rule.radius_lod * ref / float(w))
             else:
                 raise TypeError("rule must be Circular, HalfMaximum or Matched")
             record = curves(model, scaled)

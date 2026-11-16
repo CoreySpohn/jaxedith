@@ -566,6 +566,11 @@ def test_planet_scaled_node_curve(fixed_angle):
     np.testing.assert_allclose(
         rates.planet[0, 0] / 0.0016, expected, rtol=1e-12, atol=0
     )
+    # Scaling the radius per node keeps every other rule field (exact).
+    from jaxedith import prepare_aperture
+
+    peak = prepare_aperture(path, bands, q, rule=Circular(0.7, centre="peak"))
+    assert {node[1].centre for row in peak.nodes for node in row} == {"peak"}
 
 
 @vv.case("aperture-photon-budget", "code-verification")
