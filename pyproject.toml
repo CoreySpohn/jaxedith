@@ -18,11 +18,11 @@ classifiers = [
 ]
 dependencies = [
     "equinox>=0.13.2",
-    "hwoutils>=1.10",
+    "hwoutils>=1.15.0",
     "jax>=0.8.1",
     "jaxlib>=0.8.1",
     "jaxtyping>=0.3.3",
-    "skyscapes>=3.0.0",
+    "skyscapes>=4.0.0",
     "zodi>=1.1.0",
 ]
 [project.optional-dependencies]
@@ -47,9 +47,9 @@ test = [
     "pytest-fail-slow>=0.1.0",
     "numpy>=2.1.2",
     "scipy>=1.13",
-    "orbix>=4.0.0",
-    "optixstuff>3.0.0",
-    "skyscapes>=3.0.0",
+    "orbix>=4.1.0",
+    "optixstuff>=5.0.0",
+    "skyscapes>=4.0.0",
     "yippy>=2.11.0",
     "coronalyze>=1.1.1",
     "coronagraphoto>=4.1",
