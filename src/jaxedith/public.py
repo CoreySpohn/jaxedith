@@ -1,21 +1,19 @@
 """Read photon-native scenes into one aperture's spectral photon budget."""
 
-from dataclasses import fields, replace
+from dataclasses import replace
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from hwoutils.constants import arcsec2rad, c, h, k_B, nm2m, um2nm
-from hwoutils.conversions import wavenumber_cm_to_nm
+from hwoutils.constants import arcsec2rad, c, h, k_B, nm2m
 from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.map_coordinates import map_coordinates
-from hwoutils.spectral import Band, Quadrature
+from hwoutils.spectral import Band, Quadrature, spectral_knots
 from optixstuff import MultiBandCoronagraph, PhotonRates, YippyCoronagraph
 from optixstuff.coronagraph import AbstractScalarCoronagraph
-from skyscapes.background import AYOZodi, LeinertZodi
+from skyscapes.background import AYOZodi
 from yippy import Circular, HalfMaximum, Matched
-from zodi.tables import TABLE19_WAVELENGTH_UM
 
 _DEFAULT_RULE = Circular(0.7)
 _DEFAULT_ZODI = AYOZodi()
@@ -23,37 +21,6 @@ _DEFAULT_ZODI = AYOZodi()
 
 def _bands(band_or_bands):
     return (band_or_bands,) if isinstance(band_or_bands, Band) else tuple(band_or_bands)
-
-
-def _spectral_knots(model):
-    """Collect declared wavelength tables recursively at the host boundary."""
-    if model is None:
-        return []
-    knots = []
-    declared = getattr(model, "quadrature_knots_nm", None)
-    if callable(declared):
-        declared = declared()
-    if declared is not None:
-        knots.extend(np.asarray(declared).ravel())
-    wavelengths = getattr(model, "wavelengths_nm", None)
-    if wavelengths is not None:
-        knots.extend(np.asarray(wavelengths).ravel())
-    wavenumbers = getattr(model, "nu_grid", None)
-    if wavenumbers is not None:
-        knots.extend(np.asarray(wavenumber_cm_to_nm(wavenumbers)).ravel())
-    if isinstance(model, MultiBandCoronagraph):
-        centers = np.sort(model.band_centers_nm)
-        knots.extend((centers[1:] + centers[:-1]) / 2)
-    if isinstance(model, eqx.Module):
-        for field in fields(model):
-            child = getattr(model, field.name)
-            if isinstance(child, eqx.Module):
-                knots.extend(_spectral_knots(child))
-            elif isinstance(child, tuple):
-                for item in child:
-                    if isinstance(item, eqx.Module):
-                        knots.extend(_spectral_knots(item))
-    return knots
 
 
 def aperture_quadrature(
@@ -72,10 +39,7 @@ def aperture_quadrature(
     quadrature_knots_nm (property or method) or wavelengths_nm. Build before
     tracing model arrays and pass the result to aperture_rates and detector.
     """
-    knots = _spectral_knots(system) + _spectral_knots(optical_path)
-    knots += _spectral_knots(zodi) + _spectral_knots(companion_flux_density)
-    if isinstance(zodi, (AYOZodi, LeinertZodi)):
-        knots.extend(TABLE19_WAVELENGTH_UM * um2nm)
+    knots = spectral_knots(system, optical_path, zodi, companion_flux_density)
     return Quadrature.build(_bands(band_or_bands), knots, quadrature_order)
 
 
