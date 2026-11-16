@@ -1,7 +1,7 @@
 """Zodi callable adapters.
 
 Each ``zodi_fn_*`` matches the callable contract documented on the
-``*_from_system_*`` wrappers:
+``*_from_system_*`` wrappers::
 
     zodi_fn(observatory, exposure, star, *, epoch) -> Fzodi  # scalar
 
