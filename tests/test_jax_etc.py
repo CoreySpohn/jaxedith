@@ -163,7 +163,7 @@ class TestCountRateParity:
         lod_rad = 6.353240152477764e-08
         emis = 0.468
         QE = 0.675
-        dQE = 1.0
+        survival_fraction = 1.0
 
         result = thermal_rate(
             wavelength_nm,
@@ -173,7 +173,7 @@ class TestCountRateParity:
             lod_rad,
             emis,
             QE,
-            dQE,
+            survival_fraction,
             core_area_lod2=1.0,
         )
         assert np.isclose(float(result), 2.848015e-30, rtol=0.05)

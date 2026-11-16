@@ -23,37 +23,25 @@ for shared-system caveats and CUDA-runtime troubleshooting.
 
 ## Sibling libraries
 
-jaxedith assumes the rest of the HWO direct-imaging stack as input
-types:
+The reader requires the photon scene, aperture performance, shared-grid and
+detector contracts described in the README. This branch is tested against
+coordinated unreleased versions; published dependency floors are not yet
+verified for those contracts.
 
 | Package | Role |
 |---|---|
-| `optixstuff` | `OpticalPath` (primary, throughput, coronagraph, detector) |
-| `skyscapes` | `Scene` / `System` with `Star`, `Planet`, `Disk`, physical models, backgrounds |
-| `orbix` | `Observatory` -- needed for the `_from_system_*` zodi geometry helpers |
-| `coronalyze` | `PPConfig` (post-processing knobs) |
-| `hwoutils` | Shared unit conversions, transforms, constants |
+| `optixstuff` | OpticalPath, photon rates, detector statistics and frame plans |
+| `skyscapes` | System, photon spectra and disk/local-zodi radiance |
+| `yippy` | Aperture rules and performance records |
+| `hwoutils` | Band, Quadrature, PixelGrid, constants and conversions |
+| `zodi` | Local-zodi spectral tables and dust calibration |
 
-Runtime dependencies are `equinox`, `hwoutils`, `jax`, `jaxlib`,
-`jaxtyping`, and `skyscapes`. The additional libraries used to build
-optical paths, observatories, and post-processing configurations are
-available through the `test` extra (or can be installed explicitly):
+Runtime dependencies also include Equinox, JAX, jaxtyping and NumPy.
+The comparison and verification suite is installed with:
 
 ```bash
-pip install jaxedith[test]
+pip install 'jaxedith[test]'
 ```
-
-## Working from source
-
-```bash
-git clone https://github.com/CoreySpohn/jaxedith
-cd jaxedith
-uv sync --all-packages
-```
-
-`--all-packages` ensures every workspace member (skyscapes,
-optixstuff, coronagraphoto, ...) installs as an editable workspace
-member, which is what you want when developing across the stack.
 
 ## Verifying the install
 

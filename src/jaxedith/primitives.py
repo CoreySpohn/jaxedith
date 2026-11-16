@@ -1,23 +1,7 @@
-"""Scalar building blocks for the JAX exposure time calculator.
+"""Legacy plain-number rate primitives for cross-code comparison.
 
-Layer 1 of the jaxedith pipeline: ``primitives -> intermediates -> etc ->
-public``. Each function takes scalar physical inputs (fluxes, areas,
-bandwidths, throughputs) and returns a count rate or a derived scalar.
-No ``OpticalPath`` knowledge -- ``intermediates.py`` is the adapter
-layer that reads attributes off ``OpticalPath`` and calls these.
-
-All functions are pure JAX -- no astropy units, no side effects.
-
-All inputs are raw real numbers in consistent units:
-
-- Fluxes: photons / s / m^2 / nm
-- Areas: m^2
-- Wavelengths: nm
-- Angles: lam/D (dimensionless) unless otherwise noted
-- Count rates: electrons / s (output)
-
-The throughput arguments include detector QE. The intermediate wrappers multiply
-optical throughput by QE; direct callers must supply it exactly once.
+Outputs retain electrons/s; callers supply detector yield in throughput.
+The shared photon reader does not call these comparison formulas.
 """
 
 import jax.numpy as jnp
@@ -265,7 +249,7 @@ def thermal_rate(
     lod_rad,
     eps_warm_T_cold,
     QE,
-    dQE,
+    survival_fraction,
     core_area_lod2,
 ):
     """Thermal background count rate Cbth [e/s].
@@ -283,8 +267,8 @@ def thermal_rate(
         lod_rad: lam/D in radians.
         eps_warm_T_cold: effective emissivity x cold transmission [dimensionless].
         QE: quantum efficiency [e/photon].
-        dQE: multiplicative QE degradation factor [dimensionless], 1 for none;
-            the effective QE is ``QE * dQE``.
+        survival_fraction: surviving fraction [dimensionless], 1 for none;
+            the effective QE is ``QE * survival_fraction``.
         core_area_lod2: solid angle of photometric aperture [(lam/D)^2].
     """
     lam_m = wavelength_nm * nm2m  # nm -> m
@@ -302,7 +286,7 @@ def thermal_rate(
     return (
         planck_photons
         * eps_warm_T_cold
-        * (QE * dQE)
+        * (QE * survival_fraction)
         * area_m2
         * dlambda_nm
         * nm2m
@@ -430,11 +414,10 @@ def speckle_residual(C_sr: Num, ppfact: Num, stability_fact: Num) -> NumOut:
 
 
 def photon_counting_time(det_CR: Num, det_npix: Num) -> FloatOut:
-    """Average time to detect one photon per pixel [s].
+    """Frame time for a mean of 1/6.73 electrons per pixel [s].
 
     Used to compute the CIC timing in ``detector_noise_rate``.
-    The magic constant 6.73 comes from the original pyEDITH code, I think from
-    the Roman EMCCD.
+    The factor 6.73 is the historical pyEDITH occupancy prescription.
 
     Args:
         det_CR: Total detector count rate [e/s] (summed over all sources).
@@ -444,6 +427,6 @@ def photon_counting_time(det_CR: Num, det_npix: Num) -> FloatOut:
         t_photon [s]: inverse of (6.73 x counts_per_second_per_pixel).
     """
     counts_per_pix_per_s = det_CR / det_npix
-    # Magic constant 6.73 corresponds to Roman/HWO EMCCD characteristics.
+    # Historical occupancy rule, retained for comparison.
     PHOTON_COUNTING_FACTOR = 6.73
     return 1.0 / (PHOTON_COUNTING_FACTOR * counts_per_pix_per_s)

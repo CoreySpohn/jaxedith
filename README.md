@@ -1,306 +1,150 @@
-<p align="center">
-  <a href="https://pypi.org/project/jaxedith/"><img src="https://img.shields.io/pypi/v/jaxedith.svg?style=flat-square&logo=pypi" alt="PyPI"/></a>
-  <a href="https://jaxedith.readthedocs.io"><img src="https://readthedocs.org/projects/jaxedith/badge/?version=latest&style=flat-square" alt="Documentation Status"/></a>
-  <a href="https://github.com/CoreySpohn/jaxedith/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/CoreySpohn/jaxedith/ci.yml?branch=main&style=flat-square&logo=github&label=tests" alt="Tests"/></a>
-  <a href="https://github.com/CoreySpohn/jaxedith/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License"/></a>
-  <a href="https://github.com/CoreySpohn/jaxedith/blob/main/pyproject.toml"><img src="https://img.shields.io/badge/python-3.12%2B-blue.svg?style=flat-square&logo=python" alt="Python 3.12+"/></a>
-</p>
-
 # jaxedith
 
-The JAX-native exposure-time-calculator kernel for an HWO direct-imaging
-stack.
+`jaxedith` reads a `skyscapes.System` and an `optixstuff.OpticalPath` into
+an aperture photon budget, then computes S/N and whole-frame exposure plans
+using the detector's shared statistics contract.
 
-`jaxedith` returns scalar count rates, exposure times, and SNR
-predictions from a coronagraph + scene + observation triple. It is the
-**fast inner loop** for yield calculations, sensitivity studies, and
-retrievals where the ETC has to be differentiable, `vmap`-able, and
-JIT-able end-to-end.
+`aperture_rates` returns `optixstuff.PhotonRates`: six photon integrands in
+photons/s/nm with shape `(W, Q)` and no spatial axes. The fields are `planet`,
+`star_leakage`, `local_zodi`, `exozodi`, `thermal`, and `stellar_companions`.
+`rates.integrate(quadrature)` returns photons/s. Only
+`detector.electrons(rates, quadrature)` converts them to electrons/s, applying
+spectral QE and survival at the nodes before integration.
 
-Count rates are in electrons per second. The intermediate adapters apply
-`detector.get_qe(wavelength_nm) * detector.dqe` exactly once; attenuating
-elements in the optical path must not also include detector QE. Read-noise
-variance is divided by the detector frame time, with one read per frame.
+## Usage
 
-If you want a friendly, general-purpose AYO exposure-time calculator
-with a standalone Python API,
-[pyEDITH](https://github.com/eleonoraalei/pyEDITH/) is the right tool.
-`jaxedith` is the same AYO / pyEDITH ETC heritage rebuilt as a JAX
-kernel for an HWO direct-imaging stack: it takes
-[skyscapes](https://github.com/CoreySpohn/skyscapes) +
-[optixstuff](https://github.com/CoreySpohn/optixstuff) +
-[orbix](https://github.com/CoreySpohn/orbix) +
-[coronalyze](https://github.com/CoreySpohn/coronalyze) types as
-inputs, prioritises JAX fitness (JIT, vmap, grad) over ergonomics, and
-is meant to be called by other stack code, not picked up standalone.
-The EXOSIMS detection and characterization variants are exposed via
-parallel function families.
+This example requires a configured `system` and `optical_path`.
 
-Three properties define the design:
+```python notest
+from hwoutils.spectral import Band
+from optixstuff import frames_for_time
+from jaxedith import (
+    PostProcessing,
+    aperture_quadrature,
+    aperture_rates,
+    exposure_time,
+    snr,
+)
 
-- **Pure JAX.** Public functions are JIT-compatible and `vmap`-able.
-  Continuous rate equations are differentiable; fixed-frame boundaries
-  and discrete exposure planning have the derivative conventions below.
-- **Variant-explicit API.** Three ETC equations (AYO, EXOSIMS
-  detection, EXOSIMS characterization) live in three parallel function
-  families (`exptime_ayo`, `exptime_exosims_det`,
-  `exptime_exosims_char`) with no runtime dispatch — JIT caches one
-  trace per variant.
-- **Two usage modes.**
-  - *Scalar mode* (`exptime_ayo(optical_path, scene, ...)`) takes an
-    `optixstuff.OpticalPath` plus an `ETCScene` dataclass of
-    astrophysical scalars — useful for parameter sweeps and tests.
-  - *System mode* (`exptime_from_system_ayo(system, optical_path,
-    observatory, exposure, ppconfig)`) accepts a full
-    `skyscapes.System` + `optixstuff.OpticalPath` +
-    `orbix.observatory.Observatory` + exposure metadata with `start_time_d` +
-    `coronalyze.PPConfig`, extracts per-(planet, epoch) astrophysics,
-    and `jax.vmap`s the scalar core over `(K, T)`.
+band = Band(500.0, 600.0)
+quadrature = aperture_quadrature(system, optical_path, band)
+rates = aperture_rates(
+    system,
+    optical_path,
+    band,
+    time_d=0.0,
+    planet_index=0,
+    quadrature=quadrature,
+)
+post_processing = PostProcessing(
+    speckle_residual_fraction=0.1,
+    exozodi_residual_fraction=0.0,
+)
+plan = frames_for_time(3600.0, frame_time_s=100.0)
+achieved = snr(
+    rates,
+    optical_path.detector,
+    quadrature,
+    plan,
+    n_pix=12,
+    post_processing=post_processing,
+)
+required = exposure_time(
+    10.0,
+    rates,
+    optical_path.detector,
+    quadrature,
+    frame_time_s=100.0,
+    n_pix=12,
+    post_processing=post_processing,
+)
+seconds = required.live_time_s
+occupied_seconds = required.occupied_time_s(optical_path.detector)
+```
 
-## Fixed-frame finite exposures
+Select one flattened `planet_index`, or pass `separation_arcsec` and
+`position_angle_deg` for a background-only aperture. Position angle is north
+through east; `time_d` is scalar days from the system epoch. Multiple `Band`
+objects produce independent rows. Use `vmap` over times or planet indices.
+The default rule is `yippy.Circular(0.7)`. Its solid angle is fixed across each
+band at the centre, or at an explicit `reference_wavelength_nm`, using the
+primary's frame and the curve record's diameter convention. Leakage reads
+`leakage_fraction` directly, never a density times an inferred pixel area.
+Table coronagraphs supply background transmission from their native image at
+`(separation_lod, 0)`; scalar coronagraphs supply their calibrated scalar
+transmission. Thus this is a radial aperture performance reader.
 
-The AYO defaults retain `cadence="photon_counting_ayo"`. Select
-`cadence="fixed_frame"` on `count_rates_ayo`, `snr_ayo`, `exptime_ayo`, or
-their `*_from_system_ayo` wrappers for a detector with fixed integration
-frames. `count_rates_ayo` then returns photon-only `Cb` and the stellar floor
-rate `Cnf = leakage / ppfact`. An infinite `ppfact` disables that floor.
-The fixed-frame cadence uses only the stellar systematic floor; `ez_ppf`
-continues to apply to the legacy cadence.
+Quadrature splits at stellar, planetary, disk, optical-throughput, local-zodi,
+QE and multiband-dispatch breakpoints. Custom spectral models declare
+`quadrature_knots_nm` or `wavelengths_nm`; wavenumber tables use `nu_grid`.
+The reader builds quadrature if omitted. Prepare it explicitly to reuse the
+identical weights in the detector, or before tracing model table arrays.
+Host preparation uses NumPy; node evaluation and statistics use JAX.
 
-For science integration time `t`, the count variance is
+## Backgrounds and sampling
+
+Local zodi defaults to `skyscapes.background.AYOZodi()`. Supply a local-zodi
+model and `ecliptic_latitude_deg` / `solar_longitude_deg` for pointing dependence,
+or `zodi=None` to disable it. Solar longitude means target minus solar
+longitude. The caller computes pointing geometry from its observatory.
+
+Disk light comes from `System.photon_radiance`, sampled at the aperture centre
+on a one-pixel sky grid and multiplied by the fixed solid angle. A missing
+disk gives zero. This approximates a footprint integral: the calibrated
+smooth face-on test bounds the difference by 5% for its stated geometry,
+not for arbitrary disk structure. For traced moving positions, supply a
+fixed `disk_grid` in arcseconds with `SkyOrientation`, covering the orbit.
+The reader renders the disk on that grid and bilinearly samples the centre;
+out-of-grid samples are NaN. Grid convergence is the caller's responsibility.
+
+Thermal emission retains the Planck photon law with `temperature_K=270` and
+`eps_warm_T_cold=0` by default. Its emissivity times cold transmission replaces
+optical throughput. Optional `companion_flux_density(wavelength_nm, time_d)`
+returns photons/s/m2/nm per reference lambda/D squared, retaining the legacy
+stray-light area law. It defaults to zero. No F0-relative ratios enter the reader.
+One call is one optical path: historical `n_channels` and `npix_multiplier`
+metadata do not multiply the new rates; supply the effective `n_pix` explicitly.
+
+## Noise and exposure time
+
+`PostProcessing` requires two fractions in `[0, 1]`; zero means perfect
+subtraction. With detected rates `p`, `ell`, `d` and live time `t`,
 
 ```text
-Cp*t + k*Cb*t + n_pix*(dark*t + (read_noise**2 + cic)*frame_count(t, frame_time))
-    + (Cnf*t)**2
+signal = p*t
+variance = detector_variance + (f_speckle*ell*t)^2 + (f_exozodi*d*t)^2
 ```
 
-Here `k` is the `bg_multiplier` keyword (default 2). It scales photon
-backgrounds only. Dark current accumulates with integration time, while read
-variance and CIC are paid per frame, including a partial final frame. The
-independent shot, dark, and read terms follow the CCD equation in S. B.
-Howell, *Handbook of CCD Astronomy*, second edition (Cambridge University
-Press, 2006). CIC adds an independent Poisson contribution per read; the
-systematic term is a correlated residual proportional to exposure time.
+The detector supplies source shot noise, dark, CIC, excess noise and read
+variance through `mean_and_variance`. No implicit ADI/background multiplier
+is applied. Entire final frames collect photons; `frames_for_time` is the
+only frame counter. Read overhead is separate from live time.
 
-Use `count_variance_components(system, optical_path, observatory, exposure,
-ppconfig, t, cadence="fixed_frame", bg_multiplier=2, ppfact=...)` to inspect
-`planet`, `background`, `detector`, `systematic`, and `total` variances as
-`(K, T)` arrays. The scalar-scene counterpart is
-`count_variance_components_ayo(optical_path, scene, wavelength_nm,
-separation_lod, dlambda_nm, t, ...)`. The system budget and SNR wrappers
-remove observatory overheads and divide time among rolls; the scalar budget
-and rate-level functions take science time directly. System wrappers accept
-`ppfact=None` to use `ppconfig.ppfact`, or an explicit value to override it.
-They also thread `cadence` and, for variance/SNR/exposure, `bg_multiplier`.
+Write `b = variance_of_one_frame / frame_time_s` and
+`f2 = (f_speckle*ell)^2 + (f_exozodi*d)^2`. The continuous solution is
+`t = target_snr^2*b / (p^2 - target_snr^2*f2)`, then rounded to whole frames.
+For a positive target the solution is infinite when
+`p^2 <= target_snr^2*f2`; its `FramePlan` has infinite count and live time.
+Nonpositive targets require zero frames. S/N at an infinite plan returns its
+asymptotic ceiling. Planning is discrete; S/N and rate calculations support
+continuous-parameter gradients. Enable JAX x64 for faint-source accuracy.
 
-Fixed-frame exposure planning defaults to `planning="whole_frames"`. The call
-below shows the keywords and is not run as a test: it needs a `system`,
-`optical_path`, `observatory`, `exposure` and `ppconfig` already built.
+## Legacy comparisons
 
-```python notest
-t = exptime_from_system_ayo(
-    system,
-    optical_path,
-    observatory,
-    exposure,
-    ppconfig,
-    target_snr,
-    cadence="fixed_frame",
-    planning="whole_frames",
-    n_max=4096,
-    bg_multiplier=2.0,
-    ppfact=float("inf"),
-)
-```
+`jaxedith.primitives` retains the scalar AYO rate primitives and
+`jaxedith.etc` retains the six AYO/EXOSIMS rate-to-S/N or time equations,
+with their original electron units and numerics. `jaxedith.legacy` provides
+`etc_scene_from_system`, `post_processing_from_pyedith`,
+`post_processing_from_exosims`, `frame_plan_photon_counting`, and
+`legacy_pyedith_noise_rate`. `ETCScene` remains in `jaxedith.scene` and is
+produced by the scene adapter. These are comparison tools, separate from the
+shared photon reader. The old optical-path `count_rates_*`, `exptime_*`,
+`snr_*` and `*_from_system_*` families, `intermediates`, local zodi wrappers,
+and duplicate cadence calculators have been removed without aliases.
 
-`planning="min_duration"` permits a partial final frame and selects the first
-feasible quadratic root across frame intervals. SNR drops at each additional
-read, so its feasible durations can have gaps. Both planners return infinity
-when no duration through `n_max` frames per roll meets the target, including
-targets at or above the systematic ceiling `Cp / Cnf`. Exposure wrappers add
-configured overheads after solving for science time.
-
-The rate-level API is also exported from `jaxedith`. The block lists the
-signatures; it is not a runnable example.
-
-```python notest
-frame_count(t, frame_time)
-detector_variance_counts(t, n_pix, dark, read_noise, cic, frame_time)
-snr_fixed_frame(
-    Cp, Cb, Cnf_rate, t, n_pix, dark, read_noise, cic, frame_time, bg_multiplier=2.0
-)
-exptime_whole_frames(
-    target_snr,
-    Cp,
-    Cb,
-    Cnf_rate,
-    n_pix,
-    dark,
-    read_noise,
-    cic,
-    frame_time,
-    bg_multiplier=2.0,
-    n_max=4096,
-)
-exptime_min_duration(
-    target_snr,
-    Cp,
-    Cb,
-    Cnf_rate,
-    n_pix,
-    dark,
-    read_noise,
-    cic,
-    frame_time,
-    bg_multiplier=2.0,
-    n_max=4096,
-)
-```
-
-Zero science time incurs no frames or detector variance and gives SNR zero;
-a non-positive target needs zero science time. All numeric inputs can be
-batched with JAX. `cadence`, `planning`, and `n_max` must be static under JIT.
-`frame_count` treats ratios within relative tolerance `1e-12` of a positive
-integer as exact; enable JAX float64 to resolve this tolerance. Its JAX
-derivative is zero, including at discontinuities. Frame-based planning is
-discrete; its derivatives are not a continuous exposure sensitivity model.
-
-## What jaxedith is *not*
-
-- **Not an image simulator.** 2D detector images and post-processing
-  live in [coronagraphoto](https://github.com/CoreySpohn/coronagraphoto)
-  and [coronalyze](https://github.com/CoreySpohn/coronalyze).
-  `jaxedith` predicts the integrated scalar count rates the image
-  simulator's outputs would yield.
-- **Not a scene model.** Scenes (`Star`, `Planet`, `Disk`, physical
-  models, backgrounds) live in
-  [skyscapes](https://github.com/CoreySpohn/skyscapes). `jaxedith`
-  consumes them via the `_from_system_*` wrappers.
-- **Not a yield simulator.** Mission-scale loops over many targets +
-  visit scheduling live in dedicated yield codes (e.g. AYO,
-  EXOSIMS). `jaxedith` is the per-target ETC kernel those codes can
-  invoke.
-
-## Ecosystem position
-
-```mermaid
-flowchart LR
-    sky["<b>skyscapes</b><br/>Scene / System"]
-    opt["<b>optixstuff</b><br/>OpticalPath"]
-    orb["<b>orbix</b><br/>Observatory"]
-    cln["<b>coronalyze</b><br/>PPConfig"]
-    jed(["<b>jaxedith</b><br/>Cp · Cb · Cnf<br/>exptime · SNR"])
-    cor["<b>coronagraphoto</b><br/>2D image simulation"]
-
-    sky --> jed
-    opt --> jed
-    orb --> jed
-    cln --> jed
-    opt --> cor
-    sky --> cor
-```
-
-## Architecture
-
-Four modules organized as a left-to-right pipeline:
-
-```
-primitives → intermediates → etc → public
-```
-
-| Module | Role | Signature shape |
-|---|---|---|
-| `jaxedith.primitives` | Scalar building blocks | `(scalars...) → rate` |
-| `jaxedith.intermediates` | `OpticalPath` adapters, one per noise-budget term (signal, background, noise floor) | `(optical_path, scalars...) → rate` |
-| `jaxedith.etc` | Closed-form exptime + SNR algebra | `(rates, snr or t_obs, ...) → exptime or snr` |
-| `jaxedith.public` | Variant-explicit user entry points + system wrappers | `(optical_path, scene, ...) → exptime or snr` |
-
-Each layer composes the previous; the module name tells you the role
-at that level of abstraction. Most users only call `public.*`; the
-lower layers are exposed for advanced use (testing, custom budgets,
-sensitivity studies).
-
-## Variants
-
-Three ETC equations, each with three entry-point flavours (count
-rates, exposure time, SNR):
-
-| Variant | Origin | Background multiplier | Noise floor |
-|---|---|---|---|
-| `ayo` | AYO / pyEDITH | 2× (ADI assumption) | analytical `Cnf_rate = raw_contrast × ppfact` |
-| `exosims_det` | EXOSIMS detection | 1× | speckle residual `Csp` |
-| `exosims_char` | EXOSIMS characterization | 1× + `Cp` self-noise | speckle residual `Csp` |
-
-Pick the variant that matches your reference convention; no runtime
-dispatch.
-
-## Quick start
-
-Scalar mode (you've got the astrophysical scalars in hand):
-
-This template needs a configured optical path; the ellipsis is a placeholder.
-
-```python notest
-from jaxedith import ETCScene, exptime_ayo
-import optixstuff as ox
-
-# Build the hardware
-optical_path = ox.OpticalPath(...)
-
-# Build the scene (8 dimensionless scalars + 2 geometric)
-scene = ETCScene(
-    F0=1.34e8,  # flux zero point [ph/s/m^2/nm]
-    Fs_over_F0=0.005,  # stellar / zeropoint
-    Fp_over_Fs=1e-10,  # planet-star contrast
-    Fzodi=3.5e-10,  # local zodi surface brightness ratio
-    Fexozodi=7.15e-9,  # exozodi at 1 AU
-    dist_pc=10.0,
-    sep_arcsec=0.1,
-    Fbinary=0.0,
-)
-
-t_exp = exptime_ayo(
-    optical_path,
-    scene,
-    wavelength_nm=500.0,
-    separation_lod=5.0,
-    dlambda_nm=100.0,
-    snr=7.0,
-)
-```
-
-System mode (you have a `skyscapes.System`):
-
-This example needs a user-supplied system with an explicit epoch, optical path,
-and orbit data. Exposure times are days from `system.epoch`. Custom zodi callables
-accept `(observatory, exposure, star, *, epoch)`; direct calls to the built-in
-zodi adapters must also supply a host-side `hwoutils.epoch.Epoch`.
-
-```python notest
-import jax.numpy as jnp
-from types import SimpleNamespace
-
-from coronalyze import PPConfig
-from jaxedith import exptime_from_system_ayo, zodi_fn_ayo
-from orbix.observatory import Observatory, ObservatoryL2Halo
-
-t_exp = exptime_from_system_ayo(
-    system,
-    optical_path,
-    observatory=Observatory(orbit=ObservatoryL2Halo.from_default()),
-    exposure=SimpleNamespace(
-        start_time_d=jnp.array([0.0]),  # Days from system.epoch
-        exposure_time_s=jnp.asarray(3600.0),
-        central_wavelength_nm=jnp.asarray(500.0),
-        bin_width_nm=jnp.asarray(20.0),
-        position_angle_deg=jnp.asarray(0.0),
-    ),
-    ppconfig=PPConfig(ppfact=1.0, n_rolls=1, ez_ppf=jnp.inf),
-    snr=7.0,
-    zodi_fn=zodi_fn_ayo,
-)
-# t_exp shape (K, T): one exptime per (planet, epoch)
-```
+The photon-counting adapter chooses a frame time with mean `1/6.73` electrons
+per pixel. pyEDITH's `ppfact` divides leakage; EXOSIMS `ppFact` is the residual
+fraction itself. The adapters make that distinction explicit.
 
 ## Installation
 
@@ -308,11 +152,7 @@ t_exp = exptime_from_system_ayo(
 pip install jaxedith
 ```
 
-For GPU acceleration, install JAX with a CUDA build separately (see
-the [JAX install guide](https://docs.jax.dev/en/latest/installation.html)).
-
-## Status
-
-Early development. The public API was consolidated in May 2026 as
-part of a workspace-wide v1.0 cycle; breaking changes will be flagged
-via release-please major-bump tags.
+This redesign requires the shared `Band`, `Quadrature`, `PixelGrid`, photon
+scene, aperture-curve and detector contracts. The development tests use their
+coordinated unreleased versions; published dependency floors have not yet
+been verified for this API.

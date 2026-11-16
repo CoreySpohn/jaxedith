@@ -22,6 +22,9 @@ dependencies = [
     "jax>=0.8.1",
     "jaxlib>=0.8.1",
     "jaxtyping>=0.3.3",
+    "numpy>=2.1.2",
+    "optixstuff>=5.0.0",
+    "yippy>=2.11.0",
     "skyscapes>=4.0.0",
     "zodi>=1.1.0",
 ]
@@ -37,6 +40,7 @@ docs = [
     "matplotlib>=3.10.8",
 ]
 test = [
+    "ineedvalidation>=1.1.0",
     "pytest>=7.3.2",
     "beartype>=0.20.1",
     "hypothesis>=6.112.1",
@@ -79,6 +83,10 @@ select = ["B", "D", "E", "F", "I", "UP", "RUF"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.codespell]
+# lod is the lambda/D angular unit.
+ignore-words-list = "lod"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jaxedith"]
@@ -126,9 +134,7 @@ optional_dependencies_dev_groups = ["dev", "docs", "test"]
 
 [tool.deptry.per_rule_ignores]
 # JAX loads its compiled backend; keep the explicit minimum version constraint.
-# skyscapes supplies the System and scene types the *_from_system wrappers accept
-# (duck-typed, so no import in src).
-DEP002 = ["jaxlib", "skyscapes"]
+DEP002 = ["jaxlib"]
 
 [tool.ty.environment]
 python-version = "3.11"

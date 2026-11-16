@@ -54,7 +54,11 @@ def test_tracked_repo_files_are_clean():
     ).stdout.splitlines()
     suffixes = {".py", ".md", ".rst", ".toml", ".yaml", ".yml", ".cff"}
     skip = {"CHANGELOG.md", "tools/check_internal_refs.py"}
-    files = [REPO / f for f in tracked if Path(f).suffix in suffixes and f not in skip]
+    files = [
+        REPO / f
+        for f in tracked
+        if Path(f).suffix in suffixes and f not in skip and (REPO / f).is_file()
+    ]
     assert files, "expected tracked text files"
     result = run_guard(*files)
     assert result.returncode == 0, result.stdout

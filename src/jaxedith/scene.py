@@ -1,4 +1,4 @@
-"""Astrophysical scene dataclass for the JAX ETC."""
+"""Legacy monochromatic scene record for scalar comparisons."""
 
 import equinox as eqx
 
@@ -9,9 +9,8 @@ class ETCScene(eqx.Module):
     """Astrophysical scene parameters for the JAX ETC.
 
     All values are raw floats in consistent units. No astropy quantities,
-    no instrument or post-processing knobs -- those are kwargs on the
-    Layer 3 publics or live on ``OpticalPath`` / ``Observatory`` /
-    ``PPConfig`` in the system-wrapper API.
+    no instrument or post-processing knobs. Produce this record with
+    ``jaxedith.legacy.etc_scene_from_system`` for scalar comparisons.
 
     Attributes:
         F0: Flux zero point [ph/s/m^2/nm].

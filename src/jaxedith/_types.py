@@ -6,7 +6,7 @@ test suite, where ``tests/conftest.py`` installs a jaxtyping import hook.
 the check is on dtype kind and on array-likeness.
 """
 
-from jaxtyping import Array, ArrayLike, Float, Real
+from jaxtyping import ArrayLike, Float, Real
 
 # Input: Python or NumPy scalar, or JAX array, of any shape. Integers are
 # allowed because counts such as ``n_channels`` and ``n_rolls`` are ints.
@@ -18,11 +18,3 @@ FloatOut = Float[ArrayLike, "..."]
 
 # Product-only primitives preserve integer or floating arithmetic.
 NumOut = Real[ArrayLike, "..."]
-
-# Per-planet, per-epoch grids used by the ``*_from_system_*`` wrappers. The
-# names ``k`` (planets) and ``t`` (epochs) bind across every annotation in one
-# function, so a (K, T) result built from a (K, T') input fails.
-PerKT = Float[Array, "k t"]
-PerT = Float[Array, " t"]
-Scalar = Float[ArrayLike, ""]
-ScalarArray = Float[Array, ""]

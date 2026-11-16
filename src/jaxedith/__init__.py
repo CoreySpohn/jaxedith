@@ -1,88 +1,14 @@
-"""JAX ETC -- public API."""
+"""Photon-native aperture photometry and detector-based exposure planning."""
 
-try:
-    from ._version import __version__
-except ImportError:
-    __version__ = "unknown"
-
-from .etc import (
-    detector_variance_counts,
-    exptime_min_duration,
-    exptime_whole_frames,
-    frame_count,
-    snr_fixed_frame,
-)
-from .intermediates import (
-    binary_background,
-    detector_noise,
-    exozodi_background,
-    planet_signal,
-    stellar_leakage,
-    stellar_noise_floor,
-    thermal_background,
-    zodi_background,
-)
-from .public import (
-    count_rates_ayo,
-    count_rates_exosims_char,
-    count_rates_exosims_det,
-    count_rates_from_system_ayo,
-    count_rates_from_system_exosims_char,
-    count_rates_from_system_exosims_det,
-    count_variance_components,
-    count_variance_components_ayo,
-    exptime_ayo,
-    exptime_exosims_char,
-    exptime_exosims_det,
-    exptime_from_system_ayo,
-    exptime_from_system_exosims_char,
-    exptime_from_system_exosims_det,
-    snr_ayo,
-    snr_exosims_char,
-    snr_exosims_det,
-    snr_from_system_ayo,
-    snr_from_system_exosims_char,
-    snr_from_system_exosims_det,
-)
-from .scene import ETCScene
-from .zodi import zodi_fn_ayo, zodi_fn_leinert
+from ._version import __version__
+from .calculator import PostProcessing, exposure_time, snr
+from .public import aperture_quadrature, aperture_rates
 
 __all__ = [
-    "ETCScene",
+    "PostProcessing",
     "__version__",
-    "binary_background",
-    "count_rates_ayo",
-    "count_rates_exosims_char",
-    "count_rates_exosims_det",
-    "count_rates_from_system_ayo",
-    "count_rates_from_system_exosims_char",
-    "count_rates_from_system_exosims_det",
-    "count_variance_components",
-    "count_variance_components_ayo",
-    "detector_noise",
-    "detector_variance_counts",
-    "exozodi_background",
-    "exptime_ayo",
-    "exptime_exosims_char",
-    "exptime_exosims_det",
-    "exptime_from_system_ayo",
-    "exptime_from_system_exosims_char",
-    "exptime_from_system_exosims_det",
-    "exptime_min_duration",
-    "exptime_whole_frames",
-    "frame_count",
-    "planet_signal",
-    "snr_ayo",
-    "snr_exosims_char",
-    "snr_exosims_det",
-    "snr_fixed_frame",
-    "snr_from_system_ayo",
-    "snr_from_system_exosims_char",
-    "snr_from_system_exosims_det",
-    "stellar_leakage",
-    "stellar_noise_floor",
-    "thermal_background",
-    "zodi_background",
-    "zodi_fn_ayo",
-    "zodi_fn_leinert",
+    "aperture_quadrature",
+    "aperture_rates",
+    "exposure_time",
+    "snr",
 ]

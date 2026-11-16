@@ -1,0 +1,481 @@
+"""Absolute photon/electron anchors for the shared aperture reader."""
+
+import equinox as eqx
+import ineedvalidation as vv
+import jax.numpy as jnp
+import numpy as np
+import optixstuff as ox
+import pytest
+from conftest import ABStar, make_path, make_system, oracle
+from hwoutils import constants
+from hwoutils.grids import PixelGrid, SkyOrientation
+from hwoutils.spectral import Band
+from skyscapes.background import PrecomputedZodi
+from skyscapes.disk import GraterDisk
+from skyscapes.scene import Star
+from zodi import SurfaceBrightnessDust
+
+from jaxedith import PostProcessing, aperture_quadrature, aperture_rates, snr
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+@vv.seam("skyscapes+optixstuff", "jaxedith")
+def test_worked_example(example):
+    """Fails if photon integration or detector count variance changes units.
+
+    Basis: order 4 versus 8 error <3e-11; 1e-9 allows integration rounding.
+    Printed-digit checks use half a last displayed decimal place.
+    """
+    _, path, _, quad, rates = example
+    assert constants.h == 6.62607015e-34
+    assert constants.Jy == 1e-26
+    photons, electrons = oracle()
+    assert abs(oracle(4)[1] / oracle(8)[1] - 1) < 3e-11
+    np.testing.assert_allclose(rates.integrate(quad).planet, photons, rtol=1e-9, atol=0)
+    np.testing.assert_allclose(
+        path.detector.electrons(rates, quad).planet, electrons, rtol=1e-9, atol=0
+    )
+    assert photons == pytest.approx(0.0477819, abs=5e-8)
+    assert electrons == pytest.approx(0.0346767, abs=5e-8)
+    assert 36.31e-26 / (6.62607015e-34 * 550e-9) * 1e-9 == pytest.approx(
+        9.9634e5, abs=5
+    )
+    # A constant spectral background gives exactly 0.004 e/s after yield.
+    rates = eqx.tree_at(
+        lambda r: r.stellar_companions,
+        rates,
+        jnp.full(quad.nodes_nm.shape, 0.004 / (100 * 0.8 * 0.9)),
+    )
+    plan = ox.FramePlan(100, 36)
+    signal = electrons * 3600
+    variance = signal + 0.004 * 3600 + 12 * (3e-4 * 3600 + 0.005 * 36 + 0.2**2 * 36)
+    _, actual_variance = path.detector.mean_and_variance(
+        path.detector.electrons(rates, quad), plan, 12
+    )
+    np.testing.assert_allclose(actual_variance, variance, rtol=1e-9, atol=0)
+    actual = snr(
+        rates, path.detector, quad, plan, n_pix=12, post_processing=PostProcessing(0, 0)
+    )
+    np.testing.assert_allclose(actual, signal / np.sqrt(variance), rtol=1e-9, atol=0)
+    assert signal == pytest.approx(124.84, abs=0.005)
+    assert variance == pytest.approx(171.64, abs=0.005)
+    assert actual[0] == pytest.approx(9.53, abs=0.005)
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_node_qe_cannot_be_replaced_by_band_mean(example):
+    """Fails only if spectral QE is averaged before multiplying photon nodes.
+
+    Basis: independent 64-node integral, 1e-9 quadrature bound; mutant >0.5%.
+    """
+    _, path, _, q, rates = example
+    detector = eqx.tree_at(
+        lambda d: d.survival_fraction, path.detector, jnp.asarray(1.0)
+    )
+    expected = oracle()[1] / 0.9
+    np.testing.assert_allclose(
+        detector.electrons(rates, q).planet, expected, rtol=1e-9, atol=0
+    )
+    wrong = oracle()[0] * 0.8
+    assert abs(wrong / expected - 1) > 0.005
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_survival_is_applied_once_after_reader(example):
+    """Fails only if survival is absent, duplicated, or leaks into photons.
+
+    Basis: constant QE eliminates spectral averaging; exact algebra at 1e-12.
+    """
+    system, path, band, q, rates = example
+    detector = ox.Detector(
+        pixel_scale_arcsec=0.01, shape=(1, 1), qe=0.8, survival_fraction=0.6
+    )
+    changed_path = eqx.tree_at(lambda p: p.detector, path, detector)
+    changed = aperture_rates(
+        system, changed_path, band, time_d=0.0, planet_index=0, quadrature=q, zodi=None
+    )
+    np.testing.assert_array_equal(changed.planet, rates.planet)
+    expected = rates.integrate(q).planet * 0.8 * 0.6
+    np.testing.assert_allclose(
+        detector.electrons(changed, q).planet, expected, rtol=1e-12, atol=0
+    )
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_chromatic_bias(example):
+    """Fails if the reader uses centre times width; 1e-9 quadrature basis."""
+    _, path, _, q, rates = example
+    centre = (
+        40
+        * 0.4
+        * 0.3
+        * (36.31e-26 / (6.62607015e-34 * 550e-9) * 1e-9)
+        * 1e-10
+        * 100
+        * 0.8
+        * 0.9
+    )
+    expected = oracle()[1]
+    assert 0.007 < abs(centre / expected - 1) < 0.012
+    np.testing.assert_allclose(
+        path.detector.electrons(rates, q).planet, expected, rtol=1e-9, atol=0
+    )
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_leakage_is_aperture_sum(example):
+    """Fails a per-pixel/per-lod^2 substitution (16x at 0.25 lod).
+
+    Basis: integral of 1/lambda is a logarithm; 1e-9 quadrature bound.
+    """
+    system, _, band, _, _ = example
+    expected = 40 * 0.4 * 2e-10 * 36.31e-26 / 6.62607015e-34 * np.log(600 / 500)
+    values = []
+    for step in (0.25, 0.125):
+        path = make_path(pixel_scale_lod=step, leakage=2e-10)
+        q = aperture_quadrature(system, path, band, zodi=None)
+        rates = aperture_rates(
+            system, path, band, time_d=0.0, planet_index=0, quadrature=q, zodi=None
+        )
+        values.append(rates.integrate(q).star_leakage)
+    np.testing.assert_allclose(values, expected, rtol=1e-9, atol=0)
+    np.testing.assert_array_equal(values[0], values[1])
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_disk_absolute_scale_and_centre_approximation():
+    """Fails if disk is omitted, host-scaled twice, or loses sr conversion.
+
+    Basis: calibrated face-on reference equals typed 22 mag law to 1e-10;
+    footprint difference <5% for this smooth ring and 0.7 lod radius.
+    """
+    disk = GraterDisk(
+        sma_AU=1.0,
+        alpha_in=2.0,
+        alpha_out=-2.0,
+        ksi0_AU=0.05,
+        gamma=2.0,
+        beta=1.0,
+        rmin_AU=0.1,
+        rmax_AU=5.0,
+        wavelengths_nm=jnp.array([500.0, 600.0]),
+        g_HG_grid=jnp.zeros(2),
+        Ag_grid=jnp.ones(2),
+        amplitude=SurfaceBrightnessDust(level=3.0),
+        n_slices_los=24,
+    )
+    star = ABStar(flux_jy=3636 * 10 ** (-0.4 * 4.83))
+    system, path, band = (
+        make_system(star, disk=disk),
+        make_path(chromatic=False),
+        Band(549.99, 550.01),
+    )
+    q = aperture_quadrature(system, path, band, zodi=None)
+    kwargs = dict(
+        time_d=0.0,
+        separation_arcsec=0.1,
+        position_angle_deg=90.0,
+        zodi=None,
+        quadrature=q,
+    )
+    rates = aperture_rates(system, path, band, **kwargs)
+    arcsec_rad = np.pi / (180 * 3600)
+    f0 = 3636e-26 / (6.62607015e-34 * np.asarray(q.nodes_nm) * 1e-9) * 1e-9
+    radiance = 3 * 10 ** (-0.4 * 22) * f0 / arcsec_rad**2
+    omega = np.pi * 0.7**2 * (550e-9 / 8) ** 2
+    expected = 40 * 0.4 * 0.65 * radiance * omega
+    np.testing.assert_allclose(rates.exozodi, expected, rtol=1e-10, atol=0)
+    doubled = eqx.tree_at(lambda s: s.disk.amplitude.level, system, 6.0)
+    np.testing.assert_allclose(
+        aperture_rates(doubled, path, band, **kwargs).exozodi,
+        2 * expected,
+        rtol=1e-10,
+        atol=0,
+    )
+    empty = eqx.tree_at(lambda s: s.disk, system, None)
+    np.testing.assert_array_equal(
+        aperture_rates(empty, path, band, **kwargs).exozodi, 0
+    )
+    radius = 0.7 * 550e-9 / 8 / arcsec_rad
+    step = 2 * radius / 31
+    grid = PixelGrid.regular(
+        (31, 31),
+        step,
+        "arcsec",
+        center=(15 - 0.1 / step, 15),
+        orientation=SkyOrientation(0, 1),
+    )
+    x, y = grid.coordinates()
+    mask = (np.asarray(x) - 0.1) ** 2 + np.asarray(y) ** 2 <= radius**2
+    footprint = np.asarray(
+        system.photon_radiance(jnp.asarray(550.0), 0.0, grid=grid).data
+    )[mask].mean()
+    centre = (
+        3
+        * 10 ** (-0.4 * 22)
+        * 3636e-26
+        / (6.62607015e-34 * 550e-9)
+        * 1e-9
+        / arcsec_rad**2
+    )
+    assert abs(footprint / centre - 1) < 0.05
+    from jaxedith.legacy import etc_scene_from_system
+    from jaxedith.primitives import exozodi_rate
+
+    legacy = etc_scene_from_system(
+        system,
+        550.0,
+        time_d=0.0,
+        separation_arcsec=0.1,
+        position_angle_deg=90.0,
+        zodi=None,
+    )
+    legacy_disk = exozodi_rate(
+        legacy.F0,
+        legacy.Fexozodi,
+        550e-9 / 8 / arcsec_rad,
+        0.65,
+        40.0,
+        0.4,
+        band.width_nm,
+        1,
+        np.pi * 0.7**2,
+        legacy.dist_pc,
+        legacy.sep_arcsec,
+    )
+    # Width is only 0.02 nm: the 1/lambda curvature bias is below 2e-10.
+    np.testing.assert_allclose(
+        rates.integrate(q).exozodi, legacy_disk, rtol=2e-10, atol=0
+    )
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_all_tabulated_breakpoints_and_multiple_bands():
+    """Fails if star, planet, optics, zodi or QE knots are omitted.
+
+    Basis: degree <=4 piecewise products, two nodes fail and four are exact
+    to a 1e-12 floating-point bound after splitting every breakpoint.
+    """
+    waves = jnp.array([500.0, 523.0, 600.0])
+    star = Star(
+        wavelengths_nm=waves,
+        times_d=jnp.array([0.0]),
+        flux_density_jy=jnp.array([[30.0], [60.0], [20.0]]),
+        interpolation_method="linear",
+    )
+    system, path = make_system(star), make_path(chromatic=False)
+    model = system.planets[0].physical_model
+    model = eqx.tree_at(
+        lambda m: (m.wavelengths_nm, m.contrast_grid),
+        model,
+        (
+            jnp.array([500.0, 531.0, 600.0]),
+            jnp.broadcast_to(
+                jnp.array([1.0, 3.0, 1.0])[None, :, None] * 1e-10, (1, 3, 2)
+            ),
+        ),
+    )
+    system = eqx.tree_at(lambda s: s.planets[0].physical_model, system, model)
+    element = ox.SpectralThroughput(
+        jnp.array([500.0, 547.0, 600.0]), jnp.array([0.2, 0.8, 0.3])
+    )
+    detector = ox.Detector(
+        pixel_scale_arcsec=0.01,
+        shape=(1, 1),
+        qe_curve=(jnp.array([500.0, 569.0, 600.0]), jnp.array([0.1, 0.9, 0.2])),
+    )
+    path = eqx.tree_at(
+        lambda p: (p.attenuating_elements, p.detector), path, ((element,), detector)
+    )
+    zodi = PrecomputedZodi(
+        jnp.array([500.0, 581.0, 600.0]), jnp.array([1e10, 3e10, 2e10])
+    )
+    bands = (Band(500, 550), Band(550, 600))
+    q = aperture_quadrature(system, path, bands, zodi=zodi)
+    q8 = aperture_quadrature(system, path, bands, zodi=zodi, quadrature_order=8)
+    for knot in (523, 531, 547, 569, 581):
+        # Nodes/weights reveal a split, not just greater unsplit order.
+        i = 0 if knot < 550 else 1
+        assert np.sum(
+            np.asarray(q.weights_nm[i])[np.asarray(q.nodes_nm[i]) < knot]
+        ) == pytest.approx(knot - bands[i].lo_nm, abs=1e-12)
+
+    def read(rule):
+        r = aperture_rates(
+            system, path, bands, time_d=0.0, planet_index=0, quadrature=rule, zodi=zodi
+        )
+        return path.detector.electrons(r, rule).total()
+
+    np.testing.assert_allclose(read(q), read(q8), rtol=1e-12, atol=0)
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_thermal_companions_and_absolute_local_zodi(example):
+    """Fails if thermal gets optics twice or absolute sky gets host flux.
+
+    Basis: independently typed Planck/sr arithmetic, 1e-12 rounding bound.
+    """
+    system, path, band, q, _ = example
+    zodi = PrecomputedZodi(jnp.array([500.0, 600.0]), jnp.array([2e10, 2e10]))
+
+    def companions(w, t):
+        return jnp.full_like(w, 0.003)
+
+    kwargs = dict(
+        time_d=0.0,
+        planet_index=0,
+        quadrature=q,
+        zodi=zodi,
+        temperature_K=2000.0,
+        eps_warm_T_cold=0.2,
+        companion_flux_density=companions,
+    )
+    rates = aperture_rates(system, path, band, **kwargs)
+    w = np.asarray(q.nodes_nm) * 1e-9
+    omega = np.pi * 0.7**2 * (550e-9 / 8) ** 2
+    expected = (
+        40
+        * 0.2
+        * omega
+        * 2
+        * 299792458
+        / w**4
+        / np.expm1(6.62607015e-34 * 299792458 / (w * 1.380649e-23 * 2000))
+        * 1e-9
+    )
+    np.testing.assert_allclose(rates.thermal, expected, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(
+        rates.stellar_companions,
+        40 * 0.4 * 0.65 * np.pi * 0.7**2 * 0.003,
+        rtol=1e-12,
+        atol=0,
+    )
+    np.testing.assert_allclose(
+        rates.local_zodi, 40 * 0.4 * 0.65 * 2e10 * omega, rtol=1e-12, atol=0
+    )
+    brighter = eqx.tree_at(lambda s: s.star.flux_jy, system, 3631.0)
+    np.testing.assert_array_equal(
+        aperture_rates(brighter, path, band, **kwargs).local_zodi, rates.local_zodi
+    )
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_transmission_map_and_multiband_dispatch():
+    """Fails if sky transmission is a radial proxy or dispatch ignores nodes.
+
+    Basis: constant photon spectra, exact piecewise integrals and a linear
+    transmission image; 1e-12 relative covers interpolation roundoff.
+    """
+    import jax
+    from conftest import TabulatedCoronagraph
+    from hwoutils.grids import Image
+    from skyscapes.scene import FlatStar
+
+    system, path = (
+        make_system(FlatStar(1e6), chromatic=False),
+        make_path(chromatic=False),
+    )
+    grid = path.coronagraph.grid
+    x, _ = grid.coordinates()
+    table = TabulatedCoronagraph(
+        grid,
+        Image(0.5 + 0.02 * x, grid, (), "per_unit_area", "transmission"),
+        None,
+        path.coronagraph.curves(),
+    )
+    other = make_path(chromatic=False).coronagraph
+    other = eqx.tree_at(lambda c: c.sky_transmission, other, 0.8)
+    multi = ox.MultiBandCoronagraph((520.0, 580.0), (table, other))
+    path = eqx.tree_at(lambda p: p.coronagraph, path, multi)
+    band = Band(500, 600)
+    zodi = PrecomputedZodi(jnp.array([500.0, 600.0]), jnp.full(2, 1e10))
+    q = aperture_quadrature(system, path, band, zodi=zodi)
+
+    def read(separation):
+        return (
+            aperture_rates(
+                system,
+                path,
+                band,
+                time_d=0.0,
+                separation_arcsec=separation,
+                quadrature=q,
+                zodi=zodi,
+            )
+            .integrate(q)
+            .local_zodi
+        )
+
+    scale = 550e-9 / 8 / (np.pi / (180 * 3600))
+    # At the equidistant reference 550 the first band supplies the area.
+    expected = (
+        40
+        * 0.4
+        * 1e10
+        * np.pi
+        * 0.7**2
+        * (550e-9 / 8) ** 2
+        * (50 * (0.5 + 0.02) + 50 * 0.8)
+    )
+    np.testing.assert_allclose(read(scale), expected, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(jax.jit(read)(scale), expected, rtol=1e-12, atol=0)
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_disk_fixed_grid_traced_position():
+    """Fails if a supplied sky grid loses orientation or traced position.
+
+    Basis: a stored linear radiance map is reproduced by bilinear sampling
+    to 1e-12 relative; a dynamic time follows the real orbit through the map.
+    """
+    import jax
+    from skyscapes.disk import ExovistaDisk
+    from skyscapes.scene import FlatStar
+
+    grid = PixelGrid.regular(
+        (9, 9), 0.04, "arcsec", orientation=SkyOrientation(90.0, -1)
+    )
+    east, north = grid.orientation.detector_to_sky(*grid.coordinates())
+    # Input cube is host-relative flux per native pixel, not per sr.
+    contrast = 1e-8 * (1 + east + 2 * north)
+    disk = ExovistaDisk(
+        grid, jnp.array([500.0, 600.0]), jnp.stack([contrast, contrast])
+    )
+    system = make_system(FlatStar(1e6), chromatic=False, disk=disk)
+    path, band = make_path(chromatic=False), Band(549.0, 551.0)
+    q = aperture_quadrature(system, path, band, zodi=None)
+
+    def read(t):
+        return (
+            aperture_rates(
+                system,
+                path,
+                band,
+                time_d=t,
+                planet_index=0,
+                quadrature=q,
+                disk_grid=grid,
+                zodi=None,
+            )
+            .integrate(q)
+            .exozodi[0]
+        )
+
+    times = jnp.array([0.0, 30.0, 60.0])
+    positions = np.asarray(system.positions(times))[:, 0, :]
+    omega = np.pi * 0.7**2 * (550e-9 / 8) ** 2
+    expected = (
+        40
+        * 0.4
+        * 0.65
+        * 1e6
+        * 1e-8
+        * (1 + positions[0] + 2 * positions[1])
+        / (0.04 * np.pi / (180 * 3600)) ** 2
+        * omega
+        * 2
+    )
+    np.testing.assert_allclose(
+        jax.jit(jax.vmap(read))(times), expected, rtol=1e-12, atol=0
+    )
+    np.testing.assert_allclose([read(t) for t in times], expected, rtol=1e-12, atol=0)
