@@ -23,18 +23,20 @@ from jaxedith import (
     aperture_quadrature,
     aperture_rates,
     exposure_time,
+    prepare_aperture,
     snr,
 )
 
 band = Band(500.0, 600.0)
 quadrature = aperture_quadrature(system, optical_path, band)
+aperture = prepare_aperture(optical_path, band, quadrature)
 rates = aperture_rates(
     system,
     optical_path,
     band,
     time_d=0.0,
     planet_index=0,
-    quadrature=quadrature,
+    prepared_aperture=aperture,
 )
 post_processing = PostProcessing(
     speckle_residual_fraction=0.1,
@@ -74,6 +76,17 @@ Table coronagraphs supply background transmission from their native image at
 `(separation_lod, 0)`; scalar coronagraphs supply their calibrated scalar
 transmission. Thus this is a radial aperture performance reader.
 
+At wavelength `lambda_q`, both the radius and separation in lambda/D scale
+by `lambda_ref / lambda_q`. `prepare_aperture` prepares each scaled rule
+through the coronagraph API; pass its `PreparedAperture` to the reader before
+JIT, and rebuild it when the instrument, rule, reference or quadrature changes.
+An eager call prepares it automatically when omitted. `HalfMaximum` and
+`Matched` need upstream support for dilating a frozen reference template;
+polychromatic table models raise `NotImplementedError` for these rules.
+Scalar coronagraphs instead describe a calibrated fixed angular aperture:
+their constants and wavelength functions already refer to that aperture,
+and their area is in reference lambda/D squared. No PSF scaling is inferred.
+
 Quadrature splits at stellar, planetary, disk, optical-throughput, local-zodi,
 QE and multiband-dispatch breakpoints. Custom spectral models declare
 `quadrature_knots_nm` or `wavelengths_nm`; wavenumber tables use `nu_grid`.
@@ -96,6 +109,9 @@ not for arbitrary disk structure. For traced moving positions, supply a
 fixed `disk_grid` in arcseconds with `SkyOrientation`, covering the orbit.
 The reader renders the disk on that grid and bilinearly samples the centre;
 out-of-grid samples are NaN. Grid convergence is the caller's responsibility.
+Comparison with a redistributed disk image additionally requires a bound on
+PSF smoothing and image resampling; a centre-to-footprint bound alone does
+not cover those operations.
 
 Thermal emission retains the Planck photon law with `temperature_K=270` and
 `eps_warm_T_cold=0` by default. Its emissivity times cold transmission replaces

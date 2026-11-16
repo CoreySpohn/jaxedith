@@ -153,12 +153,97 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
     outer_working_angle_lod: float | None = None
 
     def curves(self, rule=Circular(0.7), *, leakage_rule="aperture_mean"):  # noqa: B008 - frozen rule
-        if rule != self.record.rule:
-            raise ValueError("unprepared rule")
-        return self.record
+        if rule == self.record.rule:
+            return self.record
+        # This fixture only tests a transmission map; constant flux density
+        # defines its independent geometric aperture calibration.
+        from yippy import PerformanceCurves
+
+        ratio = (rule.radius_lod / self.record.rule.radius_lod) ** 2
+        return PerformanceCurves(
+            self.record.separation_lod,
+            self.record.frame,
+            rule,
+            self.record.throughput * ratio,
+            self.record.core_area_lod2 * ratio,
+            self.record.leakage_fraction * ratio,
+            self.record.leakage_density_lod2,
+            self.record.raw_contrast,
+            self.record.iwa_lod,
+            self.record.data_extent_lod,
+        )
 
     def stellar_intens(self, stellar_diam_lod):
         raise NotImplementedError("only transmission is needed by this fixture")
 
     def create_psfs(self, x_lod, y_lod):
         raise NotImplementedError("only transmission is needed by this fixture")
+
+
+@pytest.fixture(scope="module")
+def fixed_angle(tmp_path_factory):
+    """Gaussian YIP, uniform 1e-9/lod^2 leakage, real eager aperture records."""
+    from astropy.io import fits
+    from skyscapes.scene import FlatStar
+
+    from jaxedith import aperture_quadrature, prepare_aperture
+
+    directory = tmp_path_factory.mktemp("fixed-angle")
+    n, step, sigma = 24, 0.5, 0.7
+    yy, xx = (np.indices((n, n)) - (n - 1) / 2) * step
+    offsets = np.array([(x, y) for x in range(4) for y in range(4)])
+    psfs = np.array(
+        [
+            0.3
+            * step**2
+            / (2 * np.pi * sigma**2)
+            * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2 * sigma**2))
+            for x, y in offsets
+        ]
+    )
+    header = fits.Header(
+        dict(
+            D=8.0,
+            D_INSC=7.0,
+            OBSCURED=0.2,
+            PIXSCALE=step,
+            LAMBDA=550.0,
+            MINLAM=500.0,
+            MAXLAM=600.0,
+            XCENTER=n / 2,
+            YCENTER=n / 2,
+            N_LAM=1,
+            N_STAR=3,
+        )
+    )
+    for key, unit in (
+        ("D", "m"),
+        ("D_INSC", "m"),
+        ("LAMBDA", "nm"),
+        ("MINLAM", "nm"),
+        ("MAXLAM", "nm"),
+    ):
+        header.comments[key] = f"value in {unit}"
+    for name, data in (
+        ("offax_psf", psfs),
+        ("offax_psf_offset_list", offsets),
+        ("stellar_intens", np.full((3, n, n), 1e-9 * step**2)),
+        ("stellar_intens_diam_list", np.array([0.0, 0.1, 0.2])),
+        ("sky_trans", np.full((n, n), 0.3)),
+    ):
+        fits.PrimaryHDU(data, header).writeto(directory / f"{name}.fits")
+    coro = ox.YippyCoronagraph(directory, rule=Circular(0.7))
+    import equinox as eqx
+
+    path = eqx.tree_at(lambda p: p.coronagraph, make_path(chromatic=False), coro)
+    system = make_system(FlatStar(1e6), chromatic=False)
+    # Place the planet between native offset knots, within the table field.
+    system = eqx.tree_at(
+        lambda s: s.dist_pc,
+        system,
+        1 / (2.3 * path.primary.frame(550.0).lod_to_arcsec(550.0)),
+    )
+    bands = (Band(500, 550), Band(550, 600))
+    q = aperture_quadrature(system, path, bands, zodi=None)
+    prepared = prepare_aperture(path, bands, q)
+    return system, path, bands, q, prepared

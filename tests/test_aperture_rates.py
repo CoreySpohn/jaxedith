@@ -391,6 +391,10 @@ def test_transmission_map_and_multiband_dispatch():
     zodi = PrecomputedZodi(jnp.array([500.0, 600.0]), jnp.full(2, 1e10))
     q = aperture_quadrature(system, path, band, zodi=zodi)
 
+    from jaxedith import prepare_aperture
+
+    prepared = prepare_aperture(path, band, q)
+
     def read(separation):
         return (
             aperture_rates(
@@ -399,7 +403,7 @@ def test_transmission_map_and_multiband_dispatch():
                 band,
                 time_d=0.0,
                 separation_arcsec=separation,
-                quadrature=q,
+                prepared_aperture=prepared,
                 zodi=zodi,
             )
             .integrate(q)
@@ -415,7 +419,7 @@ def test_transmission_map_and_multiband_dispatch():
         * np.pi
         * 0.7**2
         * (550e-9 / 8) ** 2
-        * (50 * (0.5 + 0.02) + 50 * 0.8)
+        * (50 * 0.5 + 0.02 * 550 * np.log(550 / 500) + 50 * 0.8)
     )
     np.testing.assert_allclose(read(scale), expected, rtol=1e-12, atol=0)
     np.testing.assert_allclose(jax.jit(read)(scale), expected, rtol=1e-12, atol=0)
@@ -479,3 +483,147 @@ def test_disk_fixed_grid_traced_position():
         jax.jit(jax.vmap(read))(times), expected, rtol=1e-12, atol=0
     )
     np.testing.assert_allclose([read(t) for t in times], expected, rtol=1e-12, atol=0)
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+@vv.seam("optixstuff", "jaxedith")
+def test_fixed_angle_uniform_leakage(fixed_angle):
+    """Fails if a fixed lod radius replaces the fixed angular aperture.
+
+    Basis: uniform density integrated over pi*theta^2 at test-side Gauss
+    nodes; 1e-9 relative permits quadrature rounding. The table's primitive
+    uniform-density calibration isolates the reader from PSF photometry.
+    """
+    system, path, bands, q, prepared = fixed_angle
+    from conftest import TabulatedCoronagraph
+
+    from jaxedith import prepare_aperture
+
+    calibration = make_path(chromatic=False, leakage=1e-9 * np.pi * 0.7**2)
+    table = TabulatedCoronagraph(
+        path.coronagraph.grid,
+        path.coronagraph.sky_trans,
+        None,
+        calibration.coronagraph.curves(),
+    )
+    path = eqx.tree_at(lambda p: p.coronagraph, path, table)
+    prepared = prepare_aperture(path, bands, q)
+    rates = aperture_rates(
+        system,
+        path,
+        bands,
+        time_d=0.0,
+        planet_index=0,
+        prepared_aperture=prepared,
+        zodi=None,
+    )
+    x, w = np.polynomial.legendre.leggauss(4)
+    wave = np.array([525.0, 575.0])[:, None] + 25 * x
+    radius = 0.7 * np.array([525.0, 575.0])[:, None] / wave
+    expected = np.sum(
+        25
+        * w
+        * 16
+        * 1e6
+        * 1e-9
+        * np.pi
+        * radius**2
+        * (0.8 - 0.002 * (wave - 550))
+        * 0.9,
+        axis=1,
+    )
+    np.testing.assert_allclose(
+        path.detector.electrons(rates, q).star_leakage, expected, rtol=1e-9, atol=0
+    )
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_planet_scaled_node_curve(fixed_angle):
+    """Fails if either separation or radius uses reference instead of node.
+
+    Basis: API seam equality at 1e-12 floating-point rounding; independent
+    scaled-rule preparation and position conversion on the expected side.
+    """
+    from yippy import Circular
+
+    system, path, bands, q, prepared = fixed_angle
+    rates = aperture_rates(
+        system,
+        path,
+        bands,
+        time_d=0.0,
+        planet_index=0,
+        prepared_aperture=prepared,
+        zodi=None,
+    )
+    w = float(q.nodes_nm[0, 0])
+    radius = 0.7 * 525 / w
+    coro = ox.YippyCoronagraph(
+        backend=path.coronagraph._backend, rules=(Circular(radius),)
+    )
+    separation = 1 / system.dist_pc / (w * 1e-9 / 8 / (np.pi / (180 * 3600)))
+    expected = coro.curves(Circular(radius)).evaluate("throughput", separation)
+    np.testing.assert_allclose(
+        rates.planet[0, 0] / 0.0016, expected, rtol=1e-12, atol=0
+    )
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_monochromatic_reference_aperture(fixed_angle):
+    """Fails if a monochromatic node is scaled away from its reference.
+
+    Basis: exact array equality to the unscaled reference curve; Band has
+    positive width, so a one-node Quadrature represents monochromatic light.
+    """
+    from hwoutils.spectral import Quadrature
+    from yippy import HalfMaximum, Matched
+
+    from jaxedith import prepare_aperture
+
+    system, path, _, _, _ = fixed_angle
+    band = Band(549.0, 551.0)
+    q = Quadrature(jnp.array([[550.0]]), jnp.array([[1.0]]))
+    prepared = prepare_aperture(path, band, q)
+    rates = aperture_rates(
+        system,
+        path,
+        band,
+        time_d=0.0,
+        planet_index=0,
+        prepared_aperture=prepared,
+        zodi=None,
+    )
+    sep = 1 / system.dist_pc / path.primary.frame(550.0).lod_to_arcsec(550.0)
+    phi = system.planet_flux_densities(jnp.asarray(550.0), jnp.array([0.0]))[0, 0]
+    expected = 16 * path.coronagraph.curves().evaluate("throughput", sep) * phi
+    np.testing.assert_array_equal(rates.planet[0, 0], expected)
+    for rule in (HalfMaximum(), Matched()):
+        with pytest.raises(NotImplementedError, match="frozen reference"):
+            prepare_aperture(path, band, q, rule=rule, reference_wavelength_nm=540.0)
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+def test_prepared_aperture_jit(fixed_angle):
+    """Fails if scaled-rule preparation occurs inside the traced reader.
+
+    Basis: eager/JIT arithmetic equality within 1e-12 floating-point error.
+    """
+    system, path, bands, _, prepared = fixed_angle
+
+    def read(scene, aperture):
+        return aperture_rates(
+            scene,
+            path,
+            bands,
+            time_d=0.0,
+            planet_index=0,
+            prepared_aperture=aperture,
+            zodi=None,
+        )
+
+    eager = read(system, prepared)
+    compiled = eqx.filter_jit(read)(system, prepared)
+    for name in eager.__dataclass_fields__:
+        np.testing.assert_allclose(
+            getattr(compiled, name), getattr(eager, name), rtol=1e-12, atol=0
+        )

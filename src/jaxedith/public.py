@@ -11,10 +11,10 @@ from hwoutils.conversions import wavenumber_cm_to_nm
 from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.map_coordinates import map_coordinates
 from hwoutils.spectral import Band, Quadrature
-from optixstuff import MultiBandCoronagraph, PhotonRates
+from optixstuff import MultiBandCoronagraph, PhotonRates, YippyCoronagraph
 from optixstuff.coronagraph import AbstractScalarCoronagraph
 from skyscapes.background import AYOZodi, LeinertZodi
-from yippy import Circular
+from yippy import Circular, HalfMaximum, Matched
 from zodi.tables import TABLE19_WAVELENGTH_UM
 
 _DEFAULT_RULE = Circular(0.7)
@@ -126,43 +126,116 @@ def _disk_radiance(system, wave, time_d, east, north, disk_grid):
     )(values).reshape(wave.shape)
 
 
-def _node_response(coro, separation_lod, wave, time_d, rule):
-    """Read node curves and sampled sky transmission, with traced band dispatch."""
-    if isinstance(coro, MultiBandCoronagraph):
-        values = jnp.stack(
-            [
-                _node_response(band, separation_lod, wave, time_d, rule)
-                for band in coro.bands
-            ]
+class PreparedAperture(eqx.Module):
+    """Host-prepared geometry and records for one fixed angular aperture.
+
+    Rebuild when the instrument, bands, quadrature or reference rule changes.
+    Scene fluxes, positions and time remain runtime inputs to aperture_rates.
+    """
+
+    quadrature: Quadrature
+    references: tuple
+    nodes: tuple
+
+
+def prepare_aperture(
+    optical_path,
+    band_or_bands,
+    quadrature,
+    *,
+    rule=_DEFAULT_RULE,
+    reference_wavelength_nm=None,
+) -> PreparedAperture:
+    """Prepare node rules and curves on the host, before tracing the reader.
+
+    An angular radius is theta = r_ref * lambda_ref / D.
+    At a node r_q = theta / (lambda_q / D) = r_ref * lambda_ref / lambda_q.
+    Likewise s_q = s_arcsec / frame.lod_to_arcsec(lambda_q).
+    Omega = A_ref * (lambda_ref / D)^2 stays fixed, not A_ref*(lambda_q/D)^2.
+
+    Scalar coronagraph constants describe the calibrated fixed-angular
+    aperture here: their area is in reference lambda/D squared. They have
+    no PSF dilation law; their wavelength-dependent scalar methods are kept.
+    HalfMaximum and Matched require an upstream frozen-template dilation API
+    for polychromatic table models; changing a threshold is not dilation.
+    """
+    bands = _bands(band_or_bands)
+    waves = np.asarray(quadrature.nodes_nm)
+    if waves.shape[0] != len(bands):
+        raise ValueError("quadrature must have one row per band")
+    coro = optical_path.coronagraph
+    models = coro.bands if isinstance(coro, MultiBandCoronagraph) else (coro,)
+
+    def index(w):
+        return (
+            int(np.argmin(abs(np.asarray(coro.band_centers_nm) - w)))
+            if isinstance(coro, MultiBandCoronagraph)
+            else 0
         )
-        nearest = jnp.argmin(
-            jnp.abs(wave[:, None] - jnp.asarray(coro.band_centers_nm)), axis=1
+
+    def curves(model, aperture_rule):
+        try:
+            return model.curves(aperture_rule)
+        except ValueError:
+            if not isinstance(model, YippyCoronagraph):
+                raise
+            # The adapter constructor is the upstream host preparation API.
+            prepared = YippyCoronagraph(backend=model._backend, rules=(aperture_rule,))
+            return prepared.curves(aperture_rule)
+
+    references, nodes = [], []
+    for band, row in zip(bands, waves, strict=True):
+        ref = (
+            band.center_nm
+            if reference_wavelength_nm is None
+            else reference_wavelength_nm
         )
-        return jnp.take_along_axis(values, nearest[None, None, :], axis=0)[0]
-    tau = jax.vmap(
-        lambda w: coro.throughput(separation_lod, w, time_d=time_d, rule=rule)
-    )(wave)
-    leak = jax.vmap(
-        lambda w: coro.leakage_fraction(separation_lod, w, time_d=time_d, rule=rule)
-    )(wave)
+        if isinstance(rule, (HalfMaximum, Matched)) and any(
+            w != ref and not isinstance(models[index(w)], AbstractScalarCoronagraph)
+            for w in row
+        ):
+            raise NotImplementedError(
+                f"{type(rule).__name__} needs yippy/optixstuff support for "
+                "dilating a frozen reference aperture/template at each separation"
+            )
+        reference = curves(models[index(ref)], rule)
+        frame = optical_path.primary.frame(ref, reference.frame.diameter_convention)
+        references.append((index(ref), ref, frame.lod_to_arcsec(ref), reference))
+        prepared_row = []
+        for w in row:
+            model = models[index(w)]
+            scalar = isinstance(model, AbstractScalarCoronagraph)
+            if scalar or w == ref:
+                scaled = rule
+            elif isinstance(rule, Circular):
+                scaled = Circular(rule.radius_lod * ref / float(w))
+            else:
+                raise TypeError("rule must be Circular, HalfMaximum or Matched")
+            record = curves(model, scaled)
+            node_frame = optical_path.primary.frame(w, record.frame.diameter_convention)
+            prepared_row.append((index(w), scaled, record, node_frame.lod_to_arcsec(w)))
+        nodes.append(tuple(prepared_row))
+    return PreparedAperture(quadrature, tuple(references), tuple(nodes))
+
+
+def _node_response(coro, record, separation_lod, wave, time_d, rule):
+    """Evaluate prepared curves and sampled sky transmission at one node."""
     if isinstance(coro, AbstractScalarCoronagraph):
-        # Scalar image methods are documented zero placeholders; the
-        # calibrated scalar sky transmission is the physical quantity.
-        sky = jax.vmap(
-            lambda w: coro.occulter_transmission(separation_lod, w, time_d=time_d)
-        )(wave)
+        tau = coro.throughput(separation_lod, wave, time_d=time_d, rule=rule)
+        leak = coro.leakage_fraction(separation_lod, wave, time_d=time_d, rule=rule)
+        sky = coro.occulter_transmission(separation_lod, wave, time_d=time_d)
     else:
+        tau = record.evaluate("throughput", separation_lod)
+        leak = record.evaluate("leakage_fraction", separation_lod)
         px, py = coro.grid.unit_to_pixel(separation_lod, 0.0)
         coordinates = jnp.array([[py], [px]])
-        sky = jax.vmap(
-            lambda w: map_coordinates(
-                coro.background_transmission(w, grid=coro.grid).data,
-                coordinates,
-                order=1,
-                mode="constant",
-                cval=jnp.nan,
-            )[0]
-        )(wave)
+        sky = map_coordinates(
+            coro.background_transmission(wave, grid=coro.grid).data,
+            coordinates,
+            order=1,
+            mode="constant",
+            cval=jnp.nan,
+        )[0]
     return jnp.stack((tau, leak, sky))
 
 
@@ -182,6 +255,7 @@ def aperture_rates(
     solar_longitude_deg=135.0,
     reference_wavelength_nm=None,
     quadrature=None,
+    prepared_aperture=None,
     disk_grid=None,
     temperature_K=270.0,
     eps_warm_T_cold=0.0,
@@ -200,7 +274,8 @@ def aperture_rates(
     footprint average. Without disk_grid the one-pixel grid is built eagerly
     at the planet. For traced moving positions supply a fixed arcsec sky grid
     covering them; bilinear sampling gives NaN outside its support. No disk
-    gives zero. Prepare quadrature before tracing wavelength-table leaves.
+    gives zero. Prepare quadrature and prepare_aperture before tracing table
+    models; pass prepared_aperture to reuse its records and quadrature.
 
     Thermal light retains Planck emission times warm emissivity and cold
     transmission, without system throughput. companion_flux_density(wave,
@@ -212,6 +287,10 @@ def aperture_rates(
     if jnp.ndim(time_d) != 0:
         raise ValueError("time_d must be scalar; use vmap for multiple times")
     bands = _bands(band_or_bands)
+    if prepared_aperture is not None:
+        if quadrature is not None and quadrature is not prepared_aperture.quadrature:
+            raise ValueError("use the prepared aperture's quadrature")
+        quadrature = prepared_aperture.quadrature
     if quadrature is None:
         quadrature = aperture_quadrature(
             system,
@@ -223,6 +302,14 @@ def aperture_rates(
         )
     if quadrature.nodes_nm.shape[0] != len(bands):
         raise ValueError("quadrature must have one row per band")
+    if prepared_aperture is None:
+        prepared_aperture = prepare_aperture(
+            optical_path,
+            bands,
+            quadrature,
+            rule=rule,
+            reference_wavelength_nm=reference_wavelength_nm,
+        )
     wave = quadrature.nodes_nm
     east, north, ephemeris = _position(
         system, time_d, planet_index, separation_arcsec, position_angle_deg
@@ -249,23 +336,28 @@ def aperture_rates(
     )
     coro = optical_path.coronagraph
     tau, leak, sky, solid_angle, areas = [], [], [], [], []
-    for i, band in enumerate(bands):
-        ref = (
-            band.center_nm
-            if reference_wavelength_nm is None
-            else reference_wavelength_nm
-        )
-        reference_coro = (
-            coro.band(ref) if isinstance(coro, MultiBandCoronagraph) else coro
-        )
-        frame = optical_path.primary.frame(
-            ref, reference_coro.curves(rule).frame.diameter_convention
-        )
-        sep = separation / frame.lod_to_arcsec(ref)
-        area = reference_coro.core_area(sep, ref, time_d=time_d, rule=rule)
+    models = coro.bands if isinstance(coro, MultiBandCoronagraph) else (coro,)
+    for i, (_, _ref, scale, record) in enumerate(prepared_aperture.references):
+        sep = separation / scale
+        area = record.evaluate("core_area_lod2", sep)
         areas.append(area)
-        solid_angle.append(area * (frame.lod_to_arcsec(ref) * arcsec2rad) ** 2)
-        response = _node_response(coro, sep, wave[i], time_d, rule)
+        solid_angle.append(area * (scale * arcsec2rad) ** 2)
+        response = jnp.stack(
+            [
+                _node_response(
+                    models[k],
+                    node_record,
+                    separation / node_scale,
+                    wave[i, j],
+                    time_d,
+                    node_rule,
+                )
+                for j, (k, node_rule, node_record, node_scale) in enumerate(
+                    prepared_aperture.nodes[i]
+                )
+            ],
+            axis=1,
+        )
         tau.append(response[0])
         leak.append(response[1])
         sky.append(response[2])
