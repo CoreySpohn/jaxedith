@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/CoreySpohn/jaxedith/compare/v2.1.1...v3.0.0) (2026-11-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* read distance from the scene dynamics and take exposure times as days from the scene epoch
+
+### Features
+
+* read distance from the scene dynamics and take exposure times as days from the scene epoch ([c15293e](https://github.com/CoreySpohn/jaxedith/commit/c15293e1d67c003a98449c3b63ac6343e2b6b587))
+
 ## [2.1.1](https://github.com/CoreySpohn/jaxedith/compare/v2.1.0...v2.1.1) (2026-11-15)
 
 
