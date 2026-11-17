@@ -6,10 +6,10 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from hwoutils.constants import arcsec2rad, c, h, k_B, nm2m
-from hwoutils.conversions import arcsec_to_au
+from hwoutils.conversions import arcsec_to_au, arcsec_to_rad
 from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.map_coordinates import map_coordinates
+from hwoutils.planck import planck_photon_radiance
 from hwoutils.spectral import Band, Quadrature, spectral_knots
 from optixstuff import MultiBandCoronagraph, PhotonRates, YippyCoronagraph
 from optixstuff.coronagraph import AbstractScalarCoronagraph
@@ -334,13 +334,13 @@ def aperture_rates(
         )
     )
     coro = optical_path.coronagraph
-    tau, leak, sky, solid_angle, areas = [], [], [], [], []
+    tau, leak, sky, solid_angles_sr, areas = [], [], [], [], []
     models = coro.bands if isinstance(coro, MultiBandCoronagraph) else (coro,)
     for i, (_, _ref, scale, record) in enumerate(prepared_aperture.references):
         sep = separation / scale
         area = record.evaluate("core_area_lod2", sep)
         areas.append(area)
-        solid_angle.append(area * (scale * arcsec2rad) ** 2)
+        solid_angles_sr.append(area * arcsec_to_rad(scale) ** 2)
         response = jnp.stack(
             [
                 _node_response(
@@ -360,17 +360,14 @@ def aperture_rates(
         tau.append(response[0])
         leak.append(response[1])
         sky.append(response[2])
-    omega = jnp.stack(solid_angle)[:, None]
+    aperture_solid_angle_sr = jnp.stack(solid_angles_sr)[:, None]
     area_m2 = optical_path.primary.collecting_area_m2
     throughput = jax.vmap(optical_path.system_throughput)(wave.reshape(-1)).reshape(
         wave.shape
     )
     common = area_m2 * throughput
     background = common * jnp.stack(sky)
-    lam_m = wave * nm2m
-    exponent = h * c / (lam_m * k_B * temperature_K)
-    # exp(-x)/(1-exp(-x)) avoids overflow in cold visible-band emission.
-    planck = 2 * c / lam_m**4 * jnp.exp(-exponent) / (-jnp.expm1(-exponent)) * nm2m
+    thermal_phot_per_s_m2_nm_sr = planck_photon_radiance(wave, temperature_K)
     companions = (
         0.0
         if companion_flux_density is None
@@ -383,8 +380,11 @@ def aperture_rates(
     return PhotonRates(
         planet=common * jnp.stack(tau) * planet,
         star_leakage=common * jnp.stack(leak) * star,
-        local_zodi=background * local * omega,
-        exozodi=background * disk * omega,
-        thermal=area_m2 * eps_warm_T_cold * planck * omega,
+        local_zodi=background * local * aperture_solid_angle_sr,
+        exozodi=background * disk * aperture_solid_angle_sr,
+        thermal=area_m2
+        * eps_warm_T_cold
+        * thermal_phot_per_s_m2_nm_sr
+        * aperture_solid_angle_sr,
         stellar_companions=companions,
     )

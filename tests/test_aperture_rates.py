@@ -27,8 +27,6 @@ def test_worked_example(example):
     Printed-digit checks use half a last displayed decimal place.
     """
     _, path, _, quad, rates = example
-    assert constants.h == 6.62607015e-34
-    assert constants.Jy == 1e-26
     photons, electrons = oracle()
     assert abs(oracle(4)[1] / oracle(8)[1] - 1) < 3e-11
     np.testing.assert_allclose(rates.integrate(quad).planet, photons, rtol=1e-9, atol=0)
@@ -37,9 +35,9 @@ def test_worked_example(example):
     )
     assert photons == pytest.approx(0.0477819, abs=5e-8)
     assert electrons == pytest.approx(0.0346767, abs=5e-8)
-    assert 36.31e-26 / (6.62607015e-34 * 550e-9) * 1e-9 == pytest.approx(
-        9.9634e5, abs=5
-    )
+    assert (36.31 * constants.Jy) / (
+        constants.h * (550 * constants.nm2m)
+    ) * constants.nm2m == pytest.approx(9.9634e5, abs=5)
     # A constant spectral background gives exactly 0.004 e/s after yield.
     rates = eqx.tree_at(
         lambda r: r.stellar_companions,
@@ -109,7 +107,11 @@ def test_chromatic_bias(example):
         40
         * 0.4
         * 0.3
-        * (36.31e-26 / (6.62607015e-34 * 550e-9) * 1e-9)
+        * (
+            (36.31 * constants.Jy)
+            / (constants.h * (550 * constants.nm2m))
+            * constants.nm2m
+        )
         * 1e-10
         * 100
         * 0.8
@@ -129,7 +131,9 @@ def test_leakage_is_aperture_sum(example):
     Basis: integral of 1/lambda is a logarithm; 1e-9 quadrature bound.
     """
     system, _, band, _, _ = example
-    expected = 40 * 0.4 * 2e-10 * 36.31e-26 / 6.62607015e-34 * np.log(600 / 500)
+    expected = (
+        40 * 0.4 * 2e-10 * (36.31 * constants.Jy) / constants.h * np.log(600 / 500)
+    )
     values = []
     for step in (0.25, 0.125):
         path = make_path(pixel_scale_lod=step, leakage=2e-10)
@@ -180,10 +184,14 @@ def test_disk_absolute_scale_and_centre_approximation():
         exozodi="scene",
     )
     rates = aperture_rates(system, path, band, **kwargs)
-    arcsec_rad = np.pi / (180 * 3600)
-    f0 = 3636e-26 / (6.62607015e-34 * np.asarray(q.nodes_nm) * 1e-9) * 1e-9
+    arcsec_rad = constants.arcsec2rad
+    f0 = (
+        (3636 * constants.Jy)
+        / (constants.h * np.asarray(q.nodes_nm) * constants.nm2m)
+        * constants.nm2m
+    )
     radiance = 3 * 10 ** (-0.4 * 22) * f0 / arcsec_rad**2
-    omega = np.pi * 0.7**2 * (550e-9 / 8) ** 2
+    omega = np.pi * 0.7**2 * (550 * constants.nm2m / 8) ** 2
     expected = 40 * 0.4 * 0.65 * radiance * omega
     np.testing.assert_allclose(rates.exozodi, expected, rtol=1e-10, atol=0)
     doubled = eqx.tree_at(lambda s: s.disk.amplitude.level, system, 6.0)
@@ -197,7 +205,7 @@ def test_disk_absolute_scale_and_centre_approximation():
     np.testing.assert_array_equal(
         aperture_rates(empty, path, band, **kwargs).exozodi, 0
     )
-    radius = 0.7 * 550e-9 / 8 / arcsec_rad
+    radius = 0.7 * (550 * constants.nm2m) / 8 / arcsec_rad
     step = 2 * radius / 31
     grid = PixelGrid.regular(
         (31, 31),
@@ -214,9 +222,9 @@ def test_disk_absolute_scale_and_centre_approximation():
     centre = (
         3
         * 10 ** (-0.4 * 22)
-        * 3636e-26
-        / (6.62607015e-34 * 550e-9)
-        * 1e-9
+        * (3636 * constants.Jy)
+        / (constants.h * (550 * constants.nm2m))
+        * constants.nm2m
         / arcsec_rad**2
     )
     assert abs(footprint / centre - 1) < 0.05
@@ -234,7 +242,7 @@ def test_disk_absolute_scale_and_centre_approximation():
     legacy_disk = exozodi_rate(
         legacy.F0,
         legacy.Fexozodi,
-        550e-9 / 8 / arcsec_rad,
+        (550 * constants.nm2m) / 8 / arcsec_rad,
         0.65,
         40.0,
         0.4,
@@ -332,17 +340,17 @@ def test_thermal_companions_and_absolute_local_zodi(example):
         companion_flux_density=companions,
     )
     rates = aperture_rates(system, path, band, **kwargs)
-    w = np.asarray(q.nodes_nm) * 1e-9
-    omega = np.pi * 0.7**2 * (550e-9 / 8) ** 2
+    w = np.asarray(q.nodes_nm) * constants.nm2m
+    omega = np.pi * 0.7**2 * (550 * constants.nm2m / 8) ** 2
     expected = (
         40
         * 0.2
         * omega
         * 2
-        * 299792458
+        * constants.c
         / w**4
-        / np.expm1(6.62607015e-34 * 299792458 / (w * 1.380649e-23 * 2000))
-        * 1e-9
+        / np.expm1(constants.h * constants.c / (w * constants.k_B * 2000))
+        * constants.nm2m
     )
     np.testing.assert_allclose(rates.thermal, expected, rtol=1e-12, atol=0)
     np.testing.assert_allclose(
@@ -411,7 +419,7 @@ def test_transmission_map_and_multiband_dispatch():
             .local_zodi
         )
 
-    scale = 550e-9 / 8 / (np.pi / (180 * 3600))
+    scale = (550 * constants.nm2m) / 8 / (constants.arcsec2rad)
     # At the equidistant reference 550 the first band supplies the area.
     expected = (
         40
@@ -419,7 +427,7 @@ def test_transmission_map_and_multiband_dispatch():
         * 1e10
         * np.pi
         * 0.7**2
-        * (550e-9 / 8) ** 2
+        * ((550 * constants.nm2m) / 8) ** 2
         * (50 * 0.5 + 0.02 * 550 * np.log(550 / 500) + 50 * 0.8)
     )
     np.testing.assert_allclose(read(scale), expected, rtol=1e-12, atol=0)
@@ -469,7 +477,7 @@ def test_disk_fixed_grid_traced_position():
 
     times = jnp.array([0.0, 30.0, 60.0])
     positions = np.asarray(system.positions(times))[:, 0, :]
-    omega = np.pi * 0.7**2 * (550e-9 / 8) ** 2
+    omega = np.pi * 0.7**2 * (550 * constants.nm2m / 8) ** 2
     expected = (
         40
         * 0.4
@@ -477,7 +485,7 @@ def test_disk_fixed_grid_traced_position():
         * 1e6
         * 1e-8
         * (1 + positions[0] + 2 * positions[1])
-        / (0.04 * np.pi / (180 * 3600)) ** 2
+        / (0.04 * constants.arcsec2rad) ** 2
         * omega
         * 2
     )
@@ -563,7 +571,7 @@ def test_planet_scaled_node_curve(fixed_angle):
     coro = ox.YippyCoronagraph(
         backend=path.coronagraph._backend, rules=(Circular(radius),)
     )
-    separation = 1 / system.dist_pc / (w * 1e-9 / 8 / (np.pi / (180 * 3600)))
+    separation = 1 / system.dist_pc / (w * constants.nm2m / 8 / (constants.arcsec2rad))
     expected = coro.curves(Circular(radius)).evaluate("throughput", separation)
     np.testing.assert_allclose(
         rates.planet[0, 0] / 0.0016, expected, rtol=1e-12, atol=0

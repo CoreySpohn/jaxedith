@@ -4,8 +4,8 @@ Outputs retain electrons/s; callers supply detector yield in throughput.
 The shared photon reader does not call these comparison formulas.
 """
 
-import jax.numpy as jnp
-from hwoutils.constants import c, h, k_B, nm2m
+from hwoutils.conversions import arcsec_to_au
+from hwoutils.planck import planck_photon_radiance
 
 from jaxedith._types import FloatOut, Num, NumOut
 
@@ -195,7 +195,7 @@ def exozodi_rate(
         * throughput
         * dlambda_nm
         * n_channels
-        / (dist_pc * sep_arcsec) ** 2
+        / arcsec_to_au(sep_arcsec, dist_pc) ** 2
     )
 
 
@@ -271,25 +271,14 @@ def thermal_rate(
             the effective QE is ``QE * survival_fraction``.
         core_area_lod2: solid angle of photometric aperture [(lam/D)^2].
     """
-    lam_m = wavelength_nm * nm2m  # nm -> m
-    photon_energy = h * c / lam_m  # J per photon
+    thermal_phot_per_s_m2_nm_sr = planck_photon_radiance(wavelength_nm, temp_K)
 
-    # Planck function in energy spectral radiance [W/m^2/sr/m]
-    exponent = h * c / (lam_m * k_B * temp_K)
-    planck_energy = (2 * h * c**2 / lam_m**5) / (jnp.exp(exponent) - 1)
-
-    # Convert to photon spectral radiance [ph/s/m^2/sr/m]
-    planck_photons = planck_energy / photon_energy
-
-    # Area is already in m^2; convert nm -> m for bandwidth
-    # The solid angle in steradians = lod_rad^2 x core_area_lod2
     return (
-        planck_photons
+        thermal_phot_per_s_m2_nm_sr
         * eps_warm_T_cold
         * (QE * survival_fraction)
         * area_m2
         * dlambda_nm
-        * nm2m
         * (lod_rad**2)
         * core_area_lod2
     )

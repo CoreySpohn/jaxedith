@@ -36,6 +36,7 @@ import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
 import pytest
+from hwoutils import constants
 from hwoutils.conversions import jy_to_photons_per_nm_per_m2
 from hwoutils.epoch import Epoch
 from hwoutils.grids import PixelGrid
@@ -80,7 +81,7 @@ def make_system(star=None, *, chromatic=True, disk=None):
         star_mass_Msun=1.0,
         planet_mass_Msun=3e-6,
         dist_pc=10.0,
-        epoch=Epoch(2451545.0),
+        epoch=Epoch(constants.J2000_JD),
         a_AU=jnp.array([1.0]),
         e=jnp.array([0.0]),
         W_rad=jnp.array([0.0]),
@@ -138,7 +139,7 @@ def oracle(order=64):
     """Independent SI primitives and a 64-node Gauss-Legendre integral."""
     x, weights = np.polynomial.legendre.leggauss(order)
     wave = 550 + 50 * x
-    flux = 36.31 * 1e-26 / (6.62607015e-34 * wave * 1e-9) * 1e-9
+    flux = 36.31 * constants.Jy / (constants.h * wave * constants.nm2m) * constants.nm2m
     planet = 40 * 0.4 * (0.3 + 0.0006 * (wave - 550)) * flux
     planet *= 1e-10 * (1 - 0.004 * (wave - 550))
     return (

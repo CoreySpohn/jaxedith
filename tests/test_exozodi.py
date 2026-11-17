@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from conftest import make_path, make_system
+from hwoutils import constants
 from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.spectral import Band
 from skyscapes.disk import ExovistaDisk
@@ -31,12 +32,14 @@ def test_analytic_default_matches_scalar_electrons():
     q = je.aperture_quadrature(system, path, band, zodi=None)
     rates = je.aperture_rates(system, path, band, time_d=0.0, planet_index=0, zodi=None)
     # AB definition in cgs converted to Jy; independent of library conversions.
-    zero_jy = 10 ** (-0.4 * 48.60) * 1e23
-    f0 = zero_jy * 1e-26 / (6.62607015e-34 * 550e-9) * 1e-9
+    zero_jy = 10 ** (-0.4 * 48.60) * constants.m22cm2 / constants.J2erg / constants.Jy
+    f0 = (
+        zero_jy * constants.Jy / (constants.h * (550 * constants.nm2m)) * constants.nm2m
+    )
     expected = exozodi_rate(
         f0,
         3 * 10 ** (-0.4 * 22),
-        550e-9 / 8 / (np.pi / 648000),
+        (550 * constants.nm2m) / 8 / constants.arcsec2rad,
         0.65,
         40.0,
         0.4 * 0.8 * 0.9,
@@ -51,8 +54,8 @@ def test_analytic_default_matches_scalar_electrons():
     )
     model = je.AYOExozodi()
     waves = jnp.array([450.0, 550.0, 750.0])
-    expected_radiance = zero_jy * 1e-26 / (6.62607015e-34 * np.asarray(waves))
-    expected_radiance *= 3 * 10 ** (-0.4 * 22) / (np.pi / 648000) ** 2
+    expected_radiance = zero_jy * constants.Jy / (constants.h * np.asarray(waves))
+    expected_radiance *= 3 * 10 ** (-0.4 * 22) / constants.arcsec2rad**2
     np.testing.assert_allclose(
         model.photon_radiance(waves, separation_au=1.0),
         expected_radiance,
@@ -165,6 +168,12 @@ def test_exozodi_knots_split_quadrature():
         exozodi=model,
     )
     expected = (
-        40 * 0.4 * 0.65 * np.pi * 0.7**2 * (550e-9 / 8) ** 2 * (37 * 2.5e10 + 63 * 3e10)
+        40
+        * 0.4
+        * 0.65
+        * np.pi
+        * 0.7**2
+        * ((550 * constants.nm2m) / 8) ** 2
+        * (37 * 2.5e10 + 63 * 3e10)
     )
     np.testing.assert_allclose(rates.integrate(q).exozodi, expected, rtol=1e-12, atol=0)
