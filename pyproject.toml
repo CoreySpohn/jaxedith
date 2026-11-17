@@ -148,3 +148,15 @@ invalid-attribute-override = "ignore"
 invalid-property-type-override = "ignore"
 invalid-argument-type = "warn"
 invalid-return-type = "warn"
+
+[tool.ineedvalidation]
+library = "jaxedith"
+
+[tool.ineedvalidation.defaults]
+"tests/test_aperture_rates.py" = { case = "aperture-photon-budget", evidence = "code-verification" }
+"tests/test_calculator.py" = { case = "etc-inversion", evidence = "code-verification" }
+"tests/test_exozodi.py" = { case = "aperture-photon-budget", evidence = "code-verification" }
+"tests/test_gradients.py" = { case = "etc-inversion", evidence = "code-verification" }
+"tests/test_jax_etc.py" = { case = "etc-inversion", evidence = "code-verification" }
+"tests/test_legacy_adapters.py" = { case = "etc-benchmark", evidence = "cross-code-benchmark", reference_code = "pyedith" }
+"tests/test_properties.py" = { case = "etc-inversion", evidence = "code-verification" }

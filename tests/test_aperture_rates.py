@@ -146,7 +146,7 @@ def test_leakage_is_aperture_sum(example):
     np.testing.assert_array_equal(values[0], values[1])
 
 
-@vv.case("aperture-photon-budget", "code-verification")
+@vv.case("etc-benchmark", "cross-code-benchmark", reference_code="pyedith")
 def test_disk_absolute_scale_and_centre_approximation():
     """Fails if disk is omitted, host-scaled twice, or loses sr conversion.
 
@@ -228,8 +228,8 @@ def test_disk_absolute_scale_and_centre_approximation():
         / arcsec_rad**2
     )
     assert abs(footprint / centre - 1) < 0.05
-    from jaxedith.legacy import etc_scene_from_system
-    from jaxedith.primitives import exozodi_rate
+    from reference.legacy import etc_scene_from_system
+    from reference.primitives import exozodi_rate
 
     legacy = etc_scene_from_system(
         system,

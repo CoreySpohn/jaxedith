@@ -9,13 +9,13 @@ from conftest import make_path, make_system
 from hwoutils import constants
 from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.spectral import Band
+from reference.primitives import exozodi_rate
 from skyscapes.disk import ExovistaDisk
 
 import jaxedith as je
-from jaxedith.primitives import exozodi_rate
 
 
-@vv.case("aperture-photon-budget", "code-verification")
+@vv.case("etc-benchmark", "cross-code-benchmark", reference_code="ayo")
 @vv.seam("jaxedith", "optixstuff")
 def test_analytic_default_matches_scalar_electrons():
     """Fails on wrong zero point, colour, sr units, yield or missing default.

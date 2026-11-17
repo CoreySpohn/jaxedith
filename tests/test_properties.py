@@ -7,8 +7,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
-
-from jaxedith.etc import (
+from reference.etc import (
     exptime_from_rates_ayo,
     exptime_from_rates_exosims_char,
     exptime_from_rates_exosims_det,

@@ -29,7 +29,7 @@ os.environ.setdefault("JAXEDITH_DEBUG_CHECKS", "1")
 # The hook must be installed before jaxedith is first imported. Set
 # JAXEDITH_TYPECHECK=0 to run without it.
 if os.environ.get("JAXEDITH_TYPECHECK", "1") == "1":
-    install_import_hook("jaxedith", "beartype.beartype")
+    install_import_hook(["jaxedith", "reference"], "beartype.beartype")
 
 
 import jax.numpy as jnp

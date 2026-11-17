@@ -32,7 +32,6 @@ as centre-to-footprint radiance differences.
 `PostProcessing` owns the two residual fractions. It adds squared residual
 counts after detector variance; it never changes photon or electron rates.
 
-The comparison layer is separate: `primitives` holds plain-number rates,
-`etc` holds legacy equations, and `legacy` adapts scene and processing
-conventions. It has no second optical-path derivation. `ETCScene` retains its
-historical monochromatic units and is produced by `etc_scene_from_system`.
+The scalar cross-code references live only in `tests/reference/`; see
+[comparison references](variants.md). They do not supply any calculator rates
+or detector statistics.

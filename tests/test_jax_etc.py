@@ -1,13 +1,14 @@
 # ruff: noqa: E402
 """Tests for the JAX ETC backend.
 
-Validates:
+Checks:
 1. Count rate parity between JAX and numpy pyEDITH functions
 2. Equation round-trip consistency (exptime_from_rates <-> snr_from_rates)
 3. JIT compilation
 4. vmap over batched inputs
 """
 
+import ineedvalidation as vv
 import numpy as np
 import pytest
 from hwoutils.constants import c, h, k_B, nm2m
@@ -17,13 +18,13 @@ jax = pytest.importorskip("jax")
 jnp = pytest.importorskip("jax.numpy")
 eqx = pytest.importorskip("equinox")
 
-from jaxedith.etc import (
+from reference.etc import (
     exptime_from_rates_ayo,
     exptime_from_rates_exosims_char,
     exptime_from_rates_exosims_det,
     snr_from_rates_ayo,
 )
-from jaxedith.primitives import (
+from reference.primitives import (
     binary_rate,
     detector_noise_rate,
     exozodi_rate,
@@ -66,6 +67,7 @@ det_t_photon = 13.79303  # s/frame
 class TestCountRateParity:
     """Verify JAX count rates match numpy pyEDITH values."""
 
+    @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="pyedith")
     def test_planet_rate(self):
         """CRp should match pyEDITH's calculate_CRp."""
         result = planet_rate(
@@ -80,6 +82,7 @@ class TestCountRateParity:
         )
         assert np.isclose(float(result), 0.64877874, rtol=1e-5)
 
+    @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="pyedith")
     def test_stellar_leakage_rate(self):
         """CRbs via core_mean_intensity should match pyEDITH's calculate_CRbs.
 
@@ -104,6 +107,7 @@ class TestCountRateParity:
         )
         assert np.isclose(float(result), 0.0008138479, rtol=1e-5)
 
+    @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="pyedith")
     def test_zodi_rate(self):
         """CRbz should match pyEDITH's calculate_CRbz."""
         Fzodi = 3.5213620474344346e-10
@@ -121,6 +125,7 @@ class TestCountRateParity:
         )
         assert np.isclose(float(result), 0.0099697346, rtol=1e-5)
 
+    @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="pyedith")
     def test_exozodi_rate(self):
         """CRbez should match pyEDITH's calculate_CRbez."""
         Fexozodi = 7.1490465158365465e-09
@@ -204,6 +209,7 @@ class TestCountRateParity:
         )
         np.testing.assert_allclose(result, expected, rtol=1e-12, atol=0)
 
+    @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="pyedith")
     def test_detector_noise_rate(self):
         """CRbd should match pyEDITH's calculate_CRbd."""
         result = detector_noise_rate(
@@ -211,6 +217,7 @@ class TestCountRateParity:
         )
         assert np.isclose(float(result), 0.037146898, rtol=1e-5)
 
+    @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="pyedith")
     def test_noise_floor_stellar(self):
         """CRnf_rate times SNR should match pyEDITH's calculate_CRnf."""
         noisefloor_raw = 7.25659425003725e-18
@@ -237,6 +244,7 @@ class TestCountRateParity:
         result = noise_floor_exozodi(CRbez, ez_ppf)
         assert np.isclose(float(result), 1.2 / 30.0, rtol=1e-10)
 
+    @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="pyedith")
     def test_photon_counting_time(self):
         """t_photon = 1 / (6.73 * det_CR / det_npix)."""
         det_CR = 0.723971066592388

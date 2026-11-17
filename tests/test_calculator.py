@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
 import pytest
+from reference.legacy import post_processing_from_exosims, post_processing_from_pyedith
 
 from jaxedith import (
     PostProcessing,
@@ -14,7 +15,6 @@ from jaxedith import (
     exposure_time,
     snr,
 )
-from jaxedith.legacy import post_processing_from_exosims, post_processing_from_pyedith
 
 
 @vv.case("aperture-photon-budget", "code-verification")

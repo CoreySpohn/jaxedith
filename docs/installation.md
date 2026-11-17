@@ -37,11 +37,14 @@ verified for those contracts.
 | `zodi[jax]` | Local-zodi photon radiance, spectral tables and dust calibration |
 
 Runtime dependencies also include Equinox, JAX, jaxtyping and NumPy.
-The comparison and verification suite is installed with:
+Install test dependencies with:
 
 ```bash
 pip install 'jaxedith[test]'
 ```
+
+The comparison suite itself requires a source checkout; it is not shipped
+in the installed distributions.
 
 ## Verifying the install
 

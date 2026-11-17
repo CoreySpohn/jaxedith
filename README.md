@@ -107,7 +107,7 @@ surface_brightness_mag_arcsec2=22.0)`. Its photon radiance is the exact AB
 magnitude-zero photon flux times `level_zodis * 10**(-0.4 * 22)` per arcsec²
 at 1 AU, converted to steradians and scaled by
 `(system.dist_pc * separation_arcsec)**-2`. The brightness parameter replaces
-22 in that expression. This is the scalar AYO calculator dialect: the ratio's
+22 in that expression. This follows the AYO brightness convention: the ratio's
 denominator is the AB zero-magnitude source, with flat AB colour and no host
 luminosity or inclination multiplier. The model has no spectral table knots.
 A model supplied as `exozodi=` must provide
@@ -134,10 +134,10 @@ not cover those operations.
 Thermal emission retains the Planck photon law with `temperature_K=270` and
 `eps_warm_T_cold=0` by default. Its emissivity times cold transmission replaces
 optical throughput. Optional `companion_flux_density(wavelength_nm, time_d)`
-returns photons/s/m2/nm per reference lambda/D squared, retaining the legacy
+returns photons/s/m2/nm per reference lambda/D squared, using the reference-aperture
 stray-light area law. It defaults to zero. No F0-relative ratios enter the reader.
-One call is one optical path: historical `n_channels` and `npix_multiplier`
-metadata do not multiply the new rates; supply the effective `n_pix` explicitly.
+One call is one optical path: supply the effective `n_pix` explicitly
+for detector statistics.
 
 ## Noise and exposure time
 
@@ -163,22 +163,12 @@ Nonpositive targets require zero frames. S/N at an infinite plan returns its
 asymptotic ceiling. Planning is discrete; S/N and rate calculations support
 continuous-parameter gradients. Enable JAX x64 for faint-source accuracy.
 
-## Legacy comparisons
+## Cross-code references
 
-`jaxedith.primitives` retains the scalar AYO rate primitives and
-`jaxedith.etc` retains the six AYO/EXOSIMS rate-to-S/N or time equations,
-with their original electron units and numerics. `jaxedith.legacy` provides
-`etc_scene_from_system`, `post_processing_from_pyedith`,
-`post_processing_from_exosims`, `frame_plan_photon_counting`, and
-`legacy_pyedith_noise_rate`. `ETCScene` remains in `jaxedith.scene` and is
-produced by the scene adapter. These are comparison tools, separate from the
-shared photon reader. The old optical-path `count_rates_*`, `exptime_*`,
-`snr_*` and `*_from_system_*` families, `intermediates`, local zodi wrappers,
-and duplicate cadence calculators have been removed without aliases.
-
-The photon-counting adapter chooses a frame time with mean `1/6.73` electrons
-per pixel. pyEDITH's `ppfact` divides leakage; EXOSIMS `ppFact` is the residual
-fraction itself. The adapters make that distinction explicit.
+Scalar pyEDITH, EXOSIMS and AYO comparison implementations live in
+`tests/reference/` in the source checkout. They support cross-code benchmarks
+and convention checks, and are excluded from the wheel and source distribution.
+See [comparison references](docs/explanation/variants.md) for their scope.
 
 ## Installation
 
@@ -186,7 +176,7 @@ fraction itself. The adapters make that distinction explicit.
 pip install jaxedith
 ```
 
-This redesign requires the shared `Band`, `Quadrature`, `PixelGrid`, photon
+The calculator requires the shared `Band`, `Quadrature`, `PixelGrid`, photon
 scene, aperture-curve and detector contracts. The development tests use their
 coordinated unreleased versions; published dependency floors have not yet
 been verified for this API.

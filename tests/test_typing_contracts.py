@@ -5,9 +5,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from jaxtyping import TypeCheckError
-
-from jaxedith.etc import exptime_from_rates_ayo
-from jaxedith.primitives import (
+from reference.etc import exptime_from_rates_ayo
+from reference.primitives import (
     noise_floor_stellar,
     planet_rate,
     speckle_residual,

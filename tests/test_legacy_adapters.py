@@ -7,19 +7,19 @@ import numpy as np
 import optixstuff as ox
 from conftest import make_path, make_system, oracle
 from hwoutils.spectral import Band
-from skyscapes.scene import FlatStar
-from zodi.jax import PrecomputedZodi
-
-from jaxedith import aperture_quadrature, aperture_rates
-from jaxedith.legacy import (
+from reference.legacy import (
     etc_scene_from_system,
     frame_plan_photon_counting,
     legacy_pyedith_noise_rate,
 )
-from jaxedith.primitives import planet_rate, stellar_leakage_rate, zodi_rate
+from reference.primitives import planet_rate, stellar_leakage_rate, zodi_rate
+from skyscapes.scene import FlatStar
+from zodi.jax import PrecomputedZodi
+
+from jaxedith import aperture_quadrature, aperture_rates
 
 
-@vv.case("aperture-photon-budget", "code-verification")
+@vv.case("etc-benchmark", "cross-code-benchmark", reference_code="pyedith")
 def test_adapter_fed_legacy_limit_and_chromatic_bias(example):
     """Fails if F0 ratios change units or scalar comparisons duplicate rates.
 

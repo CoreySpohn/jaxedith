@@ -16,9 +16,9 @@ from hwoutils.conversions import (
 from optixstuff import FramePlan, frames_for_time
 
 from jaxedith.calculator import PostProcessing
-from jaxedith.primitives import detector_noise_rate, photon_counting_time
 from jaxedith.public import _DEFAULT_ZODI, _disk_radiance, _position
-from jaxedith.scene import ETCScene
+from reference.primitives import detector_noise_rate, photon_counting_time
+from reference.scene import ETCScene
 
 
 def post_processing_from_pyedith(ppfact) -> PostProcessing:

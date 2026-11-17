@@ -9,8 +9,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from jax.test_util import check_grads
-
-from jaxedith.etc import (
+from reference.etc import (
     exptime_from_rates_ayo,
     exptime_from_rates_exosims_char,
     exptime_from_rates_exosims_det,
@@ -18,7 +17,7 @@ from jaxedith.etc import (
     snr_from_rates_exosims_char,
     snr_from_rates_exosims_det,
 )
-from jaxedith.primitives import planet_rate
+from reference.primitives import planet_rate
 
 
 @pytest.fixture(autouse=True)

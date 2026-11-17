@@ -6,11 +6,11 @@ from jaxedith._types import Num
 
 
 class ETCScene(eqx.Module):
-    """Astrophysical scene parameters for the JAX ETC.
+    """Monochromatic astrophysical inputs to the comparison equations.
 
     All values are raw floats in consistent units. No astropy quantities,
     no instrument or post-processing knobs. Produce this record with
-    ``jaxedith.legacy.etc_scene_from_system`` for scalar comparisons.
+    ``reference.legacy.etc_scene_from_system`` for scalar comparisons.
 
     Attributes:
         F0: Flux zero point [ph/s/m^2/nm].

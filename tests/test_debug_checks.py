@@ -4,9 +4,9 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest
+from reference.etc import exptime_from_rates_ayo
 
 from jaxedith._checks import DEBUG_CHECKS, check_finite_nonneg
-from jaxedith.etc import exptime_from_rates_ayo
 
 pytestmark = pytest.mark.skipif(not DEBUG_CHECKS, reason="JAXEDITH_DEBUG_CHECKS off")
 
