@@ -4,12 +4,15 @@
 an aperture photon budget, then computes S/N and whole-frame exposure plans
 using the detector's shared statistics contract.
 
-`aperture_rates` returns `optixstuff.PhotonRates`: six photon integrands in
-photons/s/nm with shape `(W, Q)` and no spatial axes. The fields are `planet`,
-`star_leakage`, `local_zodi`, `exozodi`, `thermal`, and `stellar_companions`.
-`rates.integrate(quadrature)` returns photons/s. Only
-`detector.electrons(rates, quadrature)` converts them to electrons/s, applying
-spectral QE and survival at the nodes before integration.
+`aperture_rates` returns an `ApertureRates` record. Its `mean` and `variance`
+fields are `optixstuff.PhotonRates` weighted by the aperture weights and their
+squares, respectively. Each contains six integrands in photons/s/nm with
+shape `(W, Q)`: `planet`, `star_leakage`, `local_zodi`, `exozodi`, `thermal`,
+and `stellar_companions`. The per-band arrays `n_pix` and `n_pix_variance`
+give the corresponding weighted detector pixel counts.
+`rates.mean.integrate(quadrature)` returns mean photons/s.
+`detector.electrons(rates.mean, quadrature)` applies spectral QE and survival
+before integration to give mean electrons/s.
 
 ## Usage
 
@@ -17,13 +20,12 @@ This example requires a configured `system` and `optical_path`.
 
 ```python notest
 from hwoutils.spectral import Band
-from optixstuff import frames_for_time
+from optixstuff import frames_for_time, prepare_aperture
 from jaxedith import (
     PostProcessing,
     aperture_quadrature,
     aperture_rates,
     exposure_time,
-    prepare_aperture,
     snr,
 )
 
@@ -48,7 +50,6 @@ achieved = snr(
     optical_path.detector,
     quadrature,
     plan,
-    n_pix=12,
     post_processing=post_processing,
 )
 required = exposure_time(
@@ -57,7 +58,6 @@ required = exposure_time(
     optical_path.detector,
     quadrature,
     frame_time_s=100.0,
-    n_pix=12,
     post_processing=post_processing,
 )
 seconds = required.live_time_s
@@ -140,8 +140,8 @@ Thermal emission retains the Planck photon law with `temperature_K=270` and
 optical throughput. Optional `companion_flux_density(wavelength_nm, time_d)`
 returns photons/s/m2/nm per reference lambda/D squared, using the reference-aperture
 stray-light area law. It defaults to zero. No F0-relative ratios enter the reader.
-One call is one optical path: supply the effective `n_pix` explicitly
-for detector statistics.
+One call describes one optical path. The reader divides each reference area
+in square arcseconds by the detector pixel area to obtain its pixel count.
 
 ## Noise and exposure time
 
@@ -154,7 +154,8 @@ variance = detector_variance + (f_speckle*ell*t)^2 + (f_exozodi*d*t)^2
 ```
 
 The detector supplies source shot noise, dark, CIC, excess noise and read
-variance through `mean_and_variance`. No implicit ADI/background multiplier
+variance through `mean_and_variance`, using the squared-weight rates and pixel
+count. Signal and residual speckle and disk rates use the mean weights. No implicit ADI/background multiplier
 is applied. Entire final frames collect photons; `frames_for_time` is the
 only frame counter. Read overhead is separate from live time.
 

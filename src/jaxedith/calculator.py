@@ -4,11 +4,12 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from hwoutils.spectral import Quadrature
-from optixstuff import FramePlan, PhotonRates, frames_for_time
+from optixstuff import FramePlan, frames_for_time
 from optixstuff.detector import AbstractDetector
 
 from jaxedith._checks import check_not_nan
 from jaxedith._types import FloatOut, Num
+from jaxedith.public import ApertureRates
 
 
 class PostProcessing(eqx.Module):
@@ -33,13 +34,26 @@ def _floor_sq(electrons, post_processing):
     ) ** 2
 
 
+def _count_statistics(rates, detector, quadrature, plan):
+    """Return mean source electrons/s and independent count variance."""
+    electrons = detector.electrons(rates.mean, quadrature)
+    variance_rates = detector.electrons(rates.variance, quadrature)
+    _, variance = detector.mean_and_variance(
+        electrons,
+        plan,
+        rates.n_pix,
+        variance_rates=variance_rates,
+        n_pix_variance=rates.n_pix_variance,
+    )
+    return electrons, variance
+
+
 def snr(
-    rates: PhotonRates,
+    rates: ApertureRates,
     detector: AbstractDetector,
     quadrature: Quadrature,
     plan: FramePlan,
     *,
-    n_pix: Num,
     post_processing: PostProcessing,
 ) -> FloatOut:
     """Return S/N per band, shape (W,), for aperture photon integrands.
@@ -50,10 +64,9 @@ def snr(
     Zero live time gives zero S/N. Infinite plans return the asymptotic
     ceiling (infinity for a positive signal without a systematic floor).
     """
-    electrons = detector.electrons(rates, quadrature)
     finite = jnp.isfinite(plan.n_frames)
     safe_plan = FramePlan(plan.frame_time_s, jnp.where(finite, plan.n_frames, 0))
-    _, variance = detector.mean_and_variance(electrons, safe_plan, n_pix)
+    electrons, variance = _count_statistics(rates, detector, quadrature, safe_plan)
     floor_sq = _floor_sq(electrons, post_processing)
     variance = variance + floor_sq * safe_plan.live_time_s**2
     signal = electrons.planet * safe_plan.live_time_s
@@ -67,12 +80,11 @@ def snr(
 
 def exposure_time(
     target_snr: Num,
-    rates: PhotonRates,
+    rates: ApertureRates,
     detector: AbstractDetector,
     quadrature: Quadrature,
     *,
     frame_time_s: Num,
-    n_pix: Num,
     post_processing: PostProcessing,
 ) -> FramePlan:
     """Return the smallest whole-frame plan reaching each band's target S/N.
@@ -86,9 +98,8 @@ def exposure_time(
     a FramePlan with infinite frame count/live time. Nonpositive targets
     require zero frames. Only optixstuff.frames_for_time rounds frames.
     """
-    electrons = detector.electrons(rates, quadrature)
     one_frame = frames_for_time(frame_time_s, frame_time_s)
-    _, variance = detector.mean_and_variance(electrons, one_frame, n_pix)
+    electrons, variance = _count_statistics(rates, detector, quadrature, one_frame)
     b = variance / frame_time_s
     floor_sq = _floor_sq(electrons, post_processing)
     denominator = check_not_nan(

@@ -51,7 +51,7 @@ def test_analytic_default_matches_scalar_electrons():
         0.1,
     )
     np.testing.assert_allclose(
-        path.detector.electrons(rates, q).exozodi, expected, rtol=1e-9, atol=0
+        path.detector.electrons(rates.mean, q).exozodi, expected, rtol=1e-9, atol=0
     )
 
 
@@ -93,7 +93,7 @@ def test_separation_law_ignored_disk_and_disabled():
             zodi=None,
             prepared_aperture=prepared,
             **kwargs,
-        ).exozodi
+        ).mean.exozodi
 
     base = read(10.0, 0.1)
     np.testing.assert_array_equal(read(20.0, 0.1), base / 4)
@@ -110,7 +110,7 @@ def test_separation_law_ignored_disk_and_disabled():
             separation_arcsec=0.1,
             zodi=None,
             prepared_aperture=prepared,
-        ).exozodi,
+        ).mean.exozodi,
         base,
     )
     np.testing.assert_array_equal(read(10.0, 0.0, exozodi=None), 0)
@@ -161,4 +161,6 @@ def test_exozodi_knots_split_quadrature():
         * ((550 * constants.nm2m) / 8) ** 2
         * (37 * 2.5e10 + 63 * 3e10)
     )
-    np.testing.assert_allclose(rates.integrate(q).exozodi, expected, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(
+        rates.mean.integrate(q).exozodi, expected, rtol=1e-12, atol=0
+    )

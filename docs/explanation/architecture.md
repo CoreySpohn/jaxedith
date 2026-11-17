@@ -1,8 +1,9 @@
 # Architecture
 
-The primary path is `System -> aperture_rates -> PhotonRates -> detector`.
+The primary path is `System -> aperture_rates -> ApertureRates -> detector`.
 `aperture_quadrature` prepares shared wavelength nodes and dimensional weights.
-The reader returns node photon rates with shape `(W, Q)`; integration gives
+The reader returns mean and squared-weight photon rates with shape `(W, Q)`
+and both per-band detector pixel counts. Integration gives
 photons/s, while `detector.electrons` applies wavelength-dependent yield before
 integrating to electrons/s. `snr` and `exposure_time` use the detector's
 `mean_and_variance` and `optixstuff.frames_for_time`.

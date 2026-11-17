@@ -1,5 +1,6 @@
 """Read photon-native scenes into one aperture's spectral photon budget."""
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 from hwoutils.conversions import arcsec_to_au, arcsec_to_rad
@@ -13,6 +14,20 @@ from zodi.jax import AYOExozodi, AYOZodi
 
 _DEFAULT_ZODI = AYOZodi()
 _DEFAULT_EXOZODI = AYOExozodi()
+
+
+class ApertureRates(eqx.Module):
+    """Photon-rate integrands and detector pixel counts for a weighted aperture.
+
+    Mean rates use the aperture weights; Poisson variance rates use their
+    squares. Pixel counts have one value per band and use the same two
+    area moments in detector pixels.
+    """
+
+    mean: PhotonRates
+    variance: PhotonRates
+    n_pix: jax.Array
+    n_pix_variance: jax.Array
 
 
 def _bands(band_or_bands):
@@ -126,8 +141,8 @@ def aperture_rates(
     temperature_K=270.0,
     eps_warm_T_cold=0.0,
     companion_flux_density=None,
-) -> PhotonRates:
-    """Return photons/s/nm with shape (W, Q), with no detector yield applied.
+) -> ApertureRates:
+    """Return mean and variance integrands in photons/s/nm, with shape (W, Q).
 
     Select one planet by flattened scene index, or a background-only aperture
     by separation_arcsec and astronomical position_angle_deg (north to east).
@@ -220,56 +235,65 @@ def aperture_rates(
             solar_longitude_deg=solar_longitude_deg,
         )
     )
-    tau, leak, sky, solid_angles_sr, areas = [], [], [], [], []
+    responses, areas, variance_areas, scales = [], [], [], []
     diameter = system.star.diameter_arcsec
     if callable(diameter):
         diameter = diameter(dist_pc=system.dist_pc)
     for reference in prepared_aperture.references:
         scale = reference.arcsec_per_lod
         sep = separation / scale
-        area = reference.record.evaluate("core_area_lod2", sep)
-        areas.append(area)
-        solid_angles_sr.append(area * arcsec_to_rad(scale) ** 2)
-        node_tau, node_leak, node_sky = jnp.stack(
-            [
-                prepared_aperture.response(
-                    node,
-                    separation / node.arcsec_per_lod,
-                    time_d,
-                    diameter / node.stellar_arcsec_per_lod,
-                )
-                for node in reference.nodes
-            ],
-            axis=1,
+        areas.append(reference.record.evaluate("core_area_lod2", sep))
+        variance_areas.append(reference.record.evaluate("core_area_variance_lod2", sep))
+        scales.append(scale)
+        responses.append(
+            jnp.stack(
+                [
+                    prepared_aperture.response(
+                        node,
+                        separation / node.arcsec_per_lod,
+                        time_d,
+                        diameter / node.stellar_arcsec_per_lod,
+                    )
+                    for node in reference.nodes
+                ],
+                axis=1,
+            )
         )
-        tau.append(node_tau)
-        leak.append(node_leak)
-        sky.append(node_sky)
-    aperture_solid_angle_sr = jnp.stack(solid_angles_sr)[:, None]
+    tau, leak, sky, tau_variance, leak_variance = jnp.stack(responses, axis=1)
+    scales = jnp.stack(scales)
+    areas = jnp.stack(areas)
+    variance_areas = jnp.stack(variance_areas)
     area_m2 = optical_path.primary.collecting_area_m2
     throughput = jax.vmap(optical_path.system_throughput)(wave.reshape(-1)).reshape(
         wave.shape
     )
     common = area_m2 * throughput
-    background = common * jnp.stack(sky)
+    background = common * sky
     thermal_phot_per_s_m2_nm_sr = planck_photon_radiance(wave, temperature_K)
-    companions = (
-        0.0
-        if companion_flux_density is None
-        else (
-            background
-            * jnp.stack(areas)[:, None]
-            * companion_flux_density(wave, time_d)
-        )
+    companion = (
+        None if companion_flux_density is None else companion_flux_density(wave, time_d)
     )
-    return PhotonRates(
-        planet=common * jnp.stack(tau) * planet,
-        star_leakage=common * jnp.stack(leak) * star,
-        local_zodi=background * local * aperture_solid_angle_sr,
-        exozodi=background * disk * aperture_solid_angle_sr,
-        thermal=area_m2
-        * eps_warm_T_cold
-        * thermal_phot_per_s_m2_nm_sr
-        * aperture_solid_angle_sr,
-        stellar_companions=companions,
+
+    def photon_rates(tau, leak, area):
+        solid_angle_sr = (area * arcsec_to_rad(scales) ** 2)[:, None]
+        return PhotonRates(
+            planet=common * tau * planet,
+            star_leakage=common * leak * star,
+            local_zodi=background * local * solid_angle_sr,
+            exozodi=background * disk * solid_angle_sr,
+            thermal=area_m2
+            * eps_warm_T_cold
+            * thermal_phot_per_s_m2_nm_sr
+            * solid_angle_sr,
+            stellar_companions=(
+                0.0 if companion is None else background * area[:, None] * companion
+            ),
+        )
+
+    pixels_per_lod2 = (scales / optical_path.detector.pixel_scale_arcsec) ** 2
+    return ApertureRates(
+        mean=photon_rates(tau, leak, areas),
+        variance=photon_rates(tau_variance, leak_variance, variance_areas),
+        n_pix=areas * pixels_per_lod2,
+        n_pix_variance=variance_areas * pixels_per_lod2,
     )

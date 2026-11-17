@@ -41,11 +41,12 @@ def test_finite_diameter_physics_and_transforms(finite_star_setup):
     waves = np.asarray(q.nodes_nm)
     d_lod = np.asarray(diameters)[:, None, None] * arcsec2rad * 8 / (waves * nm2m)
     expected = 40 * 0.4 * 1e6 * 1e-9 * np.pi * 0.7**2 * np.exp(5 * d_lod)
-    np.testing.assert_allclose(result.star_leakage, expected, rtol=1e-10, atol=0)
-    eager = jnp.stack([rates(d).star_leakage for d in diameters])
-    np.testing.assert_allclose(result.star_leakage, eager, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(result.mean.star_leakage, expected, rtol=1e-10, atol=0)
+    eager = jnp.stack([rates(d).mean.star_leakage for d in diameters])
+    np.testing.assert_allclose(result.mean.star_leakage, eager, rtol=1e-12, atol=0)
     np.testing.assert_array_equal(
-        result.planet, jnp.broadcast_to(result.planet[0], result.planet.shape)
+        result.mean.planet,
+        jnp.broadcast_to(result.mean.planet[0], result.mean.planet.shape),
     )
     pp = PostProcessing(0.0, 0.0)
     times, signal_to_noise = [], []
@@ -58,7 +59,6 @@ def test_finite_diameter_physics_and_transforms(finite_star_setup):
                 path.detector,
                 q,
                 frame_time_s=1.0,
-                n_pix=10.0,
                 post_processing=pp,
             ).live_time_s
         )
@@ -68,7 +68,6 @@ def test_finite_diameter_physics_and_transforms(finite_star_setup):
                 path.detector,
                 q,
                 FramePlan(100.0, 36),
-                n_pix=10.0,
                 post_processing=pp,
             )
         )
@@ -110,7 +109,7 @@ def test_blackbody_diameter_uses_distance(finite_star_setup):
             * 0.7**2
             * jnp.exp(5 * diameter_rad * 8 / (q.nodes_nm * nm2m))
         )
-        np.testing.assert_allclose(r.star_leakage, expected, rtol=1e-12, atol=0)
+        np.testing.assert_allclose(r.mean.star_leakage, expected, rtol=1e-12, atol=0)
         for i, band in enumerate(bands):
             apparent = FlatStar(
                 star.photon_flux_density(band.center_nm, 0.0, dist_pc=distance),
@@ -127,5 +126,5 @@ def test_blackbody_diameter_uses_distance(finite_star_setup):
                 zodi=None,
             )
             np.testing.assert_allclose(
-                actual.star_leakage[i], r.star_leakage[i], rtol=1e-12, atol=0
+                actual.mean.star_leakage[i], r.mean.star_leakage[i], rtol=1e-12, atol=0
             )

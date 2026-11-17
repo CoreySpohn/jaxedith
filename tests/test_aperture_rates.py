@@ -2,6 +2,7 @@
 
 import equinox as eqx
 import ineedvalidation as vv
+import jax
 import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
@@ -16,7 +17,13 @@ from skyscapes.scene import Star
 from zodi import SurfaceBrightnessDust
 from zodi.jax import PrecomputedZodi
 
-from jaxedith import PostProcessing, aperture_quadrature, aperture_rates, snr
+from jaxedith import (
+    ApertureRates,
+    PostProcessing,
+    aperture_quadrature,
+    aperture_rates,
+    snr,
+)
 
 
 @vv.case("aperture-photon-budget", "code-verification")
@@ -30,9 +37,11 @@ def test_worked_example(example):
     _, path, _, quad, rates = example
     photons, electrons = oracle()
     assert abs(oracle(4)[1] / oracle(8)[1] - 1) < 3e-11
-    np.testing.assert_allclose(rates.integrate(quad).planet, photons, rtol=1e-9, atol=0)
     np.testing.assert_allclose(
-        path.detector.electrons(rates, quad).planet, electrons, rtol=1e-9, atol=0
+        rates.mean.integrate(quad).planet, photons, rtol=1e-9, atol=0
+    )
+    np.testing.assert_allclose(
+        path.detector.electrons(rates.mean, quad).planet, electrons, rtol=1e-9, atol=0
     )
     assert photons == pytest.approx(0.0477819, abs=5e-8)
     assert electrons == pytest.approx(0.0346767, abs=5e-8)
@@ -40,21 +49,20 @@ def test_worked_example(example):
         constants.h * (550 * constants.nm2m)
     ) * constants.nm2m == pytest.approx(9.9634e5, abs=5)
     # A constant spectral background gives exactly 0.004 e/s after yield.
-    rates = eqx.tree_at(
+    mean = eqx.tree_at(
         lambda r: r.stellar_companions,
-        rates,
+        rates.mean,
         jnp.full(quad.nodes_nm.shape, 0.004 / (100 * 0.8 * 0.9)),
     )
+    rates = ApertureRates(mean, mean, jnp.array([12.0]), jnp.array([12.0]))
     plan = ox.FramePlan(100, 36)
     signal = electrons * 3600
     variance = signal + 0.004 * 3600 + 12 * (3e-4 * 3600 + 0.005 * 36 + 0.2**2 * 36)
     _, actual_variance = path.detector.mean_and_variance(
-        path.detector.electrons(rates, quad), plan, 12
+        path.detector.electrons(rates.mean, quad), plan, 12
     )
     np.testing.assert_allclose(actual_variance, variance, rtol=1e-9, atol=0)
-    actual = snr(
-        rates, path.detector, quad, plan, n_pix=12, post_processing=PostProcessing(0, 0)
-    )
+    actual = snr(rates, path.detector, quad, plan, post_processing=PostProcessing(0, 0))
     np.testing.assert_allclose(actual, signal / np.sqrt(variance), rtol=1e-9, atol=0)
     assert signal == pytest.approx(124.84, abs=0.005)
     assert variance == pytest.approx(171.64, abs=0.005)
@@ -73,7 +81,7 @@ def test_node_qe_cannot_be_replaced_by_band_mean(example):
     )
     expected = oracle()[1] / 0.9
     np.testing.assert_allclose(
-        detector.electrons(rates, q).planet, expected, rtol=1e-9, atol=0
+        detector.electrons(rates.mean, q).planet, expected, rtol=1e-9, atol=0
     )
     wrong = oracle()[0] * 0.8
     assert abs(wrong / expected - 1) > 0.005
@@ -93,10 +101,10 @@ def test_survival_is_applied_once_after_reader(example):
     changed = aperture_rates(
         system, changed_path, band, time_d=0.0, planet_index=0, quadrature=q, zodi=None
     )
-    np.testing.assert_array_equal(changed.planet, rates.planet)
-    expected = rates.integrate(q).planet * 0.8 * 0.6
+    np.testing.assert_array_equal(changed.mean.planet, rates.mean.planet)
+    expected = rates.mean.integrate(q).planet * 0.8 * 0.6
     np.testing.assert_allclose(
-        detector.electrons(changed, q).planet, expected, rtol=1e-12, atol=0
+        detector.electrons(changed.mean, q).planet, expected, rtol=1e-12, atol=0
     )
 
 
@@ -121,7 +129,7 @@ def test_chromatic_bias(example):
     expected = oracle()[1]
     assert 0.007 < abs(centre / expected - 1) < 0.012
     np.testing.assert_allclose(
-        path.detector.electrons(rates, q).planet, expected, rtol=1e-9, atol=0
+        path.detector.electrons(rates.mean, q).planet, expected, rtol=1e-9, atol=0
     )
 
 
@@ -142,7 +150,7 @@ def test_leakage_is_aperture_sum(example):
         rates = aperture_rates(
             system, path, band, time_d=0.0, planet_index=0, quadrature=q, zodi=None
         )
-        values.append(rates.integrate(q).star_leakage)
+        values.append(rates.mean.integrate(q).star_leakage)
     np.testing.assert_allclose(values, expected, rtol=1e-9, atol=0)
     np.testing.assert_array_equal(values[0], values[1])
 
@@ -194,17 +202,17 @@ def test_disk_absolute_scale_and_centre_approximation():
     radiance = 3 * 10 ** (-0.4 * 22) * f0 / arcsec_rad**2
     omega = np.pi * 0.7**2 * (550 * constants.nm2m / 8) ** 2
     expected = 40 * 0.4 * 0.65 * radiance * omega
-    np.testing.assert_allclose(rates.exozodi, expected, rtol=1e-10, atol=0)
+    np.testing.assert_allclose(rates.mean.exozodi, expected, rtol=1e-10, atol=0)
     doubled = eqx.tree_at(lambda s: s.disk.amplitude.level, system, 6.0)
     np.testing.assert_allclose(
-        aperture_rates(doubled, path, band, **kwargs).exozodi,
+        aperture_rates(doubled, path, band, **kwargs).mean.exozodi,
         2 * expected,
         rtol=1e-10,
         atol=0,
     )
     empty = eqx.tree_at(lambda s: s.disk, system, None)
     np.testing.assert_array_equal(
-        aperture_rates(empty, path, band, **kwargs).exozodi, 0
+        aperture_rates(empty, path, band, **kwargs).mean.exozodi, 0
     )
     radius = 0.7 * (550 * constants.nm2m) / 8 / arcsec_rad
     step = 2 * radius / 31
@@ -255,7 +263,7 @@ def test_disk_absolute_scale_and_centre_approximation():
     )
     # Width is only 0.02 nm: the 1/lambda curvature bias is below 2e-10.
     np.testing.assert_allclose(
-        rates.integrate(q).exozodi, legacy_disk, rtol=2e-10, atol=0
+        rates.mean.integrate(q).exozodi, legacy_disk, rtol=2e-10, atol=0
     )
 
 
@@ -314,7 +322,7 @@ def test_all_tabulated_breakpoints_and_multiple_bands():
         r = aperture_rates(
             system, path, bands, time_d=0.0, planet_index=0, quadrature=rule, zodi=zodi
         )
-        return path.detector.electrons(r, rule).total()
+        return path.detector.electrons(r.mean, rule).total()
 
     np.testing.assert_allclose(read(q), read(q8), rtol=1e-12, atol=0)
 
@@ -353,19 +361,20 @@ def test_thermal_companions_and_absolute_local_zodi(example):
         / np.expm1(constants.h * constants.c / (w * constants.k_B * 2000))
         * constants.nm2m
     )
-    np.testing.assert_allclose(rates.thermal, expected, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(rates.mean.thermal, expected, rtol=1e-12, atol=0)
     np.testing.assert_allclose(
-        rates.stellar_companions,
+        rates.mean.stellar_companions,
         40 * 0.4 * 0.65 * np.pi * 0.7**2 * 0.003,
         rtol=1e-12,
         atol=0,
     )
     np.testing.assert_allclose(
-        rates.local_zodi, 40 * 0.4 * 0.65 * 2e10 * omega, rtol=1e-12, atol=0
+        rates.mean.local_zodi, 40 * 0.4 * 0.65 * 2e10 * omega, rtol=1e-12, atol=0
     )
     brighter = eqx.tree_at(lambda s: s.star.flux_jy, system, 3631.0)
     np.testing.assert_array_equal(
-        aperture_rates(brighter, path, band, **kwargs).local_zodi, rates.local_zodi
+        aperture_rates(brighter, path, band, **kwargs).mean.local_zodi,
+        rates.mean.local_zodi,
     )
 
 
@@ -414,7 +423,7 @@ def test_transmission_map_and_multiband_dispatch():
                 prepared_aperture=prepared,
                 zodi=zodi,
             )
-            .integrate(q)
+            .mean.integrate(q)
             .local_zodi
         )
 
@@ -470,7 +479,7 @@ def test_disk_fixed_grid_traced_position():
                 exozodi="scene",
                 zodi=None,
             )
-            .integrate(q)
+            .mean.integrate(q)
             .exozodi[0]
         )
 
@@ -540,7 +549,7 @@ def test_fixed_angle_uniform_leakage(fixed_angle):
         axis=1,
     )
     np.testing.assert_allclose(
-        path.detector.electrons(rates, q).star_leakage, expected, rtol=1e-9, atol=0
+        path.detector.electrons(rates.mean, q).star_leakage, expected, rtol=1e-9, atol=0
     )
 
 
@@ -569,7 +578,7 @@ def test_planet_scaled_node_curve(fixed_angle):
     separation = 1 / system.dist_pc / (w * constants.nm2m / 8 / (constants.arcsec2rad))
     expected = coro.curves(Circular(radius)).evaluate("throughput", separation)
     np.testing.assert_allclose(
-        rates.planet[0, 0] / 0.0016, expected, rtol=1e-12, atol=0
+        rates.mean.planet[0, 0] / 0.0016, expected, rtol=1e-12, atol=0
     )
 
 
@@ -598,7 +607,7 @@ def test_monochromatic_reference_aperture(fixed_angle):
     sep = 1 / system.dist_pc / path.primary.frame(550.0).lod_to_arcsec(550.0)
     phi = system.planet_flux_densities(jnp.asarray(550.0), jnp.array([0.0]))[0, 0]
     expected = 16 * path.coronagraph.curves().evaluate("throughput", sep) * phi
-    np.testing.assert_array_equal(rates.planet[0, 0], expected)
+    np.testing.assert_array_equal(rates.mean.planet[0, 0], expected)
 
 
 @vv.case("aperture-photon-budget", "code-verification")
@@ -622,10 +631,10 @@ def test_prepared_aperture_jit(fixed_angle):
 
     eager = read(system, prepared)
     compiled = eqx.filter_jit(read)(system, prepared)
-    for name in eager.__dataclass_fields__:
-        np.testing.assert_allclose(
-            getattr(compiled, name), getattr(eager, name), rtol=1e-12, atol=0
-        )
+    for actual, expected in zip(
+        jax.tree.leaves(compiled), jax.tree.leaves(eager), strict=True
+    ):
+        np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=0)
 
 
 @vv.case("aperture-photon-budget", "code-verification")
@@ -677,5 +686,5 @@ def test_finite_star_image_aperture_sum(finite_star_setup):
         )
         expected = jnp.sum(images.star_leakage[i, 0] * weights)
         np.testing.assert_allclose(
-            rates.star_leakage[i, 0], expected, rtol=1e-9, atol=0
+            rates.mean.star_leakage[i, 0], expected, rtol=1e-9, atol=0
         )
