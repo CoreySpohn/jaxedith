@@ -9,7 +9,7 @@ import pytest
 from conftest import ABStar, make_path, make_system, oracle
 from hwoutils import constants
 from hwoutils.grids import PixelGrid, SkyOrientation
-from hwoutils.spectral import Band
+from hwoutils.spectral import Band, Transmission
 from skyscapes.disk import GraterDisk
 from skyscapes.scene import Star
 from zodi import SurfaceBrightnessDust
@@ -285,8 +285,8 @@ def test_all_tabulated_breakpoints_and_multiple_bands():
         ),
     )
     system = eqx.tree_at(lambda s: s.planets[0].physical_model, system, model)
-    element = ox.SpectralThroughput(
-        jnp.array([500.0, 547.0, 600.0]), jnp.array([0.2, 0.8, 0.3])
+    element = ox.TransmissiveElement(
+        Transmission(jnp.array([500.0, 547.0, 600.0]), jnp.array([0.2, 0.8, 0.3]))
     )
     detector = ox.Detector(
         pixel_scale_arcsec=0.01,
