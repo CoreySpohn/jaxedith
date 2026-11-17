@@ -7,7 +7,12 @@ These adapters never supply an alternative optical-path rate derivation.
 
 import jax.numpy as jnp
 from hwoutils.constants import arcsec2rad
-from hwoutils.conversions import jy_to_photons_per_nm_per_m2, mag_to_flux_jy
+from hwoutils.conversions import (
+    arcsec_to_au,
+    arcsec_to_mas,
+    jy_to_photons_per_nm_per_m2,
+    mag_to_flux_jy,
+)
 from optixstuff import FramePlan, frames_for_time
 
 from jaxedith.calculator import PostProcessing
@@ -115,10 +120,10 @@ def etc_scene_from_system(
         Fs_over_F0=star / zero,
         Fp_over_Fs=planet / star,
         Fzodi=local * arcsec2rad**2 / zero,
-        Fexozodi=disk * arcsec2rad**2 / zero * (system.dist_pc * sep) ** 2,
+        Fexozodi=disk * arcsec2rad**2 / zero * arcsec_to_au(sep, system.dist_pc) ** 2,
         dist_pc=system.dist_pc,
         sep_arcsec=sep,
-        stellar_diam_mas=1000 * diameter,
+        stellar_diam_mas=arcsec_to_mas(diameter),
         Fbinary=0.0
         if companion_flux_density is None
         else companion_flux_density(wave, time_d) / zero,

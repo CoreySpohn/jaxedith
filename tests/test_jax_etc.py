@@ -10,6 +10,7 @@ Validates:
 
 import numpy as np
 import pytest
+from hwoutils.constants import c, h, k_B, nm2m
 
 # Skip entire module if JAX not installed
 jax = pytest.importorskip("jax")
@@ -156,10 +157,19 @@ class TestCountRateParity:
         )
         assert float(result) == 0.0
 
-    def test_thermal_rate(self):
-        """CRbth should match pyEDITH's calculate_CRbth."""
-        wavelength_nm = 500.0
-        temp_K = 290.0
+    @pytest.mark.parametrize(
+        ("wavelength_nm", "temp_K"), [(500.0, 290.0), (550.0, 2000.0), (10000.0, 290.0)]
+    )
+    def test_thermal_rate(self, wavelength_nm, temp_K):
+        """Fails if photon density, bandwidth, solid angle or yield is wrong.
+
+        Floating-point basis: 1e-12 relative allowance for SI powers and
+        exponent rounding against the independent energy-form Planck law.
+        B_lambda = 2*h*c**2 / lambda**5 / expm1(h*c/(lambda*k_B*T)).
+        Divide by h*c/lambda, integrate dlambda_nm*nm2m, area_m2 and
+        lod_rad**2, then multiply emissivity, QE and survival once each.
+        Cold visible, warm visible and thermal infrared probe distinct tails.
+        """
         lod_rad = 6.353240152477764e-08
         emis = 0.468
         QE = 0.675
@@ -176,7 +186,23 @@ class TestCountRateParity:
             survival_fraction,
             core_area_lod2=1.0,
         )
-        assert np.isclose(float(result), 2.848015e-30, rtol=0.05)
+        wavelength_m = wavelength_nm * nm2m
+        photon_energy_j = h * c / wavelength_m
+        energy_w_per_m3_sr = (
+            2 * h * c**2 / wavelength_m**5 / np.expm1(photon_energy_j / (k_B * temp_K))
+        )
+        expected = (
+            energy_w_per_m3_sr
+            / photon_energy_j
+            * dlambda_nm
+            * nm2m
+            * area_m2
+            * lod_rad**2
+            * emis
+            * QE
+            * survival_fraction
+        )
+        np.testing.assert_allclose(result, expected, rtol=1e-12, atol=0)
 
     def test_detector_noise_rate(self):
         """CRbd should match pyEDITH's calculate_CRbd."""
