@@ -13,12 +13,11 @@ from hwoutils.planck import planck_photon_radiance
 from hwoutils.spectral import Band, Quadrature, spectral_knots
 from optixstuff import MultiBandCoronagraph, PhotonRates, YippyCoronagraph
 from optixstuff.coronagraph import AbstractScalarCoronagraph
-from yippy import Circular, HalfMaximum, Matched
+from yippy import DEFAULT_APERTURE_RULE, Circular, HalfMaximum, Matched
 from zodi.jax import AYOZodi
 
 from .exozodi import AYOExozodi
 
-_DEFAULT_RULE = Circular(0.7)
 _DEFAULT_ZODI = AYOZodi()
 _DEFAULT_EXOZODI = AYOExozodi()
 
@@ -124,7 +123,7 @@ def prepare_aperture(
     band_or_bands,
     quadrature,
     *,
-    rule=_DEFAULT_RULE,
+    rule=DEFAULT_APERTURE_RULE,
     reference_wavelength_nm=None,
 ) -> PreparedAperture:
     """Prepare node rules and curves on the host, before tracing the reader.
@@ -230,7 +229,7 @@ def aperture_rates(
     planet_index=None,
     separation_arcsec=None,
     position_angle_deg=0.0,
-    rule=_DEFAULT_RULE,
+    rule=DEFAULT_APERTURE_RULE,
     quadrature_order=4,
     zodi=_DEFAULT_ZODI,
     exozodi=_DEFAULT_EXOZODI,
