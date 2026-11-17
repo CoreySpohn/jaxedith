@@ -43,10 +43,10 @@ from hwoutils.conversions import jy_to_photons_per_nm_per_m2
 from hwoutils.epoch import Epoch
 from hwoutils.grids import PixelGrid
 from hwoutils.spectral import Band
+from optixstuff.apertures import Circular
 from skyscapes.physical_model import GridPhysicalModel
 from skyscapes.scene import Planet, System
 from skyscapes.scene.star import AbstractStar
-from yippy import Circular
 
 
 class ABStar(AbstractStar):
@@ -153,6 +153,7 @@ def oracle(order=64):
 
 from hwoutils.grids import Image
 from optixstuff.coronagraph import AbstractTableCoronagraph
+from yippy import Coronagraph
 
 
 class TabulatedCoronagraph(AbstractTableCoronagraph):
@@ -162,6 +163,7 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
     sky_trans: Image
     psf_datacube: object
     record: object
+    bandpass: Band | None = None
     outer_working_angle_lod: float | None = None
 
     def curves(self, rule=Circular(0.7), *, leakage_rule="aperture_mean"):  # noqa: B008 - frozen rule
@@ -169,7 +171,7 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
             return self.record
         # This fixture only tests a transmission map; constant flux density
         # defines its independent geometric aperture calibration.
-        from yippy import PerformanceCurves
+        from optixstuff.performance import PerformanceCurves
 
         ratio = (rule.radius_lod / self.record.rule.radius_lod) ** 2
         return PerformanceCurves(
@@ -185,10 +187,10 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
             self.record.data_extent_lod,
         )
 
-    def stellar_intens(self, stellar_diam_lod):
+    def _native_stellar_map(self, stellar_diam_lod):
         raise NotImplementedError("only transmission is needed by this fixture")
 
-    def create_psfs(self, x_lod, y_lod):
+    def _native_source_psfs(self, x_lod, y_lod):
         raise NotImplementedError("only transmission is needed by this fixture")
 
 
@@ -244,7 +246,7 @@ def fixed_angle(tmp_path_factory):
         ("sky_trans", np.full((n, n), 0.3)),
     ):
         fits.PrimaryHDU(data, header).writeto(directory / f"{name}.fits")
-    coro = ox.YippyCoronagraph(directory, rule=Circular(0.7))
+    coro = Coronagraph(directory, rules=(Circular(0.7),))
     import equinox as eqx
 
     path = eqx.tree_at(lambda p: p.coronagraph, make_path(chromatic=False), coro)
@@ -282,15 +284,14 @@ def finite_star_setup(fixed_angle):
     from jaxedith import prepare_aperture
 
     system, path, _, _, _ = fixed_angle
-    backend = path.coronagraph._backend
+    coro = path.coronagraph
     knots = jnp.array([0.0, 0.1, 0.2])
     maps = jnp.exp(5 * knots[:, None, None]) * jnp.full((3, 24, 24), 1e-9 * 0.5**2)
-    backend = eqx.tree_at(
+    coro = eqx.tree_at(
         lambda b: b._stellar_ln_interp,
-        backend,
+        coro,
         interpax.CubicSpline(knots, jnp.log(maps)),
     )
-    coro = ox.YippyCoronagraph(backend=backend)
     path = eqx.tree_at(lambda p: p.coronagraph, path, coro)
     bands = (Band(520, 530), Band(570, 580))
     from hwoutils.spectral import Quadrature

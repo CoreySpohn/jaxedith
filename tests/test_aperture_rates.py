@@ -554,7 +554,7 @@ def test_planet_scaled_node_curve(fixed_angle):
     Basis: API seam equality at 1e-12 floating-point rounding; independent
     scaled-rule preparation and position conversion on the expected side.
     """
-    from yippy import Circular
+    from optixstuff.apertures import Circular
 
     system, path, bands, q, prepared = fixed_angle
     rates = aperture_rates(
@@ -568,9 +568,7 @@ def test_planet_scaled_node_curve(fixed_angle):
     )
     w = float(q.nodes_nm[0, 0])
     radius = 0.7 * 525 / w
-    coro = ox.YippyCoronagraph(
-        backend=path.coronagraph._backend, rules=(Circular(radius),)
-    )
+    coro = path.coronagraph.with_rules((Circular(radius),))
     separation = 1 / system.dist_pc / (w * constants.nm2m / 8 / (constants.arcsec2rad))
     expected = coro.curves(Circular(radius)).evaluate("throughput", separation)
     np.testing.assert_allclose(
@@ -591,7 +589,7 @@ def test_monochromatic_reference_aperture(fixed_angle):
     positive width, so a one-node Quadrature represents monochromatic light.
     """
     from hwoutils.spectral import Quadrature
-    from yippy import HalfMaximum, Matched
+    from optixstuff.apertures import HalfMaximum, Matched
 
     from jaxedith import prepare_aperture
 
@@ -657,7 +655,7 @@ def test_finite_star_image_aperture_sum(finite_star_setup):
     from coronagraphoto import image_rates
     from hwoutils.grids import SkyOrientation
     from optixstuff import Detector
-    from yippy.performance import _circle_square_weights
+    from optixstuff.performance import _circle_square_weights
 
     system, path, bands, q, prepared = finite_star_setup
     system = eqx.tree_at(lambda s: s.star.diameter_arcsec, system, 0.002)

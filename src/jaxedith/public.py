@@ -11,9 +11,10 @@ from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.map_coordinates import map_coordinates
 from hwoutils.planck import planck_photon_radiance
 from hwoutils.spectral import Band, Quadrature, spectral_knots
-from optixstuff import MultiBandCoronagraph, PhotonRates, YippyCoronagraph
+from optixstuff import MultiBandCoronagraph, PhotonRates
+from optixstuff.apertures import DEFAULT_APERTURE_RULE, Circular, HalfMaximum, Matched
 from optixstuff.coronagraph import AbstractScalarCoronagraph, AbstractTableCoronagraph
-from yippy import DEFAULT_APERTURE_RULE, Circular, HalfMaximum, Matched
+from yippy import Coronagraph
 from zodi.jax import AYOExozodi, AYOZodi
 
 _DEFAULT_ZODI = AYOZodi()
@@ -109,7 +110,7 @@ class PreparedAperture(eqx.Module):
 
     Rebuild when the instrument, bands, quadrature or reference rule changes.
     Scene fluxes, positions, stellar diameters and time remain runtime inputs
-    to aperture_rates. Node adapters retain the prepared leakage weights.
+    to aperture_rates. Node models retain the prepared leakage weights.
     """
 
     quadrature: Quadrature
@@ -158,10 +159,9 @@ def prepare_aperture(
         try:
             return model, model.curves(aperture_rule)
         except ValueError:
-            if not isinstance(model, YippyCoronagraph):
+            if not isinstance(model, Coronagraph):
                 raise
-            # The adapter constructor is the upstream host preparation API.
-            prepared = YippyCoronagraph(backend=model._backend, rules=(aperture_rule,))
+            prepared = model.with_rules((aperture_rule,))
             return prepared, prepared.curves(aperture_rule)
 
     references, nodes, leakage_models, stellar_scales = [], [], [], []

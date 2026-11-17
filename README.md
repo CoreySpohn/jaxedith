@@ -68,7 +68,7 @@ Select one flattened `planet_index`, or pass `separation_arcsec` and
 `position_angle_deg` for a background-only aperture. Position angle is north
 through east; `time_d` is scalar days from the system epoch. Multiple `Band`
 objects produce independent rows. Use `vmap` over times or planet indices.
-The default rule is `yippy.Circular(0.7)`. Its solid angle is fixed across each
+The default rule is `optixstuff.apertures.Circular(0.7)`. Its solid angle is fixed across each
 band at the centre, or at an explicit `reference_wavelength_nm`, using the
 primary's frame and the curve record's diameter convention. Leakage reads
 `leakage_fraction` directly, with the star's apparent angular diameter at

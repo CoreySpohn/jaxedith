@@ -68,7 +68,7 @@ def stellar_leakage_rate(
 ) -> NumOut:
     r"""Stellar leakage count rate CRbs [e/s].
 
-    Uses the coronagraph's ``core_mean_intensity(sep, wl)``, the azimuthal
+    Uses the coronagraph's ``leakage_density_lod2(sep, wl)``, the rule-defined
     average of the stellar intensity in :math:`(\lambda/D)^{-2}` units.
     Multiplying by ``core_area_lod2`` in :math:`(\lambda/D)^2` gives the
     dimensionless aperture-integrated stellar leakage.
