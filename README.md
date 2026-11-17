@@ -102,7 +102,7 @@ model and `ecliptic_latitude_deg` / `solar_longitude_deg` for pointing dependenc
 or `zodi=None` to disable it. Solar longitude means target minus solar
 longitude. The caller computes pointing geometry from its observatory.
 
-Exozodi defaults to `jaxedith.AYOExozodi(level_zodis=3.0,
+Exozodi defaults to `zodi.jax.AYOExozodi(level_zodis=3.0,
 surface_brightness_mag_arcsec2=22.0)`. Its photon radiance is the exact AB
 magnitude-zero photon flux times `level_zodis * 10**(-0.4 * 22)` per arcsec²
 at 1 AU, converted to steradians and scaled by

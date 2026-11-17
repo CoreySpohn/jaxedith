@@ -16,7 +16,7 @@ evaluates separation in node lambda/D, keeping the reference solid angle.
 Scalar models describe a calibrated fixed angular aperture without a PSF
 scaling law. Polychromatic `HalfMaximum` and `Matched` table apertures require
 upstream frozen-template dilation and currently raise `NotImplementedError`.
-Stellar leakage is already an aperture sum. Exozodi defaults to `AYOExozodi()`:
+Stellar leakage is already an aperture sum. Exozodi defaults to `zodi.jax.AYOExozodi()`:
 an analytic AB-zero-point surface brightness at three zodis, 22 mag/arcsec²
 per zodi at 1 AU, scaled by `(dist_pc * separation_arcsec)**-2`.
 The scene disk and `disk_grid` are ignored unless `exozodi="scene"`;

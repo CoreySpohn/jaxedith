@@ -2,7 +2,6 @@
 
 from ._version import __version__
 from .calculator import PostProcessing, exposure_time, snr
-from .exozodi import AYOExozodi
 from .public import (
     PreparedAperture,
     aperture_quadrature,
@@ -11,7 +10,6 @@ from .public import (
 )
 
 __all__ = [
-    "AYOExozodi",
     "PostProcessing",
     "PreparedAperture",
     "__version__",

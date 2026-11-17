@@ -14,9 +14,7 @@ from hwoutils.spectral import Band, Quadrature, spectral_knots
 from optixstuff import MultiBandCoronagraph, PhotonRates, YippyCoronagraph
 from optixstuff.coronagraph import AbstractScalarCoronagraph
 from yippy import DEFAULT_APERTURE_RULE, Circular, HalfMaximum, Matched
-from zodi.jax import AYOZodi
-
-from .exozodi import AYOExozodi
+from zodi.jax import AYOExozodi, AYOZodi
 
 _DEFAULT_ZODI = AYOZodi()
 _DEFAULT_EXOZODI = AYOExozodi()
@@ -252,7 +250,7 @@ def aperture_rates(
     supplied scalar reference_wavelength_nm. Separations use the primary
     Frame with the performance record's diameter convention.
 
-    Exozodi defaults to AYOExozodi(): analytic radiance at projected physical
+    Exozodi defaults to zodi.jax.AYOExozodi(): analytic radiance at projected physical
     separation system.dist_pc * separation_arcsec, also for background-only
     apertures. It evaluates one scalar per node, ignoring system.disk and
     disk_grid. Supply exozodi=None for zero, or exozodi="scene" for disk light.

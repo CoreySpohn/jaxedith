@@ -52,22 +52,6 @@ def test_analytic_default_matches_scalar_electrons():
     np.testing.assert_allclose(
         path.detector.electrons(rates, q).exozodi, expected, rtol=1e-9, atol=0
     )
-    model = je.AYOExozodi()
-    waves = jnp.array([450.0, 550.0, 750.0])
-    expected_radiance = zero_jy * constants.Jy / (constants.h * np.asarray(waves))
-    expected_radiance *= 3 * 10 ** (-0.4 * 22) / constants.arcsec2rad**2
-    np.testing.assert_allclose(
-        model.photon_radiance(waves, separation_au=1.0),
-        expected_radiance,
-        rtol=1e-12,
-        atol=0,
-    )
-    np.testing.assert_allclose(
-        je.AYOExozodi(6.0, 23.0).photon_radiance(waves, separation_au=1.0),
-        expected_radiance * 2 * 10 ** (-0.4),
-        rtol=1e-12,
-        atol=0,
-    )
 
 
 @vv.case("aperture-photon-budget", "code-verification")
