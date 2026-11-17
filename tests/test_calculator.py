@@ -164,99 +164,134 @@ def test_reader_jit_vmap_and_scene_gradient(example):
 
 @vv.case("aperture-photon-budget", "code-verification")
 def test_matched_snr_agrees_with_weighted_poisson_draws():
-    """Compare calculated S/N with independent weighted Poisson pixel sums.
+    """Check weighted exposure against pixels on a sloped leakage field.
 
-    Estimate signal and noise from 8192 realizations. Four asymptotic
-    standard errors of their ratio use the third and fourth cumulants of
-    independent weighted Poisson counts.
+    The four-sigma sample-variance band uses the fourth Poisson cumulant
+    and the exact sampling variance of the unbiased variance estimator.
     """
     from conftest import TabulatedCoronagraph, make_path, make_system
+    from hwoutils.conversions import arcsec_to_rad
     from hwoutils.grids import Image, PixelGrid
+    from hwoutils.planck import planck_photon_radiance
     from hwoutils.spectral import Band, Quadrature
-    from optixstuff.apertures import Matched
+    from optixstuff.apertures import Circular, Matched
     from optixstuff.performance import performance_curves
     from skyscapes.scene import FlatStar
 
     path = make_path(chromatic=False)
     frame = path.primary.frame(550.0)
-    grid = PixelGrid.focal(3, 1.0, frame)
-    psf = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]]) / 64
-    star = np.full(grid.shape, 1e-12)
-    rule = Matched()
+    grid = PixelGrid.focal(9, 0.4, frame)
+    x, y = grid.coordinates()
+    offset = 0.4
+    gaussian = jnp.exp(-((x - offset) ** 2 + y**2) / (2 * 0.42**2))
+    psf = 0.25 * gaussian / gaussian.sum()
+    star = 2e-10 * jnp.exp(-3 * (x - offset))
+    sky = 0.5
+    stellar_image = Image(star, grid, (), "per_pixel", "fraction")
+
+    class PixelTable(TabulatedCoronagraph):
+        def _native_stellar_map(self, stellar_diam_lod):
+            return stellar_image
+
+        def _native_source_psfs(self, x_lod, y_lod):
+            planes = jnp.broadcast_to(psf, (jnp.size(x_lod), *grid.shape))
+            return Image(planes, grid, ("source",), "per_pixel", "fraction")
+
     record = performance_curves(
-        lambda separation: Image(jnp.array(psf), grid, (), "per_pixel", "fraction"),
-        Image(jnp.array(star), grid, (), "per_pixel", "fraction"),
-        rule,
-        separations_lod=[0.5],
+        lambda separation: Image(psf, grid, (), "per_pixel", "fraction"),
+        stellar_image,
+        Circular(0.7),
+        separations_lod=[offset],
     )
-    table = TabulatedCoronagraph(
+    table = PixelTable(
         grid,
-        Image(jnp.ones(grid.shape), grid, (), "per_unit_area", "transmission"),
+        Image(jnp.full(grid.shape, sky), grid, (), "per_unit_area", "transmission"),
         None,
         record,
     )
     scale = frame.lod_to_arcsec(550.0)
+    # Four detector pixels per table pixel. Two of the electrons per
+    # detector pixel per second arise from CIC at the chosen frame time.
+    frame_time = 2.0
     detector = ox.Detector(
-        pixel_scale_arcsec=scale, shape=grid.shape, dark_current_e_per_pixel_s=3.0
+        pixel_scale_arcsec=scale * grid.step / 2,
+        shape=grid.shape,
+        qe=0.8,
+        survival_fraction=0.5,
+        dark_current_e_per_pixel_s=1.0,
+        clock_induced_charge_e_per_pixel_frame=4.0,
+        read_noise_e_rms=1.5,
     )
     path = eqx.tree_at(lambda p: (p.coronagraph, p.detector), path, (table, detector))
     system = make_system(FlatStar(1e11), chromatic=False)
-    system = eqx.tree_at(lambda s: s.dist_pc, system, 1 / (0.5 * scale))
+    system = eqx.tree_at(lambda s: s.dist_pc, system, 1 / (offset * scale))
     band = Band(549.5, 550.5)
     quad = Quadrature.build((band,), None, 1)
-    rates = aperture_rates(
-        system,
-        path,
-        band,
+    solid_angle = grid.pixel_area * arcsec_to_rad(scale) ** 2
+    # Two local-zodi, one companion, and three thermal photons per native
+    # pixel per second. Thermal bypasses both throughput and sky transmission.
+    radiance = 2.0 / (40 * 0.4 * sky * solid_angle)
+    companion_density = 1.0 / (40 * 0.4 * sky * grid.pixel_area)
+    emissivity = 3.0 / (40 * planck_photon_radiance(550.0, 1800.0) * solid_angle)
+
+    class FlatSky:
+        def photon_radiance(self, wave, **kwargs):
+            return jnp.full_like(wave, radiance)
+
+    kwargs = dict(
         time_d=0.0,
         planet_index=0,
         quadrature=quad,
-        rule=rule,
-        zodi=None,
+        zodi=FlatSky(),
         exozodi=None,
+        temperature_K=1800.0,
+        eps_warm_T_cold=emissivity,
+        companion_flux_density=lambda w, t: companion_density,
     )
-    calculated = snr(
-        rates,
-        detector,
-        quad,
-        ox.FramePlan(1.0, 1),
-        post_processing=PostProcessing(0, 0),
-    )[0]
+    rates = aperture_rates(
+        system, path, band, rule=Matched(), frame_time_s=frame_time, **kwargs
+    )
+    plan = ox.FramePlan(frame_time, 1)
+    pp = PostProcessing(0, 0)
+    calculated = snr(rates, detector, quad, plan, post_processing=pp)[0]
 
-    # Pixel means for a one-second, one-nm observation with unity QE.
-    weights = psf / psf.max()
-    star_incident = 1e11 * 40 * 0.4
-    planet = star_incident * 1e-10 * psf
-    pixel_means = planet + star_incident * star + 3.0
-    signal = np.sum(weights * planet)
-    variance = np.sum(weights**2 * pixel_means)
-    draws = 8192
-    pixels = np.random.default_rng(0).poisson(pixel_means, (draws, *grid.shape))
-    counts = np.sum(weights * pixels, axis=(1, 2))
-    background = np.sum(weights * (star_incident * star + 3.0))
-    empirical = (counts.mean() - background) / counts.std(ddof=1)
-    # Delta method for the sample mean divided by the sample SD after
-    # background subtraction: their covariance comes from the third cumulant.
-    expected_snr = signal / np.sqrt(variance)
-    skew = np.sum(weights**3 * pixel_means) / variance**1.5
-    excess = np.sum(weights**4 * pixel_means) / variance**2
-    se = np.sqrt((1 + expected_snr**2 * (2 + excess) / 4 - expected_snr * skew) / draws)
-    assert abs(calculated - empirical) < 4 * se
-    # The former noise-equivalent area assigned to dark, plus mean planet
-    # and stellar shot noise, is outside that same confidence interval.
-    old_variance = np.sum(weights * (planet + star_incident * star)) + (
-        3.0 * weights.sum() ** 2 / np.sum(weights**2)
+    # Independently form per-native-pixel electron rates before applying
+    # any aperture weights. The planet never enters the optimized weights.
+    star_incident = 1e11 * 40 * 0.4 * 0.8 * 0.5
+    planet = star_incident * 1e-10 * np.asarray(psf)
+    poisson = (
+        star_incident * np.asarray(star) + (2 + 1 + 3) * 0.8 * 0.5 + 4 * (1 + 4 / 2)
     )
-    assert abs(signal / np.sqrt(old_variance) - empirical) > 4 * se
+    read_variance = 4 * 1.5**2
+    background = poisson + read_variance / frame_time
+    weights = np.asarray(psf) / background
+    np.testing.assert_allclose(rates.n_pix, 4 * weights.sum(), rtol=1e-12)
+    np.testing.assert_allclose(rates.n_pix_variance, 4 * (weights**2).sum(), rtol=1e-12)
+    signal = np.sum(weights * planet)
+    variance = np.sum(weights**2 * (planet + background))
+    np.testing.assert_allclose(calculated, signal * np.sqrt(frame_time / variance))
+
+    draws = 8192
+    rng = np.random.default_rng(0)
+    counts = rng.poisson(frame_time * poisson, (draws, *grid.shape))
+    counts = counts + rng.normal(0, np.sqrt(read_variance), counts.shape)
+    sample_variance = np.var(np.sum(counts * weights, axis=(1, 2)), ddof=1)
+    expected = frame_time * np.sum(weights**2 * background)
+    cumulant4 = frame_time * np.sum(weights**4 * poisson)
+    se = np.sqrt(cumulant4 / draws + 2 * expected**2 / (draws - 1))
+    assert abs(sample_variance - expected) < 4 * se
+
+    white_snr = np.sum(psf * planet) * np.sqrt(
+        frame_time / np.sum(psf**2 * (background + planet))
+    )
+    circular = aperture_rates(system, path, band, rule=Circular(0.7), **kwargs)
+    circular_snr = snr(circular, detector, quad, plan, post_processing=pp)[0]
+    assert calculated > white_snr
+    assert calculated > circular_snr
     target = 10.0
     plan = exposure_time(
-        target,
-        rates,
-        detector,
-        quad,
-        frame_time_s=1.0,
-        post_processing=PostProcessing(0, 0),
+        target, rates, detector, quad, frame_time_s=frame_time, post_processing=pp
     )
     np.testing.assert_array_equal(
-        plan.n_frames, [np.ceil(target**2 * variance / signal**2)]
+        plan.n_frames, [np.ceil(target**2 * variance / (frame_time * signal**2))]
     )
