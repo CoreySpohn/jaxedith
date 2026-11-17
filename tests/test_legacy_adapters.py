@@ -7,8 +7,8 @@ import numpy as np
 import optixstuff as ox
 from conftest import make_path, make_system, oracle
 from hwoutils.spectral import Band
-from skyscapes.background import PrecomputedZodi
 from skyscapes.scene import FlatStar
+from zodi.jax import PrecomputedZodi
 
 from jaxedith import aperture_quadrature, aperture_rates
 from jaxedith.legacy import (

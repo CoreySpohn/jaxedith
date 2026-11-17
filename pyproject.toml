@@ -26,7 +26,7 @@ dependencies = [
     "optixstuff>=5.0.0",
     "yippy>=2.11.0",
     "skyscapes>=4.0.0",
-    "zodi>=1.1.0",
+    "zodi[jax]>=1.1.0",
 ]
 [project.optional-dependencies]
 dev = ["pre-commit>=3.6.0"]

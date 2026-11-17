@@ -10,10 +10,10 @@ from conftest import ABStar, make_path, make_system, oracle
 from hwoutils import constants
 from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.spectral import Band
-from skyscapes.background import PrecomputedZodi
 from skyscapes.disk import GraterDisk
 from skyscapes.scene import Star
 from zodi import SurfaceBrightnessDust
+from zodi.jax import PrecomputedZodi
 
 from jaxedith import PostProcessing, aperture_quadrature, aperture_rates, snr
 

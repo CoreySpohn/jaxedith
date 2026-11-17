@@ -13,8 +13,8 @@ from hwoutils.planck import planck_photon_radiance
 from hwoutils.spectral import Band, Quadrature, spectral_knots
 from optixstuff import MultiBandCoronagraph, PhotonRates, YippyCoronagraph
 from optixstuff.coronagraph import AbstractScalarCoronagraph
-from skyscapes.background import AYOZodi
 from yippy import Circular, HalfMaximum, Matched
+from zodi.jax import AYOZodi
 
 from .exozodi import AYOExozodi
 

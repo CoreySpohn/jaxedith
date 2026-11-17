@@ -31,10 +31,10 @@ verified for those contracts.
 | Package | Role |
 |---|---|
 | `optixstuff` | OpticalPath, photon rates, detector statistics and frame plans |
-| `skyscapes` | System, photon spectra and disk/local-zodi radiance |
+| `skyscapes` | System, photon spectra and disk radiance |
 | `yippy` | Aperture rules and performance records |
 | `hwoutils` | Band, Quadrature, PixelGrid, constants and conversions |
-| `zodi` | Local-zodi spectral tables and dust calibration |
+| `zodi[jax]` | Local-zodi photon radiance, spectral tables and dust calibration |
 
 Runtime dependencies also include Equinox, JAX, jaxtyping and NumPy.
 The comparison and verification suite is installed with:

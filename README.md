@@ -97,7 +97,7 @@ Host preparation uses NumPy; node evaluation and statistics use JAX.
 
 ## Backgrounds and sampling
 
-Local zodi defaults to `skyscapes.background.AYOZodi()`. Supply a local-zodi
+Local zodi defaults to `zodi.jax.AYOZodi()`. Supply a local-zodi
 model and `ecliptic_latitude_deg` / `solar_longitude_deg` for pointing dependence,
 or `zodi=None` to disable it. Solar longitude means target minus solar
 longitude. The caller computes pointing geometry from its observatory.
