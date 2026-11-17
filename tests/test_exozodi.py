@@ -9,6 +9,7 @@ from conftest import make_path, make_system
 from hwoutils import constants
 from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.spectral import Band
+from optixstuff import prepare_aperture
 from reference.primitives import exozodi_rate
 from skyscapes.disk import ExovistaDisk
 
@@ -78,7 +79,7 @@ def test_separation_law_ignored_disk_and_disabled():
     np.testing.assert_array_equal(disabled_q.nodes_nm, empty_q.nodes_nm)
     scene_q = je.aperture_quadrature(system, path, band, zodi=None, exozodi="scene")
     assert scene_q.nodes_nm.size == 2 * empty_q.nodes_nm.size
-    prepared = je.prepare_aperture(path, band, q)
+    prepared = prepare_aperture(path, band, q)
 
     def read(distance, separation, angle=0.0, **kwargs):
         scene = eqx.tree_at(lambda s: s.dist_pc, system, distance)

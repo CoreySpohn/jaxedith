@@ -30,13 +30,12 @@ verified for those contracts.
 
 | Package | Role |
 |---|---|
-| `optixstuff` | OpticalPath, photon rates, detector statistics and frame plans |
+| `optixstuff` | OpticalPath, aperture preparation, photon rates, detector statistics and frame plans |
 | `skyscapes` | System, photon spectra and disk radiance |
-| `yippy` | Aperture rules and performance records |
 | `hwoutils` | Band, Quadrature, PixelGrid, constants and conversions |
 | `zodi[jax]` | Local-zodi photon radiance, spectral tables and dust calibration |
 
-Runtime dependencies also include Equinox, JAX, jaxtyping and NumPy.
+Runtime dependencies also include Equinox, JAX and jaxtyping.
 Install test dependencies with:
 
 ```bash

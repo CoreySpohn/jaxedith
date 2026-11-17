@@ -10,6 +10,7 @@ from conftest import ABStar, make_path, make_system, oracle
 from hwoutils import constants
 from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.spectral import Band, Transmission
+from optixstuff import prepare_aperture
 from skyscapes.disk import GraterDisk
 from skyscapes.scene import Star
 from zodi import SurfaceBrightnessDust
@@ -400,8 +401,6 @@ def test_transmission_map_and_multiband_dispatch():
     zodi = PrecomputedZodi(jnp.array([500.0, 600.0]), jnp.full(2, 1e10))
     q = aperture_quadrature(system, path, band, zodi=zodi)
 
-    from jaxedith import prepare_aperture
-
     prepared = prepare_aperture(path, band, q)
 
     def read(separation):
@@ -507,8 +506,6 @@ def test_fixed_angle_uniform_leakage(fixed_angle):
     system, path, bands, q, prepared = fixed_angle
     from conftest import TabulatedCoronagraph
 
-    from jaxedith import prepare_aperture
-
     calibration = make_path(chromatic=False, leakage=1e-9 * np.pi * 0.7**2)
     table = TabulatedCoronagraph(
         path.coronagraph.grid,
@@ -574,11 +571,6 @@ def test_planet_scaled_node_curve(fixed_angle):
     np.testing.assert_allclose(
         rates.planet[0, 0] / 0.0016, expected, rtol=1e-12, atol=0
     )
-    # Scaling the radius per node keeps every other rule field (exact).
-    from jaxedith import prepare_aperture
-
-    peak = prepare_aperture(path, bands, q, rule=Circular(0.7, centre="peak"))
-    assert {node[1].centre for row in peak.nodes for node in row} == {"peak"}
 
 
 @vv.case("aperture-photon-budget", "code-verification")
@@ -589,9 +581,6 @@ def test_monochromatic_reference_aperture(fixed_angle):
     positive width, so a one-node Quadrature represents monochromatic light.
     """
     from hwoutils.spectral import Quadrature
-    from optixstuff.apertures import HalfMaximum, Matched
-
-    from jaxedith import prepare_aperture
 
     system, path, _, _, _ = fixed_angle
     band = Band(549.0, 551.0)
@@ -610,9 +599,6 @@ def test_monochromatic_reference_aperture(fixed_angle):
     phi = system.planet_flux_densities(jnp.asarray(550.0), jnp.array([0.0]))[0, 0]
     expected = 16 * path.coronagraph.curves().evaluate("throughput", sep) * phi
     np.testing.assert_array_equal(rates.planet[0, 0], expected)
-    for rule in (HalfMaximum(), Matched()):
-        with pytest.raises(NotImplementedError, match="frozen reference"):
-            prepare_aperture(path, band, q, rule=rule, reference_wavelength_nm=540.0)
 
 
 @vv.case("aperture-photon-budget", "code-verification")

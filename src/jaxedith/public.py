@@ -1,20 +1,14 @@
 """Read photon-native scenes into one aperture's spectral photon budget."""
 
-from dataclasses import replace
-
-import equinox as eqx
 import jax
 import jax.numpy as jnp
-import numpy as np
 from hwoutils.conversions import arcsec_to_au, arcsec_to_rad
 from hwoutils.grids import PixelGrid, SkyOrientation
 from hwoutils.map_coordinates import map_coordinates
 from hwoutils.planck import planck_photon_radiance
 from hwoutils.spectral import Band, Quadrature, spectral_knots
-from optixstuff import MultiBandCoronagraph, PhotonRates
-from optixstuff.apertures import DEFAULT_APERTURE_RULE, Circular, HalfMaximum, Matched
-from optixstuff.coronagraph import AbstractScalarCoronagraph, AbstractTableCoronagraph
-from yippy import Coronagraph
+from optixstuff import PhotonRates, aperture_binding
+from optixstuff.apertures import DEFAULT_APERTURE_RULE
 from zodi.jax import AYOExozodi, AYOZodi
 
 _DEFAULT_ZODI = AYOZodi()
@@ -110,147 +104,6 @@ def _disk_radiance(system, wave, time_d, east, north, disk_grid):
     )(values).reshape(wave.shape)
 
 
-class PreparedAperture(eqx.Module):
-    """Host-prepared geometry and records for one fixed angular aperture.
-
-    Rebuild when the instrument, bands, quadrature or reference rule changes.
-    Scene fluxes, positions, stellar diameters and time remain runtime inputs
-    to aperture_rates. Node models retain the prepared leakage weights.
-    """
-
-    quadrature: Quadrature
-    references: tuple
-    nodes: tuple
-    leakage_models: tuple
-    stellar_scales: tuple
-
-
-def prepare_aperture(
-    optical_path,
-    band_or_bands,
-    quadrature,
-    *,
-    rule=DEFAULT_APERTURE_RULE,
-    reference_wavelength_nm=None,
-) -> PreparedAperture:
-    """Prepare node rules and curves on the host, before tracing the reader.
-
-    An angular radius is theta = r_ref * lambda_ref / D.
-    At a node r_q = theta / (lambda_q / D) = r_ref * lambda_ref / lambda_q.
-    Likewise s_q = s_arcsec / frame.lod_to_arcsec(lambda_q).
-    Omega = A_ref * (lambda_ref / D)^2 stays fixed, not A_ref*(lambda_q/D)^2.
-
-    Scalar coronagraph constants describe the calibrated fixed-angular
-    aperture here: their area is in reference lambda/D squared. They have
-    no PSF dilation law; their wavelength-dependent scalar methods are kept.
-    HalfMaximum and Matched require an upstream frozen-template dilation API
-    for polychromatic table models; changing a threshold is not dilation.
-    """
-    bands = _bands(band_or_bands)
-    waves = np.asarray(quadrature.nodes_nm)
-    if waves.shape[0] != len(bands):
-        raise ValueError("quadrature must have one row per band")
-    coro = optical_path.coronagraph
-    models = coro.bands if isinstance(coro, MultiBandCoronagraph) else (coro,)
-
-    def index(w):
-        return (
-            int(np.argmin(abs(np.asarray(coro.band_centers_nm) - w)))
-            if isinstance(coro, MultiBandCoronagraph)
-            else 0
-        )
-
-    def curves(model, aperture_rule):
-        try:
-            return model, model.curves(aperture_rule)
-        except ValueError:
-            if not isinstance(model, Coronagraph):
-                raise
-            prepared = model.with_rules((aperture_rule,))
-            return prepared, prepared.curves(aperture_rule)
-
-    references, nodes, leakage_models, stellar_scales = [], [], [], []
-    for band, row in zip(bands, waves, strict=True):
-        ref = (
-            band.center_nm
-            if reference_wavelength_nm is None
-            else reference_wavelength_nm
-        )
-        if isinstance(rule, (HalfMaximum, Matched)) and any(
-            w != ref and not isinstance(models[index(w)], AbstractScalarCoronagraph)
-            for w in row
-        ):
-            raise NotImplementedError(
-                f"{type(rule).__name__} needs yippy/optixstuff support for "
-                "dilating a frozen reference aperture/template at each separation"
-            )
-        _, reference = curves(models[index(ref)], rule)
-        frame = optical_path.primary.frame(ref, reference.frame.diameter_convention)
-        references.append((index(ref), ref, frame.lod_to_arcsec(ref), reference))
-        prepared_row, model_row, scale_row = [], [], []
-        for w in row:
-            model = models[index(w)]
-            scalar = isinstance(model, AbstractScalarCoronagraph)
-            if scalar or w == ref:
-                scaled = rule
-            elif isinstance(rule, Circular):
-                # replace keeps every other rule field, such as the centre.
-                scaled = replace(rule, radius_lod=rule.radius_lod * ref / float(w))
-            else:
-                raise TypeError("rule must be Circular, HalfMaximum or Matched")
-            leakage_model, record = curves(model, scaled)
-            node_frame = optical_path.primary.frame(w, record.frame.diameter_convention)
-            # Diameter is in the stellar product frame, independent of the primary.
-            if not isinstance(leakage_model, AbstractTableCoronagraph):
-                stellar_frame = leakage_model.grid.frame
-            else:
-                try:
-                    stellar_frame = leakage_model.stellar_map(
-                        w, 0.0, grid=None
-                    ).grid.frame
-                except NotImplementedError:
-                    stellar_frame = leakage_model.grid.frame
-            prepared_row.append((index(w), scaled, record, node_frame.lod_to_arcsec(w)))
-            model_row.append(leakage_model)
-            scale_row.append(stellar_frame.lod_to_arcsec(w))
-        nodes.append(tuple(prepared_row))
-        leakage_models.append(tuple(model_row))
-        stellar_scales.append(tuple(scale_row))
-    return PreparedAperture(
-        quadrature,
-        tuple(references),
-        tuple(nodes),
-        tuple(leakage_models),
-        tuple(stellar_scales),
-    )
-
-
-def _node_response(coro, record, separation_lod, wave, time_d, rule, stellar_diam_lod):
-    """Evaluate prepared curves and sampled sky transmission at one node."""
-    if isinstance(coro, AbstractScalarCoronagraph):
-        tau = coro.throughput(separation_lod, wave, time_d=time_d, rule=rule)
-        sky = coro.occulter_transmission(separation_lod, wave, time_d=time_d)
-    else:
-        tau = record.evaluate("throughput", separation_lod)
-        px, py = coro.grid.unit_to_pixel(separation_lod, 0.0)
-        coordinates = jnp.array([[py], [px]])
-        sky = map_coordinates(
-            coro.background_transmission(wave, grid=coro.grid).data,
-            coordinates,
-            order=1,
-            mode="constant",
-            cval=jnp.nan,
-        )[0]
-    leak = coro.leakage_fraction(
-        separation_lod,
-        wave,
-        time_d=time_d,
-        rule=rule,
-        stellar_diam_lod=stellar_diam_lod,
-    )
-    return jnp.stack((tau, leak, sky))
-
-
 def aperture_rates(
     system,
     optical_path,
@@ -268,7 +121,7 @@ def aperture_rates(
     solar_longitude_deg=135.0,
     reference_wavelength_nm=None,
     quadrature=None,
-    prepared_aperture=None,
+    prepared_aperture: aperture_binding.PreparedAperture | None = None,
     disk_grid=None,
     temperature_K=270.0,
     eps_warm_T_cold=0.0,
@@ -295,8 +148,8 @@ def aperture_rates(
     footprint average. Without disk_grid the one-pixel grid is built eagerly
     at the planet. For traced moving positions supply a fixed arcsec sky grid
     covering them; bilinear sampling gives NaN outside its support. No disk
-    gives zero. Prepare quadrature and prepare_aperture before tracing table
-    models; pass prepared_aperture to reuse its records and quadrature.
+    gives zero. Call optixstuff.prepare_aperture before tracing table models
+    and pass prepared_aperture to reuse its records and quadrature.
 
     Thermal light retains Planck emission times warm emissivity and cold
     transmission, without system throughput. companion_flux_density(wave,
@@ -325,7 +178,7 @@ def aperture_rates(
     if quadrature.nodes_nm.shape[0] != len(bands):
         raise ValueError("quadrature must have one row per band")
     if prepared_aperture is None:
-        prepared_aperture = prepare_aperture(
+        prepared_aperture = aperture_binding.prepare_aperture(
             optical_path,
             bands,
             quadrature,
@@ -371,31 +224,27 @@ def aperture_rates(
     diameter = system.star.diameter_arcsec
     if callable(diameter):
         diameter = diameter(dist_pc=system.dist_pc)
-    for i, (_, _ref, scale, record) in enumerate(prepared_aperture.references):
+    for reference in prepared_aperture.references:
+        scale = reference.arcsec_per_lod
         sep = separation / scale
-        area = record.evaluate("core_area_lod2", sep)
+        area = reference.record.evaluate("core_area_lod2", sep)
         areas.append(area)
         solid_angles_sr.append(area * arcsec_to_rad(scale) ** 2)
-        response = jnp.stack(
+        node_tau, node_leak, node_sky = jnp.stack(
             [
-                _node_response(
-                    prepared_aperture.leakage_models[i][j],
-                    node_record,
-                    separation / node_scale,
-                    wave[i, j],
+                prepared_aperture.response(
+                    node,
+                    separation / node.arcsec_per_lod,
                     time_d,
-                    node_rule,
-                    diameter / prepared_aperture.stellar_scales[i][j],
+                    diameter / node.stellar_arcsec_per_lod,
                 )
-                for j, (_, node_rule, node_record, node_scale) in enumerate(
-                    prepared_aperture.nodes[i]
-                )
+                for node in reference.nodes
             ],
             axis=1,
         )
-        tau.append(response[0])
-        leak.append(response[1])
-        sky.append(response[2])
+        tau.append(node_tau)
+        leak.append(node_leak)
+        sky.append(node_sky)
     aperture_solid_angle_sr = jnp.stack(solid_angles_sr)[:, None]
     area_m2 = optical_path.primary.collecting_area_m2
     throughput = jax.vmap(optical_path.system_throughput)(wave.reshape(-1)).reshape(

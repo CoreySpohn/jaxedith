@@ -1,8 +1,8 @@
 # Comparison references
 
 jaxedith ships one aperture calculator: `aperture_quadrature`,
-`prepare_aperture`, `aperture_rates`, `PostProcessing`, `snr` and
-`exposure_time`. Detector yield, variance and frame counting come from
+`aperture_rates`, `PostProcessing`, `snr` and `exposure_time`. Fixed angular
+aperture preparation, detector yield, variance and frame counting come from
 optixstuff.
 
 The source checkout's `tests/reference/` package holds plain-number

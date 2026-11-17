@@ -2,20 +2,13 @@
 
 from ._version import __version__
 from .calculator import PostProcessing, exposure_time, snr
-from .public import (
-    PreparedAperture,
-    aperture_quadrature,
-    aperture_rates,
-    prepare_aperture,
-)
+from .public import aperture_quadrature, aperture_rates
 
 __all__ = [
     "PostProcessing",
-    "PreparedAperture",
     "__version__",
     "aperture_quadrature",
     "aperture_rates",
     "exposure_time",
-    "prepare_aperture",
     "snr",
 ]

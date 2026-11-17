@@ -198,9 +198,10 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
 def fixed_angle(tmp_path_factory):
     """Gaussian YIP, uniform 1e-9/lod^2 leakage, real eager aperture records."""
     from astropy.io import fits
+    from optixstuff import prepare_aperture
     from skyscapes.scene import FlatStar
 
-    from jaxedith import aperture_quadrature, prepare_aperture
+    from jaxedith import aperture_quadrature
 
     directory = tmp_path_factory.mktemp("fixed-angle")
     n, step, sigma = 24, 0.5, 0.7
@@ -280,8 +281,7 @@ class TabulatedExozodi(eqx.Module):
 def finite_star_setup(fixed_angle):
     """Uniform native YIP with an exponential finite-diameter leakage law."""
     import interpax
-
-    from jaxedith import prepare_aperture
+    from optixstuff import prepare_aperture
 
     system, path, _, _, _ = fixed_angle
     coro = path.coronagraph
