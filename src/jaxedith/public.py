@@ -70,6 +70,11 @@ def _position(system, time_d, planet_index, separation_arcsec, position_angle_de
         times = jnp.atleast_1d(time_d)
         ephemeris = system.ephemeris(times)
         east, north = system.positions(times, ephemeris=ephemeris)[:, planet_index, 0]
+        # A traced index cannot raise; out of range it yields a NaN position
+        # (and so NaN rates) instead of JAX's silent clamp to the last planet.
+        inside = (planet_index >= 0) & (planet_index < system.n_planets)
+        east = jnp.where(inside, east, jnp.nan)
+        north = jnp.where(inside, north, jnp.nan)
         return east, north, ephemeris
     angle = jnp.deg2rad(position_angle_deg)
     return separation_arcsec * jnp.sin(angle), separation_arcsec * jnp.cos(angle), None
@@ -275,7 +280,9 @@ def aperture_rates(
     by separation_arcsec and astronomical position_angle_deg (north to east).
     time_d is scalar days from the scene epoch. Bands are static Band objects.
     The rule and its solid angle are fixed at each band's centre, or at the
-    supplied scalar reference_wavelength_nm. Separations use the primary
+    supplied reference_wavelength_nm, a static Python float: aperture
+    preparation runs on the host, so it cannot be traced. Pass
+    prepared_aperture to jit or vmap over reads. Separations use the primary
     Frame with the performance record's diameter convention.
 
     Exozodi defaults to zodi.jax.AYOExozodi(): analytic radiance at projected physical
@@ -339,6 +346,8 @@ def aperture_rates(
                 w, jnp.atleast_1d(time_d), ephemeris=ephemeris
             )[planet_index, 0]
         )(wave.reshape(-1)).reshape(wave.shape)
+        # _position marks an out-of-range traced index with a NaN position.
+        planet = jnp.where(jnp.isnan(east), jnp.nan, planet)
     if exozodi is None:
         disk = jnp.zeros_like(wave)
     elif isinstance(exozodi, str):

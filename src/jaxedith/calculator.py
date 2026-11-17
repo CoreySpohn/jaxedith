@@ -57,9 +57,10 @@ def snr(
     floor_sq = _floor_sq(electrons, post_processing)
     variance = variance + floor_sq * safe_plan.live_time_s**2
     signal = electrons.planet * safe_plan.live_time_s
-    result = signal / jnp.sqrt(jnp.where(variance > 0, variance, 1))
-    ceiling = electrons.planet / jnp.sqrt(jnp.where(floor_sq > 0, floor_sq, 1))
-    ceiling = jnp.where(floor_sq > 0, ceiling, jnp.inf)
+    # Only an exact zero is replaced; a NaN variance or floor propagates.
+    result = signal / jnp.sqrt(jnp.where(variance == 0, 1, variance))
+    ceiling = electrons.planet / jnp.sqrt(jnp.where(floor_sq == 0, 1, floor_sq))
+    ceiling = jnp.where(floor_sq == 0, jnp.inf, ceiling)
     ceiling = jnp.where(electrons.planet > 0, ceiling, 0)
     return jnp.where(finite, result, ceiling)
 
@@ -81,7 +82,7 @@ def exposure_time(
     Then S/N^2 = p^2 t / (b + f2 t), so the continuous solution is
     t = target_snr^2 b / (p^2 - target_snr^2 f2). Read and CIC noise
     are included exactly in b because every frame is fully collected.
-    A positive target with p^2 <= target_snr^2 f2 is infeasible: return
+    A positive target with p <= target_snr sqrt(f2) is infeasible: return
     a FramePlan with infinite frame count/live time. Nonpositive targets
     require zero frames. Only optixstuff.frames_for_time rounds frames.
     """
@@ -89,11 +90,14 @@ def exposure_time(
     one_frame = frames_for_time(frame_time_s, frame_time_s)
     _, variance = detector.mean_and_variance(electrons, one_frame, n_pix)
     b = variance / frame_time_s
+    floor_sq = _floor_sq(electrons, post_processing)
     denominator = check_not_nan(
-        electrons.planet**2 - target_snr**2 * _floor_sq(electrons, post_processing),
-        "exposure denominator",
+        electrons.planet**2 - target_snr**2 * floor_sq, "exposure denominator"
     )
     numerator = check_not_nan(target_snr**2 * b, "exposure numerator")
-    time_s = numerator / jnp.where(denominator > 0, denominator, 1)
-    time_s = jnp.where(denominator > 0, time_s, jnp.inf)
+    # Feasibility compares rates, not a difference of squares, so a target
+    # exactly at the speckle ceiling is infeasible despite rounding.
+    feasible = (electrons.planet > target_snr * jnp.sqrt(floor_sq)) & (denominator > 0)
+    time_s = numerator / jnp.where(feasible, denominator, 1)
+    time_s = jnp.where(feasible, time_s, jnp.inf)
     return frames_for_time(jnp.where(target_snr <= 0, 0, time_s), frame_time_s)

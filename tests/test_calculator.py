@@ -94,6 +94,24 @@ def test_exposure_inverts_snr_and_rejects_floor(example):
     ceiling = e.planet / (0.1 * e.star_leakage)
     assert jnp.isinf(solve(ceiling * 1.001).live_time_s).all()
     assert (solve(0.0).n_frames == 0).all()
+    # A target exactly at the speckle ceiling is infeasible despite rounding,
+    # and a NaN background reaches S/N as NaN instead of a valid-looking value.
+    exact = snr(
+        rates,
+        path.detector,
+        q,
+        ox.FramePlan(100.0, jnp.inf),
+        n_pix=12,
+        post_processing=pp,
+    )
+    assert jnp.isinf(solve(exact[0]).live_time_s).all()
+    unknown = eqx.tree_at(
+        lambda r: r.local_zodi, rates, jnp.full(q.nodes_nm.shape, jnp.nan)
+    )
+    plan = ox.FramePlan(100.0, 36.0)
+    assert jnp.isnan(
+        snr(unknown, path.detector, q, plan, n_pix=12, post_processing=pp)
+    ).all()
 
 
 @vv.case("aperture-photon-budget", "code-verification")
@@ -125,6 +143,17 @@ def test_reader_jit_vmap_and_scene_gradient(example):
         rtol=1e-12,
         atol=0,
     )
+
+    def planet_rate(index):
+        rates = aperture_rates(
+            system, path, band, time_d=0.0, planet_index=index, quadrature=q, zodi=None
+        )
+        return rates.planet
+
+    # A traced out-of-range index gives NaN, not the last planet's rates.
+    by_index = jax.vmap(planet_rate)(jnp.array([0, system.n_planets]))
+    assert jnp.isfinite(by_index[0]).all()
+    assert jnp.isnan(by_index[1]).all()
     step = 1e-4
     finite_difference = (evaluate(1 + step, 0.0) - evaluate(1 - step, 0.0)) / (2 * step)
     np.testing.assert_allclose(
