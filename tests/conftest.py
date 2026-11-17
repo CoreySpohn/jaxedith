@@ -53,6 +53,7 @@ class ABStar(AbstractStar):
     """Analytic flat-Fnu fixture, with the real AbstractStar photon contract."""
 
     flux_jy: object = 36.31
+    diameter_arcsec: float = 0.0
     luminosity_Lsun: float = 1.0
 
     def photon_flux_density(self, wavelength_nm, time_d, *, dist_pc):
@@ -271,3 +272,29 @@ class TabulatedExozodi(eqx.Module):
             jnp.interp(wavelength_nm, self.wavelengths_nm, self.radiance)
             / separation_au**2
         )
+
+
+@pytest.fixture(scope="module")
+def finite_star_setup(fixed_angle):
+    """Uniform native YIP with an exponential finite-diameter leakage law."""
+    import interpax
+
+    from jaxedith import prepare_aperture
+
+    system, path, _, _, _ = fixed_angle
+    backend = path.coronagraph._backend
+    knots = jnp.array([0.0, 0.1, 0.2])
+    maps = jnp.exp(5 * knots[:, None, None]) * jnp.full((3, 24, 24), 1e-9 * 0.5**2)
+    backend = eqx.tree_at(
+        lambda b: b._stellar_ln_interp,
+        backend,
+        interpax.CubicSpline(knots, jnp.log(maps)),
+    )
+    coro = ox.YippyCoronagraph(backend=backend)
+    path = eqx.tree_at(lambda p: p.coronagraph, path, coro)
+    bands = (Band(520, 530), Band(570, 580))
+    from hwoutils.spectral import Quadrature
+
+    q = Quadrature.build(bands, None, 1)
+    prepared = prepare_aperture(path, bands, q)
+    return system, path, bands, q, prepared

@@ -12,7 +12,7 @@ from hwoutils.map_coordinates import map_coordinates
 from hwoutils.planck import planck_photon_radiance
 from hwoutils.spectral import Band, Quadrature, spectral_knots
 from optixstuff import MultiBandCoronagraph, PhotonRates, YippyCoronagraph
-from optixstuff.coronagraph import AbstractScalarCoronagraph
+from optixstuff.coronagraph import AbstractScalarCoronagraph, AbstractTableCoronagraph
 from yippy import DEFAULT_APERTURE_RULE, Circular, HalfMaximum, Matched
 from zodi.jax import AYOExozodi, AYOZodi
 
@@ -108,12 +108,15 @@ class PreparedAperture(eqx.Module):
     """Host-prepared geometry and records for one fixed angular aperture.
 
     Rebuild when the instrument, bands, quadrature or reference rule changes.
-    Scene fluxes, positions and time remain runtime inputs to aperture_rates.
+    Scene fluxes, positions, stellar diameters and time remain runtime inputs
+    to aperture_rates. Node adapters retain the prepared leakage weights.
     """
 
     quadrature: Quadrature
     references: tuple
     nodes: tuple
+    leakage_models: tuple
+    stellar_scales: tuple
 
 
 def prepare_aperture(
@@ -153,15 +156,15 @@ def prepare_aperture(
 
     def curves(model, aperture_rule):
         try:
-            return model.curves(aperture_rule)
+            return model, model.curves(aperture_rule)
         except ValueError:
             if not isinstance(model, YippyCoronagraph):
                 raise
             # The adapter constructor is the upstream host preparation API.
             prepared = YippyCoronagraph(backend=model._backend, rules=(aperture_rule,))
-            return prepared.curves(aperture_rule)
+            return prepared, prepared.curves(aperture_rule)
 
-    references, nodes = [], []
+    references, nodes, leakage_models, stellar_scales = [], [], [], []
     for band, row in zip(bands, waves, strict=True):
         ref = (
             band.center_nm
@@ -176,10 +179,10 @@ def prepare_aperture(
                 f"{type(rule).__name__} needs yippy/optixstuff support for "
                 "dilating a frozen reference aperture/template at each separation"
             )
-        reference = curves(models[index(ref)], rule)
+        _, reference = curves(models[index(ref)], rule)
         frame = optical_path.primary.frame(ref, reference.frame.diameter_convention)
         references.append((index(ref), ref, frame.lod_to_arcsec(ref), reference))
-        prepared_row = []
+        prepared_row, model_row, scale_row = [], [], []
         for w in row:
             model = models[index(w)]
             scalar = isinstance(model, AbstractScalarCoronagraph)
@@ -190,22 +193,40 @@ def prepare_aperture(
                 scaled = replace(rule, radius_lod=rule.radius_lod * ref / float(w))
             else:
                 raise TypeError("rule must be Circular, HalfMaximum or Matched")
-            record = curves(model, scaled)
+            leakage_model, record = curves(model, scaled)
             node_frame = optical_path.primary.frame(w, record.frame.diameter_convention)
+            # Diameter is in the stellar product frame, independent of the primary.
+            if not isinstance(leakage_model, AbstractTableCoronagraph):
+                stellar_frame = leakage_model.grid.frame
+            else:
+                try:
+                    stellar_frame = leakage_model.stellar_map(
+                        w, 0.0, grid=None
+                    ).grid.frame
+                except NotImplementedError:
+                    stellar_frame = leakage_model.grid.frame
             prepared_row.append((index(w), scaled, record, node_frame.lod_to_arcsec(w)))
+            model_row.append(leakage_model)
+            scale_row.append(stellar_frame.lod_to_arcsec(w))
         nodes.append(tuple(prepared_row))
-    return PreparedAperture(quadrature, tuple(references), tuple(nodes))
+        leakage_models.append(tuple(model_row))
+        stellar_scales.append(tuple(scale_row))
+    return PreparedAperture(
+        quadrature,
+        tuple(references),
+        tuple(nodes),
+        tuple(leakage_models),
+        tuple(stellar_scales),
+    )
 
 
-def _node_response(coro, record, separation_lod, wave, time_d, rule):
+def _node_response(coro, record, separation_lod, wave, time_d, rule, stellar_diam_lod):
     """Evaluate prepared curves and sampled sky transmission at one node."""
     if isinstance(coro, AbstractScalarCoronagraph):
         tau = coro.throughput(separation_lod, wave, time_d=time_d, rule=rule)
-        leak = coro.leakage_fraction(separation_lod, wave, time_d=time_d, rule=rule)
         sky = coro.occulter_transmission(separation_lod, wave, time_d=time_d)
     else:
         tau = record.evaluate("throughput", separation_lod)
-        leak = record.evaluate("leakage_fraction", separation_lod)
         px, py = coro.grid.unit_to_pixel(separation_lod, 0.0)
         coordinates = jnp.array([[py], [px]])
         sky = map_coordinates(
@@ -215,6 +236,13 @@ def _node_response(coro, record, separation_lod, wave, time_d, rule):
             mode="constant",
             cval=jnp.nan,
         )[0]
+    leak = coro.leakage_fraction(
+        separation_lod,
+        wave,
+        time_d=time_d,
+        rule=rule,
+        stellar_diam_lod=stellar_diam_lod,
+    )
     return jnp.stack((tau, leak, sky))
 
 
@@ -330,9 +358,10 @@ def aperture_rates(
             solar_longitude_deg=solar_longitude_deg,
         )
     )
-    coro = optical_path.coronagraph
     tau, leak, sky, solid_angles_sr, areas = [], [], [], [], []
-    models = coro.bands if isinstance(coro, MultiBandCoronagraph) else (coro,)
+    diameter = system.star.diameter_arcsec
+    if callable(diameter):
+        diameter = diameter(dist_pc=system.dist_pc)
     for i, (_, _ref, scale, record) in enumerate(prepared_aperture.references):
         sep = separation / scale
         area = record.evaluate("core_area_lod2", sep)
@@ -341,14 +370,15 @@ def aperture_rates(
         response = jnp.stack(
             [
                 _node_response(
-                    models[k],
+                    prepared_aperture.leakage_models[i][j],
                     node_record,
                     separation / node_scale,
                     wave[i, j],
                     time_d,
                     node_rule,
+                    diameter / prepared_aperture.stellar_scales[i][j],
                 )
-                for j, (k, node_rule, node_record, node_scale) in enumerate(
+                for j, (_, node_rule, node_record, node_scale) in enumerate(
                     prepared_aperture.nodes[i]
                 )
             ],

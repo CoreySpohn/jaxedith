@@ -642,3 +642,56 @@ def test_prepared_aperture_jit(fixed_angle):
         np.testing.assert_allclose(
             getattr(compiled, name), getattr(eager, name), rtol=1e-12, atol=0
         )
+
+
+@vv.case("aperture-photon-budget", "code-verification")
+@vv.seam("coronagraphoto", "jaxedith")
+def test_finite_star_image_aperture_sum(finite_star_setup):
+    """Exact-algebra seam: uniform finite-star image, rtol=1e-9, atol=0.
+
+    A uniform native YIP makes pixel-box integration and fractional circular
+    aperture summation commute. Real photon gains and the stellar diameter
+    are shared, with independently computed detector circle-square weights.
+    This isolates absolute diameter/area units from curved-image quadrature.
+    """
+    from coronagraphoto import image_rates
+    from hwoutils.grids import SkyOrientation
+    from optixstuff import Detector
+    from yippy.performance import _circle_square_weights
+
+    system, path, bands, q, prepared = finite_star_setup
+    system = eqx.tree_at(lambda s: s.star.diameter_arcsec, system, 0.002)
+    scale = path.coronagraph.grid.frame.lod_to_arcsec(550)
+    pitch = 0.5 * scale
+    path = eqx.tree_at(
+        lambda p: p.detector, path, Detector(pixel_scale_arcsec=pitch, shape=(24, 24))
+    )
+    separation = 2 * scale
+    rates = aperture_rates(
+        system,
+        path,
+        bands,
+        time_d=0.0,
+        separation_arcsec=separation,
+        prepared_aperture=prepared,
+        zodi=None,
+    )
+    images = image_rates(
+        system,
+        path,
+        bands,
+        time_d=0.0,
+        pointing=SkyOrientation(0.0),
+        quadrature=q,
+        zodi=None,
+    )
+    yy, xx = jnp.indices((24, 24))
+    for i, band in enumerate(bands):
+        radius_pix = 0.7 * band.center_nm / 550 / 0.5
+        weights = _circle_square_weights(
+            yy - 11.5, xx - 11.5 - separation / pitch, radius_pix
+        )
+        expected = jnp.sum(images.star_leakage[i, 0] * weights)
+        np.testing.assert_allclose(
+            rates.star_leakage[i, 0], expected, rtol=1e-9, atol=0
+        )

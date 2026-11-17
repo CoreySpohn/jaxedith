@@ -71,7 +71,11 @@ objects produce independent rows. Use `vmap` over times or planet indices.
 The default rule is `yippy.Circular(0.7)`. Its solid angle is fixed across each
 band at the centre, or at an explicit `reference_wavelength_nm`, using the
 primary's frame and the curve record's diameter convention. Leakage reads
-`leakage_fraction` directly, never a density times an inferred pixel area.
+`leakage_fraction` directly, with the star's apparent angular diameter at
+`system.dist_pc` divided by the stellar product frame's lambda/D at each
+quadrature wavelength. This matches the finite-star image reader. Scalar
+coronagraphs have no finite-star calibration and reject a concrete nonzero
+diameter (a traced nonzero diameter returns NaN).
 Table coronagraphs supply background transmission from their native image at
 `(separation_lod, 0)`; scalar coronagraphs supply their calibrated scalar
 transmission. Thus this is a radial aperture performance reader.
