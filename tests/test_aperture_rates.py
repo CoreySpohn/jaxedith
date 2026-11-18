@@ -9,7 +9,7 @@ import optixstuff as ox
 import pytest
 from conftest import ABStar, FlatCompanions, make_path, make_system, oracle
 from hwoutils import constants
-from hwoutils.grids import PixelGrid, SkyOrientation
+from hwoutils.grids import Measure, PixelGrid, SkyOrientation
 from hwoutils.spectral import Band, Quadrature, Transmission
 from optixstuff import prepare_aperture
 from skyscapes.disk import GraterDisk
@@ -419,7 +419,9 @@ def test_transmission_map_and_multiband_dispatch():
     )
     table = TabulatedCoronagraph(
         grid,
-        Image(0.5 + 0.02 * x + 0.1 * y**2, grid, (), "per_unit_area", "transmission"),
+        Image(
+            0.5 + 0.02 * x + 0.1 * y**2, grid, (), Measure.intensive(), "transmission"
+        ),
         record,
         bandpass=Band(490, 550),
     )

@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
 import pytest
+from hwoutils.grids import Measure
 from reference.legacy import post_processing_from_exosims, post_processing_from_pyedith
 
 from jaxedith import (
@@ -183,7 +184,7 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
     psf = 0.25 * gaussian / gaussian.sum()
     star = 2e-10 * jnp.exp(-3 * (x - offset))
     sky = 0.5
-    stellar_image = Image(star, grid, (), "per_pixel", "fraction")
+    stellar_image = Image(star, grid, (), Measure.integral(), "fraction")
 
     class PixelTable(TabulatedCoronagraph):
         def _native_stellar_map(self, stellar_diam_lod):
@@ -192,19 +193,19 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
         def _native_source_psfs(self, x_lod, y_lod):
             planes = jnp.broadcast_to(psf, (jnp.size(x_lod), *grid.shape))
             return ox.SourcePSFs(
-                Image(planes, grid, ("source",), "per_pixel", "fraction"),
+                Image(planes, grid, ("source",), Measure.integral(), "fraction"),
                 jnp.isfinite(x_lod) & jnp.isfinite(y_lod),
             )
 
     record = performance_curves(
-        lambda separation: Image(psf, grid, (), "per_pixel", "fraction"),
+        lambda separation: Image(psf, grid, (), Measure.integral(), "fraction"),
         stellar_image,
         Circular(0.7),
         separations_lod=[offset],
     )
     table = PixelTable(
         grid,
-        Image(jnp.full(grid.shape, sky), grid, (), "per_unit_area", "transmission"),
+        Image(jnp.full(grid.shape, sky), grid, (), Measure.intensive(), "transmission"),
         record,
     )
     scale = frame.lod_to_arcsec(550.0)

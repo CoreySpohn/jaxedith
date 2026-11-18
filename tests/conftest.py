@@ -41,7 +41,7 @@ import pytest
 from hwoutils import constants
 from hwoutils.conversions import jy_to_photons_per_nm_per_m2
 from hwoutils.epoch import Epoch
-from hwoutils.grids import Frame, PixelGrid
+from hwoutils.grids import Frame, Measure, PixelGrid
 from hwoutils.spectral import Band, Quadrature
 from optixstuff.apertures import Circular
 from skyscapes.physical_model import GridPhysicalModel
@@ -216,7 +216,7 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
             jnp.ones((jnp.size(valid), *self.grid.shape)),
             self.grid,
             ("source",),
-            "per_pixel",
+            Measure.integral(),
             "fraction",
         )
         return ox.SourcePSFs(image, valid)

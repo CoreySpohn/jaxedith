@@ -3,7 +3,8 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from hwoutils.conversions import arcsec_to_au, arcsec_to_rad
+from hwoutils.conversions import arcsec_to_au
+from hwoutils.grids import PixelGrid
 from hwoutils.planck import planck_photon_radiance
 from hwoutils.spectral import Band, Quadrature
 from optixstuff import ElectronRates, FramePlan, PhotonRates, aperture_binding
@@ -86,7 +87,10 @@ def _matched_rates(
     native_sr = jnp.stack(
         [ref.stamps.pixel_solid_angle_sr for ref in prepared.references]
     )
-    detector_pixels = native_sr / arcsec_to_rad(detector.pixel_scale_arcsec) ** 2
+    detector_grid = PixelGrid.regular(
+        detector.shape, detector.pixel_scale_arcsec, "arcsec"
+    )
+    detector_pixels = native_sr / detector_grid.cell_area("sr")
     uniform = (
         detector_variance / frame_time_s * detector_pixels
         + quadrature.integrate(yield_fraction * incident.thermal)
@@ -261,10 +265,7 @@ def aperture_rates(
 
     if prepared_aperture.references[0].stamps is not None:
         reference_sr = jnp.stack(
-            [
-                arcsec_to_rad(ref.arcsec_per_lod) ** 2
-                for ref in prepared_aperture.references
-            ]
+            [ref.lod_cell_solid_angle_sr for ref in prepared_aperture.references]
         )
         incident = PhotonRates(
             quadrature,
@@ -316,7 +317,12 @@ def aperture_rates(
 
     def photon_rates(tau, leak, area, sky):
         background = common * sky
-        solid_angle_sr = (area * arcsec_to_rad(scales) ** 2)[:, None]
+        solid_angle_sr = jnp.stack(
+            [
+                ref.solid_angle_sr(a)
+                for ref, a in zip(prepared_aperture.references, area, strict=True)
+            ]
+        )[:, None]
         return PhotonRates(
             quadrature,
             planet=common * tau * planet,
