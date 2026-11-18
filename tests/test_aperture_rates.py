@@ -382,25 +382,42 @@ def test_thermal_companions_and_absolute_local_zodi(example):
 def test_transmission_map_and_multiband_dispatch():
     """Fails if sky transmission is a radial proxy or dispatch ignores nodes.
 
-    Basis: constant photon spectra, exact piecewise integrals and a linear
-    transmission image; 1e-12 relative covers interpolation roundoff.
+    The disk average of y**2 is radius**2/4. The 0.3% tolerance covers
+    finite native pixels in the quadratic field at a 0.25 lod pitch.
     """
     import jax
     from conftest import TabulatedCoronagraph
-    from hwoutils.grids import Image
+    from hwoutils.grids import Image, PixelGrid
+    from optixstuff.performance import PerformanceCurves
     from skyscapes.scene import FlatStar
 
     system, path = (
         make_system(FlatStar(1e6), chromatic=False),
         make_path(chromatic=False),
     )
-    grid = path.coronagraph.grid
-    x, _ = grid.coordinates()
+    grid = PixelGrid.focal(24, 0.25, path.coronagraph.frame)
+    x, y = grid.coordinates()
+    # Three calibrated radii resolve the integrated affine sky on either side
+    # of the requested offset. A quadratic term distinguishes an aperture
+    # integral from its centre value, including the variance moment.
+    record = path.coronagraph.curves()
+    axis = jnp.arange(3.0)
+
+    record = PerformanceCurves(
+        axis,
+        record.frame,
+        record.rule,
+        **{
+            name: jnp.broadcast_to(getattr(record, name), axis.shape)
+            for name in record.interpolation
+        },
+        iwa_lod=record.iwa_lod,
+        data_extent_lod=record.data_extent_lod,
+    )
     table = TabulatedCoronagraph(
         grid,
-        Image(0.5 + 0.02 * x, grid, (), "per_unit_area", "transmission"),
-        None,
-        path.coronagraph.curves(),
+        Image(0.5 + 0.02 * x + 0.1 * y**2, grid, (), "per_unit_area", "transmission"),
+        record,
     )
     other = make_path(chromatic=False).coronagraph
     other = eqx.tree_at(lambda c: c.sky_transmission, other, 0.8)
@@ -413,18 +430,17 @@ def test_transmission_map_and_multiband_dispatch():
     prepared = prepare_aperture(path, band, q)
 
     def read(separation):
-        return (
-            aperture_rates(
-                system,
-                path,
-                band,
-                time_d=0.0,
-                separation_arcsec=separation,
-                prepared_aperture=prepared,
-                zodi=zodi,
-            )
-            .mean.integrate(q)
-            .local_zodi
+        rates = aperture_rates(
+            system,
+            path,
+            band,
+            time_d=0.0,
+            separation_arcsec=separation,
+            prepared_aperture=prepared,
+            zodi=zodi,
+        )
+        return jnp.stack(
+            [rate.integrate(q).local_zodi for rate in (rates.mean, rates.variance)]
         )
 
     scale = (550 * constants.nm2m) / 8 / (constants.arcsec2rad)
@@ -436,10 +452,15 @@ def test_transmission_map_and_multiband_dispatch():
         * np.pi
         * 0.7**2
         * ((550 * constants.nm2m) / 8) ** 2
-        * (50 * 0.5 + 0.02 * 550 * np.log(550 / 500) + 50 * 0.8)
+        * (
+            50 * 0.5
+            + 0.02 * 550 * np.log(550 / 500)
+            + 50 * 0.8
+            + 0.1 * 0.7**2 * 550**2 / 4 * (1 / 500 - 1 / 550)
+        )
     )
-    np.testing.assert_allclose(read(scale), expected, rtol=1e-12, atol=0)
-    np.testing.assert_allclose(jax.jit(read)(scale), expected, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(read(scale), expected, rtol=0.003, atol=0)
+    np.testing.assert_allclose(jax.jit(read)(scale), expected, rtol=0.003, atol=0)
 
 
 @vv.case("aperture-photon-budget", "code-verification")
@@ -541,7 +562,6 @@ def test_fixed_angle_uniform_leakage(fixed_angle):
     table = TabulatedCoronagraph(
         path.coronagraph.grid,
         path.coronagraph.sky_trans,
-        None,
         calibration.coronagraph.curves(),
     )
     path = eqx.tree_at(lambda p: p.coronagraph, path, table)
@@ -630,6 +650,9 @@ def test_monochromatic_reference_aperture(fixed_angle):
     phi = system.planet_flux_densities(jnp.asarray(550.0), jnp.array([0.0]))[0, 0]
     expected = 16 * path.coronagraph.curves().evaluate("throughput", sep) * phi
     np.testing.assert_array_equal(rates.mean.planet[0, 0], expected)
+    # A finite circular aperture captures only part of the Gaussian point image.
+    full_field = 16 * path.coronagraph.point_energy_fraction(sep, 0.0) * phi
+    assert 0 < rates.mean.planet[0, 0] < full_field
 
 
 @vv.case("aperture-photon-budget", "code-verification")
@@ -676,7 +699,7 @@ def test_finite_star_image_aperture_sum(finite_star_setup):
 
     system, path, bands, q, prepared = finite_star_setup
     system = eqx.tree_at(lambda s: s.star.fixed_diameter_arcsec, system, 0.002)
-    scale = path.coronagraph.grid.frame.lod_to_arcsec(550)
+    scale = path.coronagraph.frame.lod_to_arcsec(550)
     pitch = 0.5 * scale
     path = eqx.tree_at(
         lambda p: p.detector, path, Detector(pixel_scale_arcsec=pitch, shape=(24, 24))

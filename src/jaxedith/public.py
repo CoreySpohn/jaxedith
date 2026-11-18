@@ -342,13 +342,15 @@ def aperture_rates(
                 axis=1,
             )
         )
-    tau, leak, sky, tau_variance, leak_variance = jnp.stack(responses, axis=1)
+    tau, leak, sky, tau_variance, leak_variance, sky_variance = jnp.stack(
+        responses, axis=1
+    )
     scales = jnp.stack(scales)
     areas = jnp.stack(areas)
     variance_areas = jnp.stack(variance_areas)
-    background = common * sky
 
-    def photon_rates(tau, leak, area):
+    def photon_rates(tau, leak, area, sky):
+        background = common * sky
         solid_angle_sr = (area * arcsec_to_rad(scales) ** 2)[:, None]
         return PhotonRates(
             planet=common * tau * planet,
@@ -366,8 +368,10 @@ def aperture_rates(
 
     pixels_per_lod2 = (scales / optical_path.detector.pixel_scale_arcsec) ** 2
     return ApertureRates(
-        mean=photon_rates(tau, leak, areas),
-        variance=photon_rates(tau_variance, leak_variance, variance_areas),
+        mean=photon_rates(tau, leak, areas, sky),
+        variance=photon_rates(
+            tau_variance, leak_variance, variance_areas, sky_variance
+        ),
         n_pix=areas * pixels_per_lod2,
         n_pix_variance=variance_areas * pixels_per_lod2,
     )

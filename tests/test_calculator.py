@@ -195,7 +195,10 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
 
         def _native_source_psfs(self, x_lod, y_lod):
             planes = jnp.broadcast_to(psf, (jnp.size(x_lod), *grid.shape))
-            return Image(planes, grid, ("source",), "per_pixel", "fraction")
+            return ox.SourcePSFs(
+                Image(planes, grid, ("source",), "per_pixel", "fraction"),
+                jnp.isfinite(x_lod) & jnp.isfinite(y_lod),
+            )
 
     record = performance_curves(
         lambda separation: Image(psf, grid, (), "per_pixel", "fraction"),
@@ -206,7 +209,6 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
     table = PixelTable(
         grid,
         Image(jnp.full(grid.shape, sky), grid, (), "per_unit_area", "transmission"),
-        None,
         record,
     )
     scale = frame.lod_to_arcsec(550.0)

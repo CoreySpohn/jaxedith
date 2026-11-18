@@ -167,10 +167,16 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
 
     grid: PixelGrid
     sky_trans: Image
-    psf_datacube: object
+    uniform_sky_profile: ox.SampledProfile
     record: object
     bandpass: Band | None = None
     outer_working_angle_lod: float | None = None
+
+    def __init__(self, grid, sky_trans, record):
+        self.grid = grid
+        self.sky_trans = sky_trans
+        self.record = record
+        self.uniform_sky_profile = ox.SampledProfile.from_uniform_sky(sky_trans)
 
     def curves(self, rule=Circular(0.7), *, leakage_rule="aperture_mean"):  # noqa: B008 - frozen rule
         if rule == self.record.rule:
@@ -201,7 +207,15 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
         raise NotImplementedError("only transmission is needed by this fixture")
 
     def _native_source_psfs(self, x_lod, y_lod):
-        raise NotImplementedError("only transmission is needed by this fixture")
+        valid = jnp.isfinite(x_lod) & jnp.isfinite(y_lod)
+        image = Image(
+            jnp.ones((jnp.size(valid), *self.grid.shape)),
+            self.grid,
+            ("source",),
+            "per_pixel",
+            "fraction",
+        )
+        return ox.SourcePSFs(image, valid)
 
 
 @pytest.fixture(scope="module")
