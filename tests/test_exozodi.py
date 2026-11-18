@@ -65,10 +65,11 @@ def test_separation_law_ignored_disk_and_disabled():
     grid = PixelGrid.regular((1, 1), 0.01, "arcsec", orientation=SkyOrientation(0.0))
     disk = ExovistaDisk(grid, jnp.array([500.0, 550.0, 600.0]), jnp.ones((3, 1, 1)))
     system, path, band = (
-        make_system(disk=disk),
+        make_system(),
         make_path(chromatic=False),
         Band(549, 551),
     )
+    with_disk = make_system(disk=disk)
 
     def sampling(scene, **kwargs):
         return je.aperture_rates(
@@ -80,10 +81,7 @@ def test_separation_law_ignored_disk_and_disabled():
     empty_q = sampling(empty)
     np.testing.assert_array_equal(q.nodes_nm, empty_q.nodes_nm)
     np.testing.assert_array_equal(q.weights_nm, empty_q.weights_nm)
-    np.testing.assert_array_equal(
-        sampling(system, exozodi=None).nodes_nm, empty_q.nodes_nm
-    )
-    assert sampling(system, exozodi="scene").nodes_nm.size == 2 * empty_q.nodes_nm.size
+    assert sampling(with_disk).nodes_nm.size == 2 * empty_q.nodes_nm.size
     prepared = prepare_aperture(path, q)
 
     def read(distance, separation, angle=0.0, **kwargs):
@@ -113,9 +111,8 @@ def test_separation_law_ignored_disk_and_disabled():
             separation_arcsec=0.1,
             zodi=None,
         ).mean.exozodi,
-        base,
+        0,
     )
-    np.testing.assert_array_equal(read(10.0, 0.0, exozodi=None), 0)
     distances, separations = jnp.array([10.0, 20.0, 10.0]), jnp.array([0.1, 0.1, 0.2])
     np.testing.assert_allclose(
         jax.jit(jax.vmap(read))(distances, separations),
@@ -134,10 +131,11 @@ def test_exozodi_knots_split_quadrature():
     """
     from conftest import TabulatedExozodi
 
-    system, path, band = make_system(), make_path(chromatic=False), Band(500, 600)
     model = TabulatedExozodi(
         jnp.array([500.0, 537.0, 600.0]), jnp.array([1e10, 4e10, 2e10])
     )
+    system = make_system(disk=model)
+    path, band = make_path(chromatic=False), Band(500, 600)
     rates = je.aperture_rates(
         system,
         path,
@@ -146,7 +144,6 @@ def test_exozodi_knots_split_quadrature():
         separation_arcsec=0.1,
         quadrature_order=1,
         zodi=None,
-        exozodi=model,
     )
     q = rates.mean.quadrature
     np.testing.assert_allclose(

@@ -31,7 +31,7 @@ verified for those contracts.
 | Package | Role |
 |---|---|
 | `optixstuff` | Instrument, aperture preparation, photon rates, detector statistics and frame plans |
-| `skyscapes` | System, photon spectra and disk radiance |
+| `skyscapes` | Scene, photon spectra and disk radiance |
 | `hwoutils` | Band, Quadrature, PixelGrid, constants and conversions |
 | `zodi[jax]` | Local-zodi photon radiance, spectral tables and dust calibration |
 

@@ -189,7 +189,6 @@ def test_disk_absolute_scale_and_centre_approximation():
         separation_arcsec=0.1,
         position_angle_deg=90.0,
         zodi=None,
-        exozodi="scene",
     )
     rates = aperture_rates(system, path, q, **kwargs)
     arcsec_rad = constants.arcsec2rad
@@ -506,7 +505,6 @@ def test_disk_traced_sky_position():
                 path,
                 prepared,
                 time_d=t,
-                exozodi="scene",
                 zodi=None,
                 planet_index=0,
             )
@@ -697,7 +695,6 @@ def test_finite_star_image_aperture_sum(finite_star_setup):
     from coronagraphoto import photon_rates
     from optixstuff import Detector, Exposure
     from optixstuff.performance import _circle_square_weights
-    from skyscapes import Scene
 
     system, path, prepared = finite_star_setup
     q = prepared.quadrature
@@ -718,7 +715,7 @@ def test_finite_star_image_aperture_sum(finite_star_setup):
         zodi=None,
     )
     images = photon_rates(
-        Scene(system=system, zodi=None),
+        eqx.tree_at(lambda s: s.disk, system, None),
         path,
         Exposure(time_d=0.0, roll_deg=0.0, quadrature=q),
     )

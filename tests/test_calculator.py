@@ -222,7 +222,7 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
         read_noise_e_rms=1.5,
     )
     path = eqx.tree_at(lambda p: (p.coronagraph, p.detector), path, (table, detector))
-    system = make_system(FlatStar(1e11), chromatic=False)
+    system = make_system(FlatStar(1e11), chromatic=False, disk=None)
     system = eqx.tree_at(lambda s: s.dist_pc, system, 1 / (offset * scale))
     band = Band(549.5, 550.5)
     solid_angle = grid.pixel_area * arcsec_to_rad(scale) ** 2
@@ -243,7 +243,6 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
         time_d=0.0,
         planet_index=0,
         zodi=FlatSky(),
-        exozodi=None,
         temperature_K=1800.0,
         eps_warm_T_cold=emissivity,
         companion_flux_density=FlatCompanions(companion_density),

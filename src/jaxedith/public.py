@@ -3,16 +3,14 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from hwoutils.conversions import arcsec_to_au
 from hwoutils.grids import PixelGrid
 from hwoutils.planck import planck_photon_radiance
 from hwoutils.spectral import Band, Quadrature
 from optixstuff import ElectronRates, FramePlan, PhotonRates, aperture_binding
 from optixstuff.apertures import DEFAULT_APERTURE_RULE
-from zodi.jax import AYOExozodi, AYOZodi
+from zodi.jax import AYOZodi
 
 _DEFAULT_ZODI = AYOZodi()
-_DEFAULT_EXOZODI = AYOExozodi()
 
 
 class ApertureRates(eqx.Module):
@@ -29,21 +27,21 @@ class ApertureRates(eqx.Module):
     n_pix_variance: jax.Array
 
 
-def _position(system, time_d, planet_index, separation_arcsec, position_angle_deg):
+def _position(scene, time_d, planet_index, separation_arcsec, position_angle_deg):
     """Select one scene planet or a background-only sky position."""
     if (planet_index is None) == (separation_arcsec is None):
         raise ValueError("supply exactly one of planet_index or separation_arcsec")
     if planet_index is not None:
         if not isinstance(planet_index, jax.core.Tracer) and not (
-            0 <= planet_index < system.n_planets
+            0 <= planet_index < scene.n_planets
         ):
-            raise IndexError("planet_index is outside the system")
+            raise IndexError("planet_index is outside the scene")
         times = jnp.atleast_1d(time_d)
-        ephemeris = system.ephemeris(times)
-        east, north = system.positions(times, ephemeris=ephemeris)[:, planet_index, 0]
+        ephemeris = scene.ephemeris(times)
+        east, north = scene.positions(times, ephemeris=ephemeris)[:, planet_index, 0]
         # A traced index cannot raise; out of range it yields a NaN position
         # (and so NaN rates) instead of JAX's silent clamp to the last planet.
-        inside = (planet_index >= 0) & (planet_index < system.n_planets)
+        inside = (planet_index >= 0) & (planet_index < scene.n_planets)
         east = jnp.where(inside, east, jnp.nan)
         north = jnp.where(inside, north, jnp.nan)
         return east, north, ephemeris
@@ -133,7 +131,7 @@ def _matched_rates(
 
 
 def aperture_rates(
-    system,
+    scene,
     instrument,
     sampling,
     *,
@@ -144,7 +142,6 @@ def aperture_rates(
     rule=DEFAULT_APERTURE_RULE,
     quadrature_order=4,
     zodi=_DEFAULT_ZODI,
-    exozodi=_DEFAULT_EXOZODI,
     ecliptic_latitude_deg=0.0,
     solar_longitude_deg=135.0,
     reference_wavelength_nm=None,
@@ -166,15 +163,13 @@ def aperture_rates(
     a PreparedAperture to jit or vmap over reads. Separations use the primary
     Frame with the performance record's diameter convention.
 
-    Exozodi defaults to zodi.jax.AYOExozodi(): analytic radiance at projected physical
-    separation system.dist_pc * separation_arcsec, also for background-only
-    apertures. It evaluates one scalar per node, independent of system.disk.
-    Supply exozodi=None for zero, or exozodi="scene" for disk light.
-    Include the same model in Quadrature.build when preparing it separately.
-
-    In scene mode, disk light approximates the footprint integral by centre
-    radiance times aperture solid angle. The disk is evaluated directly at
-    the aperture's sky position. No disk gives zero.
+    Exozodi is scene.disk, evaluated directly at the aperture's sky position
+    and approximating the footprint integral by centre radiance times aperture
+    solid angle. No disk gives zero. For the analytic AYO exozodi, build the
+    scene with disk=skyscapes.disk.AYOExozodiDisk(); it evaluates at the
+    projected physical separation scene.dist_pc * separation_arcsec, also for
+    background-only apertures. Include the same disk in Quadrature.build when
+    preparing the sampling separately.
 
     Thermal light retains Planck emission times warm emissivity and cold
     transmission, without system throughput. companion_flux_density(wave,
@@ -193,8 +188,6 @@ def aperture_rates(
     """
     if jnp.ndim(time_d) != 0:
         raise ValueError("time_d must be scalar; use vmap for multiple times")
-    if isinstance(exozodi, str) and exozodi != "scene":
-        raise ValueError('exozodi must be a radiance model, "scene", or None')
     if isinstance(sampling, aperture_binding.PreparedAperture):
         prepared_aperture = sampling
     else:
@@ -202,13 +195,12 @@ def aperture_rates(
             quadrature = sampling
         else:
             bands = (sampling,) if isinstance(sampling, Band) else tuple(sampling)
-            models = [system.star, instrument]
+            models = [scene.star, instrument]
             if planet_index is not None:
-                models.extend(system.planets)
-            disk = system.disk if isinstance(exozodi, str) else exozodi
+                models.extend(scene.planets)
             models.extend(
                 model
-                for model in (zodi, disk, companion_flux_density)
+                for model in (zodi, scene.disk, companion_flux_density)
                 if model is not None
             )
             quadrature = Quadrature.build(bands, *models, order=quadrature_order)
@@ -221,28 +213,21 @@ def aperture_rates(
     quadrature = prepared_aperture.quadrature
     wave = quadrature.nodes_nm
     east, north, ephemeris = _position(
-        system, time_d, planet_index, separation_arcsec, position_angle_deg
+        scene, time_d, planet_index, separation_arcsec, position_angle_deg
     )
     separation = jnp.hypot(east, north)
-    star = system.star.photon_flux_density(wave, time_d, dist_pc=system.dist_pc)
+    star = scene.star.photon_flux_density(wave, time_d, dist_pc=scene.dist_pc)
     if planet_index is None:
         planet = jnp.zeros_like(wave)
     else:
         planet = jax.vmap(
-            lambda w: system.planet_flux_densities(
+            lambda w: scene.planet_flux_densities(
                 w, jnp.atleast_1d(time_d), ephemeris=ephemeris
             )[planet_index, 0]
         )(wave.reshape(-1)).reshape(wave.shape)
         # _position marks an out-of-range traced index with a NaN position.
         planet = jnp.where(jnp.isnan(east), jnp.nan, planet)
-    if exozodi is None:
-        disk = jnp.zeros_like(wave)
-    elif isinstance(exozodi, str):
-        disk = system.photon_radiance_at(wave, time_d, east, north)
-    else:
-        disk = exozodi.photon_radiance(
-            wave, separation_au=arcsec_to_au(separation, system.dist_pc)
-        )
+    disk = scene.photon_radiance_at(wave, time_d, east, north)
     local = (
         jnp.zeros_like(wave)
         if zodi is None
@@ -252,7 +237,7 @@ def aperture_rates(
             solar_longitude_deg=solar_longitude_deg,
         )
     )
-    diameter = system.star.angular_diameter_arcsec(system.dist_pc)
+    diameter = scene.star.angular_diameter_arcsec(scene.dist_pc)
     area_m2 = instrument.primary.collecting_area_m2
     throughput = jax.vmap(instrument.system_throughput)(wave.reshape(-1)).reshape(
         wave.shape

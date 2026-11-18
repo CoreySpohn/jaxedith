@@ -44,8 +44,9 @@ from hwoutils.epoch import Epoch
 from hwoutils.grids import Frame, Measure, PixelGrid
 from hwoutils.spectral import Band, Quadrature
 from optixstuff.apertures import Circular
+from skyscapes.disk import AbstractDisk, AYOExozodiDisk
 from skyscapes.physical_model import GridPhysicalModel
-from skyscapes.scene import Planet, System
+from skyscapes.scene import Planet, Scene
 from skyscapes.scene.star import AbstractStar
 from zodi.jax import AYOExozodi
 
@@ -72,7 +73,10 @@ class ChromaticCoronagraph(ox.ScalarCoronagraph):
         return 0.30 + 0.0006 * (jnp.asarray(wavelength_nm) - 550)
 
 
-def make_system(star=None, *, chromatic=True, disk=None):
+_AYO_DISK = AYOExozodiDisk()
+
+
+def make_system(star=None, *, chromatic=True, disk=_AYO_DISK):
     waves = jnp.array([500.0, 600.0])
     contrast = 1e-10 * (1 - (0.004 if chromatic else 0) * (waves - 550))
     planet = Planet(
@@ -83,7 +87,7 @@ def make_system(star=None, *, chromatic=True, disk=None):
             contrast_grid=jnp.broadcast_to(contrast[None, :, None], (1, 2, 2)),
         ),
     )
-    return System.from_classical(
+    return Scene.from_classical(
         star=ABStar() if star is None else star,
         planets=(planet,),
         star_mass_Msun=1.0,
@@ -131,7 +135,7 @@ def make_path(
 def example():
     from jaxedith import aperture_rates
 
-    system, path, band = make_system(), make_path(), Band(500, 600)
+    system, path, band = make_system(disk=None), make_path(), Band(500, 600)
     quadrature = Quadrature.build((band,), system, path)
     rates = aperture_rates(
         system,
@@ -140,7 +144,6 @@ def example():
         time_d=0.0,
         planet_index=0,
         zodi=None,
-        exozodi=None,
     )
     return system, path, rates
 
@@ -292,7 +295,7 @@ class FlatCompanions(eqx.Module):
         return np.empty(0)
 
 
-class TabulatedExozodi(eqx.Module):
+class TabulatedExozodi(AbstractDisk):
     """Piecewise linear photon radiance with declared spectral breakpoints."""
 
     wavelengths_nm: object
@@ -301,7 +304,10 @@ class TabulatedExozodi(eqx.Module):
     def spectral_breaks_nm(self):
         return np.asarray(self.wavelengths_nm)
 
-    def photon_radiance(self, wavelength_nm, *, separation_au):
+    def photon_radiance_at(
+        self, wavelength_nm, time_d, east_arcsec, north_arcsec, *, star, dist_pc
+    ):
+        separation_au = dist_pc * jnp.hypot(east_arcsec, north_arcsec)
         return (
             jnp.interp(wavelength_nm, self.wavelengths_nm, self.radiance)
             / separation_au**2

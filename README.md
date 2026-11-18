@@ -1,6 +1,6 @@
 # jaxedith
 
-`jaxedith` reads a `skyscapes.System` and an `optixstuff.Instrument` into
+`jaxedith` reads a `skyscapes.Scene` and an `optixstuff.Instrument` into
 an aperture photon budget, then computes S/N and whole-frame exposure plans
 using the detector's shared statistics contract.
 
@@ -16,7 +16,7 @@ before integration to give mean electrons/s.
 
 ## Usage
 
-This example requires a configured `system` and `instrument`.
+This example requires a configured `scene` and `instrument`.
 
 ```python notest
 from hwoutils.spectral import Band
@@ -30,7 +30,7 @@ from jaxedith import (
 
 band = Band(500.0, 600.0)
 rates = aperture_rates(
-    system,
+    scene,
     instrument,
     band,
     time_d=0.0,
@@ -60,13 +60,13 @@ occupied_seconds = required.occupied_time_s(instrument.detector)
 
 Select one flattened `planet_index`, or pass `separation_arcsec` and
 `position_angle_deg` for a background-only aperture. Position angle is north
-through east; `time_d` is scalar days from the system epoch. Multiple `Band`
+through east; `time_d` is scalar days from the scene epoch. Multiple `Band`
 objects produce independent rows. Use `vmap` over times or planet indices.
 The default rule is `optixstuff.apertures.Circular(0.7)`. Its solid angle is fixed across each
 band at the centre, or at an explicit `reference_wavelength_nm`, using the
 primary's frame and the curve record's diameter convention. Leakage reads
 `leakage_fraction` directly, with the star's apparent angular diameter at
-`system.dist_pc` divided by the stellar product frame's lambda/D at each
+`scene.dist_pc` divided by the stellar product frame's lambda/D at each
 quadrature wavelength. This matches the finite-star image reader. Scalar
 coronagraphs have no finite-star calibration and reject a concrete nonzero
 diameter (a traced nonzero diameter returns NaN).
@@ -90,13 +90,11 @@ spectrum, the planetary spectra used for a planet read, the optical path
 (including detector QE and coronagraph band edges), and each active sky
 or companion model. A custom model declares its wavelength breaks in nm
 through `spectral_breaks_nm()`, returning an empty array for a smooth spectrum.
-Disk breaks enter only with `exozodi="scene"`.
+Disk breaks enter through `scene.disk`.
 
 To reuse sampling, pass a `hwoutils.spectral.Quadrature` as the third argument
-to `aperture_rates`. For instance, a planet read with scene exozodi and a local
-zodi model uses `Quadrature.build((band,), system, instrument, zodi)`.
-For analytic exozodi, pass `system.star, *system.planets, instrument, zodi,
-exozodi` to the builder to exclude the inactive disk. To reuse aperture
+to `aperture_rates`. For instance, a planet read with the scene's disk and a
+local zodi model uses `Quadrature.build((band,), scene, instrument, zodi)`. To reuse aperture
 preparation under JIT, pass `prepare_aperture(instrument, quadrature)` as
 the third argument. Photon rates retain their quadrature. Integrated photon
 and electron rates retain the corresponding bands.
@@ -108,24 +106,21 @@ model and `ecliptic_latitude_deg` / `solar_longitude_deg` for pointing dependenc
 or `zodi=None` to disable it. Solar longitude means target minus solar
 longitude. The caller computes pointing geometry from its observatory.
 
-Exozodi defaults to `zodi.jax.AYOExozodi(level_zodis=3.0,
-surface_brightness_mag_arcsec2=22.0)`. Its photon radiance is the exact AB
+Exozodi is `scene.disk`; a scene without a disk has none. The analytic AYO
+exozodi is the disk `skyscapes.disk.AYOExozodiDisk(zodi.jax.AYOExozodi(level_zodis=3.0,
+surface_brightness_mag_arcsec2=22.0))`. Its photon radiance is the exact AB
 magnitude-zero photon flux times `level_zodis * 10**(-0.4 * 22)` per arcsec²
 at 1 AU, converted to steradians and scaled by
-`(system.dist_pc * separation_arcsec)**-2`. The brightness parameter replaces
+`(scene.dist_pc * separation_arcsec)**-2`. The brightness parameter replaces
 22 in that expression. This follows the AYO brightness convention: the ratio's
 denominator is the AB zero-magnitude source, with flat AB colour and no host
 luminosity or inclination multiplier. The model has no spectral table knots.
-A model supplied as `exozodi=` must provide
-`photon_radiance(wavelength_nm, *, separation_au)` in photons/s/m²/nm/sr;
-its `spectral_breaks_nm()` supplies any integration breakpoints.
+Any other disk must provide
+`photon_radiance_at(wavelength_nm, time_d, east_arcsec, north_arcsec, *, star, dist_pc)`
+in photons/s/m²/nm/sr; its `spectral_breaks_nm()` supplies any integration
+breakpoints.
 
-The default evaluates one scalar per wavelength node independently of
-`system.disk`, including for background-only apertures. `exozodi=None`
-disables exozodi. Select `exozodi="scene"` in
-`aperture_rates` to use the scene disk instead.
-
-In scene mode, `System.photon_radiance_at` evaluates the disk directly at
+`Scene.photon_radiance_at` evaluates the disk directly at
 the aperture centre. The reader multiplies this radiance by the fixed solid
 angle to approximate the footprint integral. The calibrated smooth face-on test
 bounds the difference by 5% for its stated geometry. A missing disk gives zero.
