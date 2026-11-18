@@ -53,8 +53,12 @@ class ABStar(AbstractStar):
     """Analytic flat-Fnu fixture, with the real AbstractStar photon contract."""
 
     flux_jy: object = 36.31
-    diameter_arcsec: float = 0.0
+    fixed_diameter_arcsec: float = 0.0
     luminosity_Lsun: float = 1.0
+
+    def angular_diameter_arcsec(self, dist_pc):
+        """Return the fixture diameter, ignoring dist_pc."""
+        return jnp.asarray(self.fixed_diameter_arcsec)
 
     def photon_flux_density(self, wavelength_nm, time_d, *, dist_pc):
         return jy_to_photons_per_nm_per_m2(self.flux_jy, wavelength_nm)

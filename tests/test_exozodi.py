@@ -61,7 +61,7 @@ def test_separation_law_ignored_disk_and_disabled():
 
     Basis: powers-of-two distances/separations give exactly r^-2; the same
     angular position at any PA agrees to 1e-12 for trig roundoff. JIT/vmap
-    agrees at 1e-12, with no grid supplied and a deliberately off-grid disk.
+    agrees at 1e-12, with a deliberately off-grid disk.
     """
     grid = PixelGrid.regular((1, 1), 0.01, "arcsec", orientation=SkyOrientation(0.0))
     disk = ExovistaDisk(grid, jnp.array([500.0, 550.0, 600.0]), jnp.ones((3, 1, 1)))
@@ -100,7 +100,6 @@ def test_separation_law_ignored_disk_and_disabled():
     np.testing.assert_array_equal(read(10.0, 0.2), base / 4)
     np.testing.assert_array_equal(read(20.0, 0.05), base)
     np.testing.assert_allclose(read(10.0, 0.1, 37.0), base, rtol=1e-12, atol=0)
-    np.testing.assert_array_equal(read(10.0, 0.1, disk_grid=grid), base)
     np.testing.assert_array_equal(
         je.aperture_rates(
             empty,

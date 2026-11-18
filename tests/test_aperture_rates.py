@@ -443,11 +443,13 @@ def test_transmission_map_and_multiband_dispatch():
 
 
 @vv.case("aperture-photon-budget", "code-verification")
-def test_disk_fixed_grid_traced_position():
-    """Fails if a supplied sky grid loses orientation or traced position.
+def test_disk_traced_sky_position():
+    """Fails if scene disk sampling loses orientation or depends on host coordinates.
 
-    Basis: a stored linear radiance map is reproduced by bilinear sampling
-    to 1e-12 relative; a dynamic time follows the real orbit through the map.
+    The linear map is recovered to 1e-12 relative along the orbit. Its
+    separation derivative uses a 1e-4 arcsec central step inside one native
+    stencil. There is no truncation for this affine map; 1e-9 covers
+    float64 subtraction and aperture arithmetic.
     """
     import jax
     from skyscapes.disk import ExovistaDisk
@@ -466,22 +468,26 @@ def test_disk_fixed_grid_traced_position():
     path, band = make_path(chromatic=False), Band(549.0, 551.0)
     q = aperture_quadrature(system, path, band, zodi=None, exozodi="scene")
 
-    def read(t):
+    prepared = prepare_aperture(path, band, q)
+
+    def read(scene, t):
         return (
             aperture_rates(
-                system,
+                scene,
                 path,
                 band,
                 time_d=t,
-                planet_index=0,
-                quadrature=q,
-                disk_grid=grid,
+                prepared_aperture=prepared,
                 exozodi="scene",
                 zodi=None,
+                planet_index=0,
             )
             .mean.integrate(q)
             .exozodi[0]
         )
+
+    def orbit(t):
+        return read(system, t)
 
     times = jnp.array([0.0, 30.0, 60.0])
     positions = np.asarray(system.positions(times))[:, 0, :]
@@ -498,9 +504,25 @@ def test_disk_fixed_grid_traced_position():
         * 2
     )
     np.testing.assert_allclose(
-        jax.jit(jax.vmap(read))(times), expected, rtol=1e-12, atol=0
+        jax.jit(jax.vmap(orbit))(times), expected, rtol=1e-12, atol=0
     )
-    np.testing.assert_allclose([read(t) for t in times], expected, rtol=1e-12, atol=0)
+
+    def radial(separation):
+        # At the reference epoch this circular, face-on orbit projects its
+        # semimajor axis onto the sky without foreshortening.
+        scene = eqx.tree_at(
+            lambda s: s.dynamics.orbits.a_AU,
+            system,
+            jnp.atleast_1d(separation * system.dist_pc),
+        )
+        return read(scene, 0.0)
+
+    centre, step = 0.09, 1e-4  # arcsec; avoid interpolation knots and cube edges
+    derivative = jax.jit(jax.grad(radial))(centre)
+    difference = (radial(centre + step) - radial(centre - step)) / (2 * step)
+    assert jnp.isfinite(derivative)
+    assert difference > 0
+    np.testing.assert_allclose(derivative, difference, rtol=1e-9, atol=0)
 
 
 @vv.case("aperture-photon-budget", "code-verification")
@@ -653,7 +675,7 @@ def test_finite_star_image_aperture_sum(finite_star_setup):
     from optixstuff.performance import _circle_square_weights
 
     system, path, bands, q, prepared = finite_star_setup
-    system = eqx.tree_at(lambda s: s.star.diameter_arcsec, system, 0.002)
+    system = eqx.tree_at(lambda s: s.star.fixed_diameter_arcsec, system, 0.002)
     scale = path.coronagraph.grid.frame.lod_to_arcsec(550)
     pitch = 0.5 * scale
     path = eqx.tree_at(

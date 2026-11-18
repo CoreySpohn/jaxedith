@@ -118,19 +118,15 @@ A model supplied as `exozodi=` must provide
 `photon_radiance(wavelength_nm, *, separation_au)` in photons/s/m²/nm/sr;
 pass the same model to `aperture_quadrature` to include any declared knots.
 
-The default evaluates one scalar per wavelength node and ignores `system.disk`
-and `disk_grid`, including for background-only apertures. `exozodi=None`
+The default evaluates one scalar per wavelength node independently of
+`system.disk`, including for background-only apertures. `exozodi=None`
 disables exozodi. Select `exozodi="scene"` in both `aperture_quadrature` and
 `aperture_rates` to use the scene disk instead.
 
-In scene mode, disk light comes from `System.photon_radiance`, sampled at the aperture centre
-on a one-pixel sky grid and multiplied by the fixed solid angle. A missing
-disk gives zero. This approximates a footprint integral: the calibrated
-smooth face-on test bounds the difference by 5% for its stated geometry,
-not for arbitrary disk structure. For traced moving positions, supply a
-fixed `disk_grid` in arcseconds with `SkyOrientation`, covering the orbit.
-The reader renders the disk on that grid and bilinearly samples the centre;
-out-of-grid samples are NaN. Grid convergence is the caller's responsibility.
+In scene mode, `System.photon_radiance_at` evaluates the disk directly at
+the aperture centre. The reader multiplies this radiance by the fixed solid
+angle to approximate the footprint integral. The calibrated smooth face-on test
+bounds the difference by 5% for its stated geometry. A missing disk gives zero.
 Comparison with a redistributed disk image additionally requires a bound on
 PSF smoothing and image resampling; a centre-to-footprint bound alone does
 not cover those operations.

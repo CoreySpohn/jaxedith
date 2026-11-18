@@ -20,13 +20,11 @@ upstream frozen-template dilation and currently raise `NotImplementedError`.
 Stellar leakage is already an aperture sum. Exozodi defaults to `zodi.jax.AYOExozodi()`:
 an analytic AB-zero-point surface brightness at three zodis, 22 mag/arcsec²
 per zodi at 1 AU, scaled by `(dist_pc * separation_arcsec)**-2`.
-The scene disk and `disk_grid` are ignored unless `exozodi="scene"`;
 `exozodi=None` gives zero. Pass the same exozodi model to
 `aperture_quadrature`, which collects its spectral knots too.
-In scene mode, disk radiance is sampled at the
-planet and multiplied by aperture solid angle; no extra host flux is applied.
-The scene-mode one-pixel grid needs concrete sky geometry. Traced moving positions
-use a caller-supplied fixed sky grid and bilinear centre sampling.
+With `exozodi="scene"`, `System.photon_radiance_at` evaluates the disk at
+the aperture centre and the reader multiplies by aperture solid angle.
+The sky offsets and scene time support JAX transformations.
 An image comparison must bound PSF redistribution and reconstruction as well
 as centre-to-footprint radiance differences.
 

@@ -16,7 +16,7 @@ from hwoutils.conversions import (
 from optixstuff import FramePlan, frames_for_time
 
 from jaxedith.calculator import PostProcessing
-from jaxedith.public import _DEFAULT_ZODI, _disk_radiance, _position
+from jaxedith.public import _DEFAULT_ZODI, _position
 from reference.primitives import detector_noise_rate, photon_counting_time
 from reference.scene import ETCScene
 
@@ -77,7 +77,6 @@ def etc_scene_from_system(
     zodi=_DEFAULT_ZODI,
     ecliptic_latitude_deg=0.0,
     solar_longitude_deg=135.0,
-    disk_grid=None,
     companion_flux_density=None,
 ) -> ETCScene:
     """Produce monochromatic F0-relative ratios solely for legacy comparison.
@@ -111,10 +110,8 @@ def etc_scene_from_system(
             solar_longitude_deg=solar_longitude_deg,
         )
     )
-    disk = _disk_radiance(system, wave, time_d, east, north, disk_grid)
-    diameter = getattr(system.star, "diameter_arcsec", 0.0)
-    if callable(diameter):
-        diameter = diameter(dist_pc=system.dist_pc)
+    disk = system.photon_radiance_at(wave, time_d, east, north)
+    diameter = system.star.angular_diameter_arcsec(system.dist_pc)
     return ETCScene(
         F0=zero,
         Fs_over_F0=star / zero,

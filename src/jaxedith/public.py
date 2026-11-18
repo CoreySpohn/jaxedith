@@ -4,8 +4,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from hwoutils.conversions import arcsec_to_au, arcsec_to_rad
-from hwoutils.grids import PixelGrid, SkyOrientation
-from hwoutils.map_coordinates import map_coordinates
 from hwoutils.planck import planck_photon_radiance
 from hwoutils.spectral import Band, Quadrature, spectral_knots
 from optixstuff import ElectronRates, FramePlan, PhotonRates, aperture_binding
@@ -89,36 +87,6 @@ def _position(system, time_d, planet_index, separation_arcsec, position_angle_de
     return separation_arcsec * jnp.sin(angle), separation_arcsec * jnp.cos(angle), None
 
 
-def _sky_grid(east, north):
-    """One host pixel whose centre is the requested east/north sky position."""
-    return PixelGrid.regular(
-        (1, 1),
-        1.0,
-        "arcsec",
-        center=(-float(east), -float(north)),
-        orientation=SkyOrientation(0.0, parity=1),
-    )
-
-
-def _disk_radiance(system, wave, time_d, east, north, disk_grid):
-    """Sample centre radiance, optionally interpolating a caller's fixed grid."""
-    if system.disk is None:
-        return jnp.zeros_like(wave)
-    grid = _sky_grid(east, north) if disk_grid is None else disk_grid
-    image = system.photon_radiance(wave, time_d, grid=grid)
-    if disk_grid is None:
-        return image.data[..., 0, 0]
-    x, y = grid.orientation.sky_to_detector(east, north)
-    px, py = grid.unit_to_pixel(x, y)
-    coordinates = jnp.array([[py], [px]])
-    values = image.data.reshape((-1, *grid.shape))
-    return jax.vmap(
-        lambda plane: map_coordinates(
-            plane, coordinates, order=1, mode="constant", cval=jnp.nan
-        )[0]
-    )(values).reshape(wave.shape)
-
-
 def _matched_rates(
     prepared, detector, incident, separation, diameter, time_d, frame_time_s
 ):
@@ -141,10 +109,11 @@ def _matched_rates(
             ~jnp.isfinite(frame_time_s) | (frame_time_s <= 0),
             "frame_time_s must be finite and positive",
         )
-    _, detector_variance = detector.mean_and_variance(
-        ElectronRates(), FramePlan(frame_time_s, 1)
-    )
     quadrature = prepared.quadrature
+    _, detector_variance = detector.mean_and_variance(
+        ElectronRates(thermal=jnp.zeros(quadrature.nodes_nm.shape[:1])),
+        FramePlan(frame_time_s, 1),
+    )
     detected = (
         quadrature.weights_nm
         * detector.quantum_efficiency(quadrature.nodes_nm)
@@ -213,7 +182,6 @@ def aperture_rates(
     quadrature=None,
     prepared_aperture: aperture_binding.PreparedAperture | None = None,
     frame_time_s=None,
-    disk_grid=None,
     temperature_K=270.0,
     eps_warm_T_cold=0.0,
     companion_flux_density=None,
@@ -231,16 +199,13 @@ def aperture_rates(
 
     Exozodi defaults to zodi.jax.AYOExozodi(): analytic radiance at projected physical
     separation system.dist_pc * separation_arcsec, also for background-only
-    apertures. It evaluates one scalar per node, ignoring system.disk and
-    disk_grid. Supply exozodi=None for zero, or exozodi="scene" for disk light.
+    apertures. It evaluates one scalar per node, independent of system.disk.
+    Supply exozodi=None for zero, or exozodi="scene" for disk light.
     Pass the same model to aperture_quadrature when preparing it separately.
 
-    In scene mode, disk light is centre radiance times aperture solid angle, not a
-    footprint average. Without disk_grid the one-pixel grid is built eagerly
-    at the planet. For traced moving positions supply a fixed arcsec sky grid
-    covering them; bilinear sampling gives NaN outside its support. No disk
-    gives zero. Call optixstuff.prepare_aperture before tracing table models
-    and pass prepared_aperture to reuse its records and quadrature.
+    In scene mode, disk light approximates the footprint integral by centre
+    radiance times aperture solid angle. The disk is evaluated directly at
+    the aperture's sky position. No disk gives zero.
 
     Thermal light retains Planck emission times warm emissivity and cold
     transmission, without system throughput. companion_flux_density(wave,
@@ -254,7 +219,8 @@ def aperture_rates(
     thermal emission, and detector noise. The planet spectrum sets the signal
     template. Its shot noise enters only the returned variance. Supply the
     same positive frame_time_s used by the exposure plan when CIC or read
-    noise is nonzero. Recalculate the filter when that frame time changes.
+    noise is nonzero. Supply a scalar or one duration per band.
+    Recalculate the filter when that frame time changes.
     """
     if jnp.ndim(time_d) != 0:
         raise ValueError("time_d must be scalar; use vmap for multiple times")
@@ -304,7 +270,7 @@ def aperture_rates(
     elif isinstance(exozodi, str):
         if exozodi != "scene":
             raise ValueError('exozodi must be a radiance model, "scene", or None')
-        disk = _disk_radiance(system, wave, time_d, east, north, disk_grid)
+        disk = system.photon_radiance_at(wave, time_d, east, north)
     else:
         disk = exozodi.photon_radiance(
             wave, separation_au=arcsec_to_au(separation, system.dist_pc)
@@ -318,9 +284,7 @@ def aperture_rates(
             solar_longitude_deg=solar_longitude_deg,
         )
     )
-    diameter = system.star.diameter_arcsec
-    if callable(diameter):
-        diameter = diameter(dist_pc=system.dist_pc)
+    diameter = system.star.angular_diameter_arcsec(system.dist_pc)
     area_m2 = optical_path.primary.collecting_area_m2
     throughput = jax.vmap(optical_path.system_throughput)(wave.reshape(-1)).reshape(
         wave.shape

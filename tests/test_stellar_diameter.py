@@ -23,7 +23,7 @@ def test_finite_diameter_physics_and_transforms(finite_star_setup):
     system, path, bands, q, prepared = finite_star_setup
 
     def rates(d):
-        scene = eqx.tree_at(lambda s: s.star.diameter_arcsec, system, d)
+        scene = eqx.tree_at(lambda s: s.star.fixed_diameter_arcsec, system, d)
         return aperture_rates(
             scene,
             path,
@@ -113,7 +113,7 @@ def test_blackbody_diameter_uses_distance(finite_star_setup):
         for i, band in enumerate(bands):
             apparent = FlatStar(
                 star.photon_flux_density(band.center_nm, 0.0, dist_pc=distance),
-                diameter_arcsec=diameter_rad / arcsec2rad,
+                fixed_diameter_arcsec=diameter_rad / arcsec2rad,
             )
             other = eqx.tree_at(lambda s: s.star, scene, apparent)
             actual = aperture_rates(

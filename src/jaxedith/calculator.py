@@ -61,6 +61,7 @@ def snr(
     Signal is planet electrons times live time. The detector supplies all
     independent count variance, including source shot noise, dark, CIC and
     read noise. Residual speckles and disk light add squared count terms.
+    Plan fields are scalar or have one value per band.
     Zero live time gives zero S/N. Infinite plans return the asymptotic
     ceiling (infinity for a positive signal without a systematic floor).
     """
@@ -89,6 +90,7 @@ def exposure_time(
 ) -> FramePlan:
     """Return the smallest whole-frame plan reaching each band's target S/N.
 
+    target_snr and frame_time_s are scalar or shape (W,).
     Let p be planet electrons/s, b the detector variance for one frame
     divided by its live seconds, and f2 the sum of squared residual rates.
     Then S/N^2 = p^2 t / (b + f2 t), so the continuous solution is
@@ -98,7 +100,10 @@ def exposure_time(
     a FramePlan with infinite frame count/live time. Nonpositive targets
     require zero frames. Only optixstuff.frames_for_time rounds frames.
     """
-    one_frame = frames_for_time(frame_time_s, frame_time_s)
+    target_snr = jnp.asarray(target_snr)
+    if target_snr.shape not in ((), quadrature.nodes_nm.shape[:1]):
+        raise ValueError("target_snr must be scalar or (W,) matching the bands")
+    one_frame = FramePlan(frame_time_s, 1)
     electrons, variance = _count_statistics(rates, detector, quadrature, one_frame)
     b = variance / frame_time_s
     floor_sq = _floor_sq(electrons, post_processing)
