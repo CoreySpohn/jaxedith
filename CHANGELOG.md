@@ -1,5 +1,49 @@
 # Changelog
 
+## [4.0.0](https://github.com/CoreySpohn/jaxedith/compare/v3.0.0...v4.0.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* build quadratures from the evaluated models and drop aperture_quadrature
+* integrate the uniform-sky response over the aperture for every rule
+* read stellar diameter and disk radiance from skyscapes and drop the disk_grid route
+* build inverse-variance Matched weights from the scene and detector rates
+* use variance moments in aperture noise terms
+* take aperture preparation from optixstuff and drop the direct yippy and numpy dependencies
+* jaxedith ships one calculator; the scalar comparison dialects move into the test suite as cross-code references
+* the analytic AYO exozodi default comes from zodi.jax
+* local-zodi models come from zodi.jax
+* analytic AYO exozodi is the default in aperture_rates; the scene disk is opt-in
+* hold the aperture fixed in angle across a band by evaluating each node at its own separation and radius
+* read the shared photon-rate budget through one aperture reader with post-processing and detector statistics
+
+### Features
+
+* analytic AYO exozodi is the default in aperture_rates; the scene disk is opt-in ([74b59a8](https://github.com/CoreySpohn/jaxedith/commit/74b59a862009755268e32a93af121a79c30b0c33))
+* build inverse-variance Matched weights from the scene and detector rates ([f6f6954](https://github.com/CoreySpohn/jaxedith/commit/f6f695404d154157815b31b189314b3b7158d9d3))
+* read stellar diameter and disk radiance from skyscapes and drop the disk_grid route ([7cbc3f1](https://github.com/CoreySpohn/jaxedith/commit/7cbc3f1f6c457c647d82dbbe4dc381253748a17d))
+* read the shared photon-rate budget through one aperture reader with post-processing and detector statistics ([8ff3518](https://github.com/CoreySpohn/jaxedith/commit/8ff3518cc2845b1fa45c26189058b043d2fcea23))
+
+
+### Bug Fixes
+
+* **etc:** pass each star's angular diameter to the coronagraph leakage ([5059320](https://github.com/CoreySpohn/jaxedith/commit/5059320b16478ed703aaa8d40e878078ad1d539e))
+* hold the aperture fixed in angle across a band by evaluating each node at its own separation and radius ([138c143](https://github.com/CoreySpohn/jaxedith/commit/138c143cd69eacc1879904d109820f08000ca360))
+* integrate the uniform-sky response over the aperture for every rule ([ad5ca56](https://github.com/CoreySpohn/jaxedith/commit/ad5ca565a4433fa4b5d74d4ceab2b74d1e5eebfb))
+* keep every aperture rule field when scaling the radius to a wavelength node ([8e42a4d](https://github.com/CoreySpohn/jaxedith/commit/8e42a4db45c7eb495a2382995b05ad976bf4d87d))
+* propagate NaN variance, treat the speckle ceiling as infeasible, and mark out-of-range traced planets ([dc9af1e](https://github.com/CoreySpohn/jaxedith/commit/dc9af1e07f1ebb3ef9a71fcab821bfd86c8dba2d))
+* use variance moments in aperture noise terms ([0adbd58](https://github.com/CoreySpohn/jaxedith/commit/0adbd58c9758d9ab37410061f8014254757b9f19))
+
+
+### Code Refactoring
+
+* build quadratures from the evaluated models and drop aperture_quadrature ([24989b9](https://github.com/CoreySpohn/jaxedith/commit/24989b9989b2631f2ac08ca800bbc8e42fcdaed6))
+* jaxedith ships one calculator; the scalar comparison dialects move into the test suite as cross-code references ([2461f06](https://github.com/CoreySpohn/jaxedith/commit/2461f06a0115f3f0dce6af5c506e21409d50f118))
+* local-zodi models come from zodi.jax ([a328a5c](https://github.com/CoreySpohn/jaxedith/commit/a328a5cb8db66197de84fad61ce8944845bfa915))
+* take aperture preparation from optixstuff and drop the direct yippy and numpy dependencies ([7eddbed](https://github.com/CoreySpohn/jaxedith/commit/7eddbedf0492a1112263ba0dbbf566e5caa1ea6a))
+* the analytic AYO exozodi default comes from zodi.jax ([839d8b3](https://github.com/CoreySpohn/jaxedith/commit/839d8b3bdf27561c1f1ea82de42984034fa67073))
+
 ## [3.0.0](https://github.com/CoreySpohn/jaxedith/compare/v2.1.1...v3.0.0) (2026-11-16)
 
 
