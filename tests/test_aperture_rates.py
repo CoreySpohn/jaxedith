@@ -694,10 +694,10 @@ def test_finite_star_image_aperture_sum(finite_star_setup):
     are shared, with independently computed detector circle-square weights.
     This isolates absolute diameter/area units from curved-image quadrature.
     """
-    from coronagraphoto import image_rates
-    from hwoutils.grids import SkyOrientation
-    from optixstuff import Detector
+    from coronagraphoto import photon_rates
+    from optixstuff import Detector, Exposure
     from optixstuff.performance import _circle_square_weights
+    from skyscapes import Scene
 
     system, path, prepared = finite_star_setup
     q = prepared.quadrature
@@ -717,13 +717,10 @@ def test_finite_star_image_aperture_sum(finite_star_setup):
         separation_arcsec=separation,
         zodi=None,
     )
-    images = image_rates(
-        system,
+    images = photon_rates(
+        Scene(system=system, zodi=None),
         path,
-        q,
-        time_d=0.0,
-        pointing=SkyOrientation(0.0),
-        zodi=None,
+        Exposure(time_d=0.0, roll_deg=0.0, quadrature=q),
     )
     yy, xx = jnp.indices((24, 24))
     for i, band in enumerate(bands):
