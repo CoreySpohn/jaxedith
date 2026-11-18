@@ -1,7 +1,6 @@
 # Comparison references
 
-jaxedith ships one aperture calculator: `aperture_quadrature`,
-`aperture_rates`, `PostProcessing`, `snr` and `exposure_time`. Fixed angular
+jaxedith provides `aperture_rates`, `PostProcessing`, `snr` and `exposure_time`. Fixed angular
 aperture preparation, detector yield, variance and frame counting come from
 optixstuff.
 

@@ -30,7 +30,6 @@ def test_analytic_default_matches_scalar_electrons():
         make_path(chromatic=False),
         Band(549.999, 550.001),
     )
-    q = je.aperture_quadrature(system, path, band, zodi=None)
     rates = je.aperture_rates(system, path, band, time_d=0.0, planet_index=0, zodi=None)
     # AB definition in cgs converted to Jy; independent of library conversions.
     zero_jy = 10 ** (-0.4 * 48.60) * constants.m22cm2 / constants.J2erg / constants.Jy
@@ -51,7 +50,7 @@ def test_analytic_default_matches_scalar_electrons():
         0.1,
     )
     np.testing.assert_allclose(
-        path.detector.electrons(rates.mean, q).exozodi, expected, rtol=1e-9, atol=0
+        path.detector.electrons(rates.mean).exozodi, expected, rtol=1e-9, atol=0
     )
 
 
@@ -70,28 +69,33 @@ def test_separation_law_ignored_disk_and_disabled():
         make_path(chromatic=False),
         Band(549, 551),
     )
-    q = je.aperture_quadrature(system, path, band, zodi=None)
+
+    def sampling(scene, **kwargs):
+        return je.aperture_rates(
+            scene, path, band, time_d=0.0, separation_arcsec=0.1, zodi=None, **kwargs
+        ).mean.quadrature
+
+    q = sampling(system)
     empty = eqx.tree_at(lambda s: s.disk, system, None)
-    empty_q = je.aperture_quadrature(empty, path, band, zodi=None)
+    empty_q = sampling(empty)
     np.testing.assert_array_equal(q.nodes_nm, empty_q.nodes_nm)
     np.testing.assert_array_equal(q.weights_nm, empty_q.weights_nm)
-    disabled_q = je.aperture_quadrature(system, path, band, zodi=None, exozodi=None)
-    np.testing.assert_array_equal(disabled_q.nodes_nm, empty_q.nodes_nm)
-    scene_q = je.aperture_quadrature(system, path, band, zodi=None, exozodi="scene")
-    assert scene_q.nodes_nm.size == 2 * empty_q.nodes_nm.size
-    prepared = prepare_aperture(path, band, q)
+    np.testing.assert_array_equal(
+        sampling(system, exozodi=None).nodes_nm, empty_q.nodes_nm
+    )
+    assert sampling(system, exozodi="scene").nodes_nm.size == 2 * empty_q.nodes_nm.size
+    prepared = prepare_aperture(path, q)
 
     def read(distance, separation, angle=0.0, **kwargs):
         scene = eqx.tree_at(lambda s: s.dist_pc, system, distance)
         return je.aperture_rates(
             scene,
             path,
-            band,
+            prepared,
             time_d=0.0,
             separation_arcsec=separation,
             position_angle_deg=angle,
             zodi=None,
-            prepared_aperture=prepared,
             **kwargs,
         ).mean.exozodi
 
@@ -104,11 +108,10 @@ def test_separation_law_ignored_disk_and_disabled():
         je.aperture_rates(
             empty,
             path,
-            band,
+            prepared,
             time_d=0.0,
             separation_arcsec=0.1,
             zodi=None,
-            prepared_aperture=prepared,
         ).mean.exozodi,
         base,
     )
@@ -135,12 +138,6 @@ def test_exozodi_knots_split_quadrature():
     model = TabulatedExozodi(
         jnp.array([500.0, 537.0, 600.0]), jnp.array([1e10, 4e10, 2e10])
     )
-    q = je.aperture_quadrature(
-        system, path, band, quadrature_order=1, zodi=None, exozodi=model
-    )
-    np.testing.assert_allclose(
-        np.sum(np.asarray(q.weights_nm)[np.asarray(q.nodes_nm) < 537]), 37, rtol=1e-12
-    )
     rates = je.aperture_rates(
         system,
         path,
@@ -150,6 +147,10 @@ def test_exozodi_knots_split_quadrature():
         quadrature_order=1,
         zodi=None,
         exozodi=model,
+    )
+    q = rates.mean.quadrature
+    np.testing.assert_allclose(
+        np.sum(np.asarray(q.weights_nm)[np.asarray(q.nodes_nm) < 537]), 37, rtol=1e-12
     )
     expected = (
         40
@@ -161,5 +162,5 @@ def test_exozodi_knots_split_quadrature():
         * (37 * 2.5e10 + 63 * 3e10)
     )
     np.testing.assert_allclose(
-        rates.mean.integrate(q).exozodi, expected, rtol=1e-12, atol=0
+        rates.mean.integrate().exozodi, expected, rtol=1e-12, atol=0
     )

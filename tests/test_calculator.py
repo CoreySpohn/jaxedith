@@ -23,26 +23,26 @@ def test_post_processing_count_variance(example):
 
     Basis: exact algebra with 1e-12 relative float64 rounding allowance.
     """
-    _, path, _, q, rates = example
+    _, path, rates = example
+    q = rates.mean.quadrature
     rates = eqx.tree_at(
         lambda r: (r.mean.star_leakage, r.mean.exozodi),
         rates,
         (jnp.full(q.nodes_nm.shape, 0.001), jnp.full(q.nodes_nm.shape, 0.002)),
     )
-    e = path.detector.electrons(rates.mean, q)
+    e = path.detector.electrons(rates.mean)
     plan = ox.FramePlan(100.0, 36)
     _, base = path.detector.mean_and_variance(
         e,
         plan,
         rates.n_pix,
-        variance_rates=path.detector.electrons(rates.variance, q),
+        variance_rates=path.detector.electrons(rates.variance),
         n_pix_variance=rates.n_pix_variance,
     )
     for f, g in ((0.0, 0.0), (0.1, 0.0), (0.1, 0.2)):
         actual = snr(
             rates,
             path.detector,
-            q,
             plan,
             post_processing=PostProcessing(f, g),
         )
@@ -67,7 +67,8 @@ def test_exposure_inverts_snr_and_rejects_floor(example):
 
     Basis: exact inverse algebra; integer frame equality uses upstream rounding.
     """
-    _, path, _, q, rates = example
+    _, path, rates = example
+    q = rates.mean.quadrature
     rates = eqx.tree_at(
         lambda r: r.mean.star_leakage, rates, jnp.full(q.nodes_nm.shape, 1e-4)
     )
@@ -77,7 +78,6 @@ def test_exposure_inverts_snr_and_rejects_floor(example):
         lambda n: snr(
             rates,
             path.detector,
-            q,
             ox.FramePlan(100.0, n),
             post_processing=pp,
         )[0]
@@ -85,16 +85,16 @@ def test_exposure_inverts_snr_and_rejects_floor(example):
 
     def solve(t):
         return exposure_time(
-            t, rates, path.detector, q, frame_time_s=100.0, post_processing=pp
+            t, rates, path.detector, frame_time_s=100.0, post_processing=pp
         )
 
     plans = jax.jit(jax.vmap(solve))(target)
     np.testing.assert_array_equal(plans.n_frames[:, 0], counts)
     plan = solve(9.5)
-    assert snr(rates, path.detector, q, plan, post_processing=pp)[0] >= 9.5
+    assert snr(rates, path.detector, plan, post_processing=pp)[0] >= 9.5
     previous = ox.frames_for_time(plan.live_time_s - 100.0, 100.0)
-    assert snr(rates, path.detector, q, previous, post_processing=pp)[0] < 9.5
-    e = path.detector.electrons(rates.mean, q)
+    assert snr(rates, path.detector, previous, post_processing=pp)[0] < 9.5
+    e = path.detector.electrons(rates.mean)
     ceiling = e.planet / (0.1 * e.star_leakage)
     assert jnp.isinf(solve(ceiling * 1.001).live_time_s).all()
     assert (solve(0.0).n_frames == 0).all()
@@ -103,7 +103,6 @@ def test_exposure_inverts_snr_and_rejects_floor(example):
     exact = snr(
         rates,
         path.detector,
-        q,
         ox.FramePlan(100.0, jnp.inf),
         post_processing=pp,
     )
@@ -112,7 +111,7 @@ def test_exposure_inverts_snr_and_rejects_floor(example):
         lambda r: r.variance.local_zodi, rates, jnp.full(q.nodes_nm.shape, jnp.nan)
     )
     plan = ox.FramePlan(100.0, 36.0)
-    assert jnp.isnan(snr(unknown, path.detector, q, plan, post_processing=pp)).all()
+    assert jnp.isnan(snr(unknown, path.detector, plan, post_processing=pp)).all()
 
 
 @vv.case("aperture-photon-budget", "code-verification")
@@ -122,17 +121,14 @@ def test_reader_jit_vmap_and_scene_gradient(example):
     Basis: 1e-12 eager/JIT algebra; central difference h=1e-4 truncation
     is O(h^2), allowing 1e-7 relative for a smooth flux-dependent S/N.
     """
-    system, path, band, q, _ = example
+    system, path, reference = example
+    q = reference.mean.quadrature
     pp = PostProcessing(0.0, 0.0)
 
     def evaluate(scale, time):
         scene = eqx.tree_at(lambda s: s.star.flux_jy, system, 36.31 * scale)
-        rates = aperture_rates(
-            scene, path, band, time_d=time, planet_index=0, quadrature=q, zodi=None
-        )
-        return snr(rates, path.detector, q, ox.FramePlan(100, 36), post_processing=pp)[
-            0
-        ]
+        rates = aperture_rates(scene, path, q, time_d=time, planet_index=0, zodi=None)
+        return snr(rates, path.detector, ox.FramePlan(100, 36), post_processing=pp)[0]
 
     np.testing.assert_allclose(
         jax.jit(evaluate)(1.0, 0.0), evaluate(1.0, 0.0), rtol=1e-12, atol=0
@@ -147,7 +143,7 @@ def test_reader_jit_vmap_and_scene_gradient(example):
 
     def planet_rate(index):
         rates = aperture_rates(
-            system, path, band, time_d=0.0, planet_index=index, quadrature=q, zodi=None
+            system, path, q, time_d=0.0, planet_index=index, zodi=None
         )
         return rates.mean.planet
 
@@ -169,11 +165,11 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
     The four-sigma sample-variance band uses the fourth Poisson cumulant
     and the exact sampling variance of the unbiased variance estimator.
     """
-    from conftest import TabulatedCoronagraph, make_path, make_system
+    from conftest import FlatCompanions, TabulatedCoronagraph, make_path, make_system
     from hwoutils.conversions import arcsec_to_rad
     from hwoutils.grids import Image, PixelGrid
     from hwoutils.planck import planck_photon_radiance
-    from hwoutils.spectral import Band, Quadrature
+    from hwoutils.spectral import Band
     from optixstuff.apertures import Circular, Matched
     from optixstuff.performance import performance_curves
     from skyscapes.scene import FlatStar
@@ -228,7 +224,6 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
     system = make_system(FlatStar(1e11), chromatic=False)
     system = eqx.tree_at(lambda s: s.dist_pc, system, 1 / (offset * scale))
     band = Band(549.5, 550.5)
-    quad = Quadrature.build((band,), None, 1)
     solid_angle = grid.pixel_area * arcsec_to_rad(scale) ** 2
     # Two local-zodi, one companion, and three thermal photons per native
     # pixel per second. Thermal bypasses both throughput and sky transmission.
@@ -237,25 +232,28 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
     emissivity = 3.0 / (40 * planck_photon_radiance(550.0, 1800.0) * solid_angle)
 
     class FlatSky:
+        def spectral_breaks_nm(self):
+            return np.empty(0)
+
         def photon_radiance(self, wave, **kwargs):
             return jnp.full_like(wave, radiance)
 
     kwargs = dict(
         time_d=0.0,
         planet_index=0,
-        quadrature=quad,
         zodi=FlatSky(),
         exozodi=None,
         temperature_K=1800.0,
         eps_warm_T_cold=emissivity,
-        companion_flux_density=lambda w, t: companion_density,
+        companion_flux_density=FlatCompanions(companion_density),
+        quadrature_order=1,
     )
     rates = aperture_rates(
         system, path, band, rule=Matched(), frame_time_s=frame_time, **kwargs
     )
     plan = ox.FramePlan(frame_time, 1)
     pp = PostProcessing(0, 0)
-    calculated = snr(rates, detector, quad, plan, post_processing=pp)[0]
+    calculated = snr(rates, detector, plan, post_processing=pp)[0]
 
     # Independently form per-native-pixel electron rates before applying
     # any aperture weights. The planet never enters the optimized weights.
@@ -287,12 +285,12 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
         frame_time / np.sum(psf**2 * (background + planet))
     )
     circular = aperture_rates(system, path, band, rule=Circular(0.7), **kwargs)
-    circular_snr = snr(circular, detector, quad, plan, post_processing=pp)[0]
+    circular_snr = snr(circular, detector, plan, post_processing=pp)[0]
     assert calculated > white_snr
     assert calculated > circular_snr
     target = 10.0
     plan = exposure_time(
-        target, rates, detector, quad, frame_time_s=frame_time, post_processing=pp
+        target, rates, detector, frame_time_s=frame_time, post_processing=pp
     )
     np.testing.assert_array_equal(
         plan.n_frames, [np.ceil(target**2 * variance / (frame_time * signal**2))]

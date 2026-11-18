@@ -10,8 +10,8 @@ squares, respectively. Each contains six integrands in photons/s/nm with
 shape `(W, Q)`: `planet`, `star_leakage`, `local_zodi`, `exozodi`, `thermal`,
 and `stellar_companions`. The per-band arrays `n_pix` and `n_pix_variance`
 give the corresponding weighted detector pixel counts.
-`rates.mean.integrate(quadrature)` returns mean photons/s.
-`detector.electrons(rates.mean, quadrature)` applies spectral QE and survival
+`rates.mean.integrate()` returns mean photons/s.
+`detector.electrons(rates.mean)` applies spectral QE and survival
 before integration to give mean electrons/s.
 
 ## Usage
@@ -20,25 +20,21 @@ This example requires a configured `system` and `optical_path`.
 
 ```python notest
 from hwoutils.spectral import Band
-from optixstuff import frames_for_time, prepare_aperture
+from optixstuff import frames_for_time
 from jaxedith import (
     PostProcessing,
-    aperture_quadrature,
     aperture_rates,
     exposure_time,
     snr,
 )
 
 band = Band(500.0, 600.0)
-quadrature = aperture_quadrature(system, optical_path, band)
-aperture = prepare_aperture(optical_path, band, quadrature)
 rates = aperture_rates(
     system,
     optical_path,
     band,
     time_d=0.0,
     planet_index=0,
-    prepared_aperture=aperture,
 )
 post_processing = PostProcessing(
     speckle_residual_fraction=0.1,
@@ -48,7 +44,6 @@ plan = frames_for_time(3600.0, frame_time_s=100.0)
 achieved = snr(
     rates,
     optical_path.detector,
-    quadrature,
     plan,
     post_processing=post_processing,
 )
@@ -56,7 +51,6 @@ required = exposure_time(
     10.0,
     rates,
     optical_path.detector,
-    quadrature,
     frame_time_s=100.0,
     post_processing=post_processing,
 )
@@ -91,13 +85,21 @@ Scalar coronagraphs instead describe a calibrated fixed angular aperture:
 their constants and wavelength functions already refer to that aperture,
 and their area is in reference lambda/D squared. No PSF scaling is inferred.
 
-Quadrature splits at stellar, planetary, optical-throughput, local-zodi,
-analytic-exozodi, QE and multiband-dispatch breakpoints. Disk knots enter
-only with `exozodi="scene"`. Custom spectral models declare
-`quadrature_knots_nm` or `wavelengths_nm`; wavenumber tables use `nu_grid`.
-The reader builds quadrature if omitted. Prepare it explicitly to reuse the
-identical weights in the detector, or before tracing model table arrays.
-Host preparation uses NumPy; node evaluation and statistics use JAX.
+When given bands, the reader builds a host quadrature from the stellar
+spectrum, the planetary spectra used for a planet read, the optical path
+(including detector QE and coronagraph band edges), and each active sky
+or companion model. A custom model declares its wavelength breaks in nm
+through `spectral_breaks_nm()`, returning an empty array for a smooth spectrum.
+Disk breaks enter only with `exozodi="scene"`.
+
+To reuse sampling, pass a `hwoutils.spectral.Quadrature` as the third argument
+to `aperture_rates`. For instance, a planet read with scene exozodi and a local
+zodi model uses `Quadrature.build((band,), system, optical_path, zodi)`.
+For analytic exozodi, pass `system.star, *system.planets, optical_path, zodi,
+exozodi` to the builder to exclude the inactive disk. To reuse aperture
+preparation under JIT, pass `prepare_aperture(optical_path, quadrature)` as
+the third argument. Photon rates retain their quadrature. Integrated photon
+and electron rates retain the corresponding bands.
 
 ## Backgrounds and sampling
 
@@ -116,11 +118,11 @@ denominator is the AB zero-magnitude source, with flat AB colour and no host
 luminosity or inclination multiplier. The model has no spectral table knots.
 A model supplied as `exozodi=` must provide
 `photon_radiance(wavelength_nm, *, separation_au)` in photons/s/m²/nm/sr;
-pass the same model to `aperture_quadrature` to include any declared knots.
+its `spectral_breaks_nm()` supplies any integration breakpoints.
 
 The default evaluates one scalar per wavelength node independently of
 `system.disk`, including for background-only apertures. `exozodi=None`
-disables exozodi. Select `exozodi="scene"` in both `aperture_quadrature` and
+disables exozodi. Select `exozodi="scene"` in
 `aperture_rates` to use the scene disk instead.
 
 In scene mode, `System.photon_radiance_at` evaluates the disk directly at

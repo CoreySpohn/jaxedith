@@ -3,7 +3,6 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from hwoutils.spectral import Quadrature
 from optixstuff import FramePlan, frames_for_time
 from optixstuff.detector import AbstractDetector
 
@@ -34,10 +33,10 @@ def _floor_sq(electrons, post_processing):
     ) ** 2
 
 
-def _count_statistics(rates, detector, quadrature, plan):
+def _count_statistics(rates, detector, plan):
     """Return mean source electrons/s and independent count variance."""
-    electrons = detector.electrons(rates.mean, quadrature)
-    variance_rates = detector.electrons(rates.variance, quadrature)
+    electrons = detector.electrons(rates.mean)
+    variance_rates = detector.electrons(rates.variance)
     _, variance = detector.mean_and_variance(
         electrons,
         plan,
@@ -51,7 +50,6 @@ def _count_statistics(rates, detector, quadrature, plan):
 def snr(
     rates: ApertureRates,
     detector: AbstractDetector,
-    quadrature: Quadrature,
     plan: FramePlan,
     *,
     post_processing: PostProcessing,
@@ -67,7 +65,7 @@ def snr(
     """
     finite = jnp.isfinite(plan.n_frames)
     safe_plan = FramePlan(plan.frame_time_s, jnp.where(finite, plan.n_frames, 0))
-    electrons, variance = _count_statistics(rates, detector, quadrature, safe_plan)
+    electrons, variance = _count_statistics(rates, detector, safe_plan)
     floor_sq = _floor_sq(electrons, post_processing)
     variance = variance + floor_sq * safe_plan.live_time_s**2
     signal = electrons.planet * safe_plan.live_time_s
@@ -83,7 +81,6 @@ def exposure_time(
     target_snr: Num,
     rates: ApertureRates,
     detector: AbstractDetector,
-    quadrature: Quadrature,
     *,
     frame_time_s: Num,
     post_processing: PostProcessing,
@@ -101,10 +98,10 @@ def exposure_time(
     require zero frames. Only optixstuff.frames_for_time rounds frames.
     """
     target_snr = jnp.asarray(target_snr)
-    if target_snr.shape not in ((), quadrature.nodes_nm.shape[:1]):
+    if target_snr.shape not in ((), (len(rates.mean.quadrature.bands),)):
         raise ValueError("target_snr must be scalar or (W,) matching the bands")
     one_frame = FramePlan(frame_time_s, 1)
-    electrons, variance = _count_statistics(rates, detector, quadrature, one_frame)
+    electrons, variance = _count_statistics(rates, detector, one_frame)
     b = variance / frame_time_s
     floor_sq = _floor_sq(electrons, post_processing)
     denominator = check_not_nan(

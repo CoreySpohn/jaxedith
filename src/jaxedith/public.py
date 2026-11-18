@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from hwoutils.conversions import arcsec_to_au, arcsec_to_rad
 from hwoutils.planck import planck_photon_radiance
-from hwoutils.spectral import Band, Quadrature, spectral_knots
+from hwoutils.spectral import Band, Quadrature
 from optixstuff import ElectronRates, FramePlan, PhotonRates, aperture_binding
 from optixstuff.apertures import DEFAULT_APERTURE_RULE
 from zodi.jax import AYOExozodi, AYOZodi
@@ -26,43 +26,6 @@ class ApertureRates(eqx.Module):
     variance: PhotonRates
     n_pix: jax.Array
     n_pix_variance: jax.Array
-
-
-def _bands(band_or_bands):
-    return (band_or_bands,) if isinstance(band_or_bands, Band) else tuple(band_or_bands)
-
-
-def aperture_quadrature(
-    system,
-    optical_path,
-    band_or_bands,
-    *,
-    quadrature_order=4,
-    zodi=_DEFAULT_ZODI,
-    exozodi=_DEFAULT_EXOZODI,
-    companion_flux_density=None,
-) -> Quadrature:
-    """Prepare shared host quadrature, split at every declared spectral table.
-
-    Includes star, planet, optics, local zodi, analytic exozodi, QE and
-    nearest-band dispatch breakpoints; disk knots only for exozodi="scene".
-    Custom tabulated models must expose
-    quadrature_knots_nm (property or method) or wavelengths_nm. Build before
-    tracing model arrays and pass the result to aperture_rates and detector.
-    """
-    scene_disk = (
-        system.disk if isinstance(exozodi, str) and exozodi == "scene" else None
-    )
-    knots = spectral_knots(
-        system.star,
-        system.planets,
-        scene_disk,
-        optical_path,
-        zodi,
-        exozodi,
-        companion_flux_density,
-    )
-    return Quadrature.build(_bands(band_or_bands), knots, quadrature_order)
 
 
 def _position(system, time_d, planet_index, separation_arcsec, position_angle_deg):
@@ -111,14 +74,13 @@ def _matched_rates(
         )
     quadrature = prepared.quadrature
     _, detector_variance = detector.mean_and_variance(
-        ElectronRates(thermal=jnp.zeros(quadrature.nodes_nm.shape[:1])),
+        ElectronRates(quadrature.bands),
         FramePlan(frame_time_s, 1),
     )
-    detected = (
-        quadrature.weights_nm
-        * detector.quantum_efficiency(quadrature.nodes_nm)
-        * detector.survival_fraction
+    yield_fraction = (
+        detector.quantum_efficiency(quadrature.nodes_nm) * detector.survival_fraction
     )
+    detected = quadrature.weights_nm * yield_fraction
     shot = detected * detector.excess_noise_factor_sq
     diffuse = incident.local_zodi + incident.exozodi + incident.stellar_companions
     native_sr = jnp.stack(
@@ -127,7 +89,9 @@ def _matched_rates(
     detector_pixels = native_sr / arcsec_to_rad(detector.pixel_scale_arcsec) ** 2
     uniform = (
         detector_variance / frame_time_s * detector_pixels
-        + jnp.sum(shot * incident.thermal, axis=1) * native_sr
+        + quadrature.integrate(yield_fraction * incident.thermal)
+        * detector.excess_noise_factor_sq
+        * native_sr
     )
     moments = []
     for i, ref in enumerate(prepared.references):
@@ -147,6 +111,7 @@ def _matched_rates(
 
     def photons(tau, leak, sky_sr, n_pix):
         return PhotonRates(
+            quadrature,
             planet=incident.planet * tau,
             star_leakage=incident.star_leakage * leak,
             local_zodi=incident.local_zodi * sky_sr,
@@ -166,7 +131,7 @@ def _matched_rates(
 def aperture_rates(
     system,
     optical_path,
-    band_or_bands,
+    sampling,
     *,
     time_d,
     planet_index=None,
@@ -179,8 +144,6 @@ def aperture_rates(
     ecliptic_latitude_deg=0.0,
     solar_longitude_deg=135.0,
     reference_wavelength_nm=None,
-    quadrature=None,
-    prepared_aperture: aperture_binding.PreparedAperture | None = None,
     frame_time_s=None,
     temperature_K=270.0,
     eps_warm_T_cold=0.0,
@@ -190,18 +153,20 @@ def aperture_rates(
 
     Select one planet by flattened scene index, or a background-only aperture
     by separation_arcsec and astronomical position_angle_deg (north to east).
-    time_d is scalar days from the scene epoch. Bands are static Band objects.
+    time_d is scalar days from the scene epoch. Supply a Band or sequence of
+    bands to build quadrature from the participating models, a Quadrature
+    to reuse sampling, or a PreparedAperture to reuse the optical response.
     The rule and its solid angle are fixed at each band's centre, or at the
     supplied reference_wavelength_nm, a static Python float: aperture
     preparation runs on the host, so it cannot be traced. Pass
-    prepared_aperture to jit or vmap over reads. Separations use the primary
+    a PreparedAperture to jit or vmap over reads. Separations use the primary
     Frame with the performance record's diameter convention.
 
     Exozodi defaults to zodi.jax.AYOExozodi(): analytic radiance at projected physical
     separation system.dist_pc * separation_arcsec, also for background-only
     apertures. It evaluates one scalar per node, independent of system.disk.
     Supply exozodi=None for zero, or exozodi="scene" for disk light.
-    Pass the same model to aperture_quadrature when preparing it separately.
+    Include the same model in Quadrature.build when preparing it separately.
 
     In scene mode, disk light approximates the footprint integral by centre
     radiance times aperture solid angle. The disk is evaluated directly at
@@ -224,31 +189,32 @@ def aperture_rates(
     """
     if jnp.ndim(time_d) != 0:
         raise ValueError("time_d must be scalar; use vmap for multiple times")
-    bands = _bands(band_or_bands)
-    if prepared_aperture is not None:
-        if quadrature is not None and quadrature is not prepared_aperture.quadrature:
-            raise ValueError("use the prepared aperture's quadrature")
-        quadrature = prepared_aperture.quadrature
-    if quadrature is None:
-        quadrature = aperture_quadrature(
-            system,
-            optical_path,
-            bands,
-            quadrature_order=quadrature_order,
-            zodi=zodi,
-            exozodi=exozodi,
-            companion_flux_density=companion_flux_density,
-        )
-    if quadrature.nodes_nm.shape[0] != len(bands):
-        raise ValueError("quadrature must have one row per band")
-    if prepared_aperture is None:
+    if isinstance(exozodi, str) and exozodi != "scene":
+        raise ValueError('exozodi must be a radiance model, "scene", or None')
+    if isinstance(sampling, aperture_binding.PreparedAperture):
+        prepared_aperture = sampling
+    else:
+        if isinstance(sampling, Quadrature):
+            quadrature = sampling
+        else:
+            bands = (sampling,) if isinstance(sampling, Band) else tuple(sampling)
+            models = [system.star, optical_path]
+            if planet_index is not None:
+                models.extend(system.planets)
+            disk = system.disk if isinstance(exozodi, str) else exozodi
+            models.extend(
+                model
+                for model in (zodi, disk, companion_flux_density)
+                if model is not None
+            )
+            quadrature = Quadrature.build(bands, *models, order=quadrature_order)
         prepared_aperture = aperture_binding.prepare_aperture(
             optical_path,
-            bands,
             quadrature,
             rule=rule,
             reference_wavelength_nm=reference_wavelength_nm,
         )
+    quadrature = prepared_aperture.quadrature
     wave = quadrature.nodes_nm
     east, north, ephemeris = _position(
         system, time_d, planet_index, separation_arcsec, position_angle_deg
@@ -268,8 +234,6 @@ def aperture_rates(
     if exozodi is None:
         disk = jnp.zeros_like(wave)
     elif isinstance(exozodi, str):
-        if exozodi != "scene":
-            raise ValueError('exozodi must be a radiance model, "scene", or None')
         disk = system.photon_radiance_at(wave, time_d, east, north)
     else:
         disk = exozodi.photon_radiance(
@@ -303,6 +267,7 @@ def aperture_rates(
             ]
         )
         incident = PhotonRates(
+            quadrature,
             planet=common * planet,
             star_leakage=common * star,
             local_zodi=common * local,
@@ -353,6 +318,7 @@ def aperture_rates(
         background = common * sky
         solid_angle_sr = (area * arcsec_to_rad(scales) ** 2)[:, None]
         return PhotonRates(
+            quadrature,
             planet=common * tau * planet,
             star_leakage=common * leak * star,
             local_zodi=background * local * solid_angle_sr,

@@ -42,11 +42,12 @@ from hwoutils import constants
 from hwoutils.conversions import jy_to_photons_per_nm_per_m2
 from hwoutils.epoch import Epoch
 from hwoutils.grids import Frame, PixelGrid
-from hwoutils.spectral import Band
+from hwoutils.spectral import Band, Quadrature
 from optixstuff.apertures import Circular
 from skyscapes.physical_model import GridPhysicalModel
 from skyscapes.scene import Planet, System
 from skyscapes.scene.star import AbstractStar
+from zodi.jax import AYOExozodi
 
 
 class ABStar(AbstractStar):
@@ -99,12 +100,15 @@ def make_system(star=None, *, chromatic=True, disk=None):
     )
 
 
-def make_path(*, chromatic=True, pixel_scale_lod=0.25, leakage=0.0, area_lod2=None):
+def make_path(
+    *, chromatic=True, pixel_scale_lod=0.25, leakage=0.0, area_lod2=None, bandpass=None
+):
     primary = ox.SimplePrimary(circumscribed_diameter_m=8.0, collecting_area_m2=40.0)
     cls = ChromaticCoronagraph if chromatic else ox.ScalarCoronagraph
     area = np.pi * 0.7**2 if area_lod2 is None else area_lod2
     coro = cls(
         grid=PixelGrid.focal(24, pixel_scale_lod, primary.frame(550)),
+        bandpass=bandpass,
         throughput_fraction=0.3,
         aperture_area_lod2=area,
         stellar_leakage_density_lod2=leakage / area,
@@ -125,21 +129,20 @@ def make_path(*, chromatic=True, pixel_scale_lod=0.25, leakage=0.0, area_lod2=No
 
 @pytest.fixture(scope="module")
 def example():
-    from jaxedith import aperture_quadrature, aperture_rates
+    from jaxedith import aperture_rates
 
     system, path, band = make_system(), make_path(), Band(500, 600)
-    quadrature = aperture_quadrature(system, path, band, zodi=None, exozodi=None)
+    quadrature = Quadrature.build((band,), system, path)
     rates = aperture_rates(
         system,
         path,
-        band,
+        quadrature,
         time_d=0.0,
         planet_index=0,
-        quadrature=quadrature,
         zodi=None,
         exozodi=None,
     )
-    return system, path, band, quadrature, rates
+    return system, path, rates
 
 
 def oracle(order=64):
@@ -172,7 +175,8 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
     bandpass: Band | None = None
     outer_working_angle_lod: float | None = None
 
-    def __init__(self, grid, sky_trans, record):
+    def __init__(self, grid, sky_trans, record, *, bandpass=None):
+        self.bandpass = bandpass
         self.grid = grid
         self.sky_trans = sky_trans
         self.record = record
@@ -224,8 +228,6 @@ def fixed_angle(tmp_path_factory):
     from optixstuff import prepare_aperture
     from skyscapes.scene import FlatStar
 
-    from jaxedith import aperture_quadrature
-
     directory = tmp_path_factory.mktemp("fixed-angle")
     n, step, sigma = 24, 0.5, 0.7
     yy, xx = (np.indices((n, n)) - (n - 1) / 2) * step
@@ -269,9 +271,21 @@ def fixed_angle(tmp_path_factory):
         1 / (2.3 * path.primary.frame(550.0).lod_to_arcsec(550.0)),
     )
     bands = (Band(500, 550), Band(550, 600))
-    q = aperture_quadrature(system, path, bands, zodi=None)
-    prepared = prepare_aperture(path, bands, q)
-    return system, path, bands, q, prepared
+    q = Quadrature.build(bands, system, path, AYOExozodi())
+    prepared = prepare_aperture(path, q)
+    return system, path, prepared
+
+
+class FlatCompanions(eqx.Module):
+    """Constant companion photons/s/m^2/nm per reference lod^2."""
+
+    flux_density: float
+
+    def __call__(self, wavelength_nm, time_d):
+        return jnp.full_like(wavelength_nm, self.flux_density)
+
+    def spectral_breaks_nm(self):
+        return np.empty(0)
 
 
 class TabulatedExozodi(eqx.Module):
@@ -279,6 +293,9 @@ class TabulatedExozodi(eqx.Module):
 
     wavelengths_nm: object
     radiance: object
+
+    def spectral_breaks_nm(self):
+        return np.asarray(self.wavelengths_nm)
 
     def photon_radiance(self, wavelength_nm, *, separation_au):
         return (
@@ -293,7 +310,7 @@ def finite_star_setup(fixed_angle):
     import interpax
     from optixstuff import prepare_aperture
 
-    system, path, _, _, _ = fixed_angle
+    system, path, _ = fixed_angle
     coro = path.coronagraph
     knots = jnp.array([0.0, 0.1, 0.2])
     maps = jnp.exp(5 * knots[:, None, None]) * jnp.full((3, 24, 24), 1e-9 * 0.5**2)
@@ -304,8 +321,6 @@ def finite_star_setup(fixed_angle):
     )
     path = eqx.tree_at(lambda p: p.coronagraph, path, coro)
     bands = (Band(520, 530), Band(570, 580))
-    from hwoutils.spectral import Quadrature
-
-    q = Quadrature.build(bands, None, 1)
-    prepared = prepare_aperture(path, bands, q)
-    return system, path, bands, q, prepared
+    q = Quadrature.build(bands, system, path, AYOExozodi(), order=1)
+    prepared = prepare_aperture(path, q)
+    return system, path, prepared

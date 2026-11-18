@@ -7,20 +7,19 @@ import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
 import pytest
-from conftest import ABStar, make_path, make_system, oracle
+from conftest import ABStar, FlatCompanions, make_path, make_system, oracle
 from hwoutils import constants
 from hwoutils.grids import PixelGrid, SkyOrientation
-from hwoutils.spectral import Band, Transmission
+from hwoutils.spectral import Band, Quadrature, Transmission
 from optixstuff import prepare_aperture
 from skyscapes.disk import GraterDisk
 from skyscapes.scene import Star
 from zodi import SurfaceBrightnessDust
-from zodi.jax import PrecomputedZodi
+from zodi.jax import AYOExozodi, PrecomputedZodi
 
 from jaxedith import (
     ApertureRates,
     PostProcessing,
-    aperture_quadrature,
     aperture_rates,
     snr,
 )
@@ -34,14 +33,15 @@ def test_worked_example(example):
     Basis: order 4 versus 8 error <3e-11; 1e-9 allows integration rounding.
     Printed-digit checks use half a last displayed decimal place.
     """
-    _, path, _, quad, rates = example
+    _, path, rates = example
+    quad = rates.mean.quadrature
     photons, electrons = oracle()
     assert abs(oracle(4)[1] / oracle(8)[1] - 1) < 3e-11
     np.testing.assert_allclose(
-        rates.mean.integrate(quad).planet, photons, rtol=1e-9, atol=0
+        rates.mean.integrate().planet, photons, rtol=1e-9, atol=0
     )
     np.testing.assert_allclose(
-        path.detector.electrons(rates.mean, quad).planet, electrons, rtol=1e-9, atol=0
+        path.detector.electrons(rates.mean).planet, electrons, rtol=1e-9, atol=0
     )
     assert photons == pytest.approx(0.0477819, abs=5e-8)
     assert electrons == pytest.approx(0.0346767, abs=5e-8)
@@ -59,10 +59,10 @@ def test_worked_example(example):
     signal = electrons * 3600
     variance = signal + 0.004 * 3600 + 12 * (3e-4 * 3600 + 0.005 * 36 + 0.2**2 * 36)
     _, actual_variance = path.detector.mean_and_variance(
-        path.detector.electrons(rates.mean, quad), plan, 12
+        path.detector.electrons(rates.mean), plan, 12
     )
     np.testing.assert_allclose(actual_variance, variance, rtol=1e-9, atol=0)
-    actual = snr(rates, path.detector, quad, plan, post_processing=PostProcessing(0, 0))
+    actual = snr(rates, path.detector, plan, post_processing=PostProcessing(0, 0))
     np.testing.assert_allclose(actual, signal / np.sqrt(variance), rtol=1e-9, atol=0)
     assert signal == pytest.approx(124.84, abs=0.005)
     assert variance == pytest.approx(171.64, abs=0.005)
@@ -75,13 +75,13 @@ def test_node_qe_cannot_be_replaced_by_band_mean(example):
 
     Basis: independent 64-node integral, 1e-9 quadrature bound; mutant >0.5%.
     """
-    _, path, _, q, rates = example
+    _, path, rates = example
     detector = eqx.tree_at(
         lambda d: d.survival_fraction, path.detector, jnp.asarray(1.0)
     )
     expected = oracle()[1] / 0.9
     np.testing.assert_allclose(
-        detector.electrons(rates.mean, q).planet, expected, rtol=1e-9, atol=0
+        detector.electrons(rates.mean).planet, expected, rtol=1e-9, atol=0
     )
     wrong = oracle()[0] * 0.8
     assert abs(wrong / expected - 1) > 0.005
@@ -93,25 +93,26 @@ def test_survival_is_applied_once_after_reader(example):
 
     Basis: constant QE eliminates spectral averaging; exact algebra at 1e-12.
     """
-    system, path, band, q, rates = example
+    system, path, rates = example
+    q = rates.mean.quadrature
     detector = ox.Detector(
         pixel_scale_arcsec=0.01, shape=(1, 1), qe=0.8, survival_fraction=0.6
     )
     changed_path = eqx.tree_at(lambda p: p.detector, path, detector)
     changed = aperture_rates(
-        system, changed_path, band, time_d=0.0, planet_index=0, quadrature=q, zodi=None
+        system, changed_path, q, time_d=0.0, planet_index=0, zodi=None
     )
     np.testing.assert_array_equal(changed.mean.planet, rates.mean.planet)
-    expected = rates.mean.integrate(q).planet * 0.8 * 0.6
+    expected = rates.mean.integrate().planet * 0.8 * 0.6
     np.testing.assert_allclose(
-        detector.electrons(changed.mean, q).planet, expected, rtol=1e-12, atol=0
+        detector.electrons(changed.mean).planet, expected, rtol=1e-12, atol=0
     )
 
 
 @vv.case("aperture-photon-budget", "code-verification")
 def test_chromatic_bias(example):
     """Fails if the reader uses centre times width; 1e-9 quadrature basis."""
-    _, path, _, q, rates = example
+    _, path, rates = example
     centre = (
         40
         * 0.4
@@ -129,7 +130,7 @@ def test_chromatic_bias(example):
     expected = oracle()[1]
     assert 0.007 < abs(centre / expected - 1) < 0.012
     np.testing.assert_allclose(
-        path.detector.electrons(rates.mean, q).planet, expected, rtol=1e-9, atol=0
+        path.detector.electrons(rates.mean).planet, expected, rtol=1e-9, atol=0
     )
 
 
@@ -139,18 +140,17 @@ def test_leakage_is_aperture_sum(example):
 
     Basis: integral of 1/lambda is a logarithm; 1e-9 quadrature bound.
     """
-    system, _, band, _, _ = example
+    system, _, reference = example
+    band = reference.mean.quadrature.bands[0]
     expected = (
         40 * 0.4 * 2e-10 * (36.31 * constants.Jy) / constants.h * np.log(600 / 500)
     )
     values = []
     for step in (0.25, 0.125):
         path = make_path(pixel_scale_lod=step, leakage=2e-10)
-        q = aperture_quadrature(system, path, band, zodi=None)
-        rates = aperture_rates(
-            system, path, band, time_d=0.0, planet_index=0, quadrature=q, zodi=None
-        )
-        values.append(rates.mean.integrate(q).star_leakage)
+        q = Quadrature.build((band,), system, path, AYOExozodi())
+        rates = aperture_rates(system, path, q, time_d=0.0, planet_index=0, zodi=None)
+        values.append(rates.mean.integrate().star_leakage)
     np.testing.assert_allclose(values, expected, rtol=1e-9, atol=0)
     np.testing.assert_array_equal(values[0], values[1])
 
@@ -183,16 +183,15 @@ def test_disk_absolute_scale_and_centre_approximation():
         make_path(chromatic=False),
         Band(549.99, 550.01),
     )
-    q = aperture_quadrature(system, path, band, zodi=None, exozodi="scene")
+    q = Quadrature.build((band,), system, path)
     kwargs = dict(
         time_d=0.0,
         separation_arcsec=0.1,
         position_angle_deg=90.0,
         zodi=None,
-        quadrature=q,
         exozodi="scene",
     )
-    rates = aperture_rates(system, path, band, **kwargs)
+    rates = aperture_rates(system, path, q, **kwargs)
     arcsec_rad = constants.arcsec2rad
     f0 = (
         (3636 * constants.Jy)
@@ -205,14 +204,14 @@ def test_disk_absolute_scale_and_centre_approximation():
     np.testing.assert_allclose(rates.mean.exozodi, expected, rtol=1e-10, atol=0)
     doubled = eqx.tree_at(lambda s: s.disk.amplitude.level, system, 6.0)
     np.testing.assert_allclose(
-        aperture_rates(doubled, path, band, **kwargs).mean.exozodi,
+        aperture_rates(doubled, path, q, **kwargs).mean.exozodi,
         2 * expected,
         rtol=1e-10,
         atol=0,
     )
     empty = eqx.tree_at(lambda s: s.disk, system, None)
     np.testing.assert_array_equal(
-        aperture_rates(empty, path, band, **kwargs).mean.exozodi, 0
+        aperture_rates(empty, path, q, **kwargs).mean.exozodi, 0
     )
     radius = 0.7 * (550 * constants.nm2m) / 8 / arcsec_rad
     step = 2 * radius / 31
@@ -263,7 +262,7 @@ def test_disk_absolute_scale_and_centre_approximation():
     )
     # Width is only 0.02 nm: the 1/lambda curvature bias is below 2e-10.
     np.testing.assert_allclose(
-        rates.mean.integrate(q).exozodi, legacy_disk, rtol=2e-10, atol=0
+        rates.mean.integrate().exozodi, legacy_disk, rtol=2e-10, atol=0
     )
 
 
@@ -309,8 +308,15 @@ def test_all_tabulated_breakpoints_and_multiple_bands():
         jnp.array([500.0, 581.0, 600.0]), jnp.array([1e10, 3e10, 2e10])
     )
     bands = (Band(500, 550), Band(550, 600))
-    q = aperture_quadrature(system, path, bands, zodi=zodi)
-    q8 = aperture_quadrature(system, path, bands, zodi=zodi, quadrature_order=8)
+
+    def read(sampling):
+        return aperture_rates(
+            system, path, sampling, time_d=0.0, planet_index=0, zodi=zodi
+        ).mean
+
+    photons = read(bands)
+    q = photons.quadrature
+    q8 = Quadrature.build(bands, system, path, zodi, AYOExozodi(), order=8)
     for knot in (523, 531, 547, 569, 581):
         # Nodes/weights reveal a split, not just greater unsplit order.
         i = 0 if knot < 550 else 1
@@ -318,13 +324,12 @@ def test_all_tabulated_breakpoints_and_multiple_bands():
             np.asarray(q.weights_nm[i])[np.asarray(q.nodes_nm[i]) < knot]
         ) == pytest.approx(knot - bands[i].lo_nm, abs=1e-12)
 
-    def read(rule):
-        r = aperture_rates(
-            system, path, bands, time_d=0.0, planet_index=0, quadrature=rule, zodi=zodi
-        )
-        return path.detector.electrons(r.mean, rule).total()
-
-    np.testing.assert_allclose(read(q), read(q8), rtol=1e-12, atol=0)
+    np.testing.assert_allclose(
+        detector.electrons(photons).total(),
+        detector.electrons(read(q8)).total(),
+        rtol=1e-12,
+        atol=0,
+    )
 
 
 @vv.case("aperture-photon-budget", "code-verification")
@@ -333,22 +338,20 @@ def test_thermal_companions_and_absolute_local_zodi(example):
 
     Basis: independently typed Planck/sr arithmetic, 1e-12 rounding bound.
     """
-    system, path, band, q, _ = example
+    system, path, reference = example
+    bands = reference.mean.quadrature.bands
     zodi = PrecomputedZodi(jnp.array([500.0, 600.0]), jnp.array([2e10, 2e10]))
-
-    def companions(w, t):
-        return jnp.full_like(w, 0.003)
 
     kwargs = dict(
         time_d=0.0,
         planet_index=0,
-        quadrature=q,
         zodi=zodi,
         temperature_K=2000.0,
         eps_warm_T_cold=0.2,
-        companion_flux_density=companions,
+        companion_flux_density=FlatCompanions(0.003),
     )
-    rates = aperture_rates(system, path, band, **kwargs)
+    rates = aperture_rates(system, path, bands, **kwargs)
+    q = rates.mean.quadrature
     w = np.asarray(q.nodes_nm) * constants.nm2m
     omega = np.pi * 0.7**2 * (550 * constants.nm2m / 8) ** 2
     expected = (
@@ -373,7 +376,7 @@ def test_thermal_companions_and_absolute_local_zodi(example):
     )
     brighter = eqx.tree_at(lambda s: s.star.flux_jy, system, 3631.0)
     np.testing.assert_array_equal(
-        aperture_rates(brighter, path, band, **kwargs).mean.local_zodi,
+        aperture_rates(brighter, path, q, **kwargs).mean.local_zodi,
         rates.mean.local_zodi,
     )
 
@@ -418,33 +421,33 @@ def test_transmission_map_and_multiband_dispatch():
         grid,
         Image(0.5 + 0.02 * x + 0.1 * y**2, grid, (), "per_unit_area", "transmission"),
         record,
+        bandpass=Band(490, 550),
     )
-    other = make_path(chromatic=False).coronagraph
+    other = make_path(chromatic=False, bandpass=Band(550, 620)).coronagraph
     other = eqx.tree_at(lambda c: c.sky_transmission, other, 0.8)
-    multi = ox.MultiBandCoronagraph((520.0, 580.0), (table, other))
+    multi = ox.MultiBandCoronagraph((table, other))
     path = eqx.tree_at(lambda p: p.coronagraph, path, multi)
     band = Band(500, 600)
     zodi = PrecomputedZodi(jnp.array([500.0, 600.0]), jnp.full(2, 1e10))
-    q = aperture_quadrature(system, path, band, zodi=zodi)
+    q = Quadrature.build((band,), system, path, zodi, AYOExozodi())
 
-    prepared = prepare_aperture(path, band, q)
+    prepared = prepare_aperture(path, q)
 
     def read(separation):
         rates = aperture_rates(
             system,
             path,
-            band,
+            prepared,
             time_d=0.0,
             separation_arcsec=separation,
-            prepared_aperture=prepared,
             zodi=zodi,
         )
         return jnp.stack(
-            [rate.integrate(q).local_zodi for rate in (rates.mean, rates.variance)]
+            [rate.integrate().local_zodi for rate in (rates.mean, rates.variance)]
         )
 
     scale = (550 * constants.nm2m) / 8 / (constants.arcsec2rad)
-    # At the equidistant reference 550 the first band supplies the area.
+    # At their shared edge (550 nm) the first band supplies the area.
     expected = (
         40
         * 0.4
@@ -487,23 +490,22 @@ def test_disk_traced_sky_position():
     )
     system = make_system(FlatStar(1e6), chromatic=False, disk=disk)
     path, band = make_path(chromatic=False), Band(549.0, 551.0)
-    q = aperture_quadrature(system, path, band, zodi=None, exozodi="scene")
+    q = Quadrature.build((band,), system, path)
 
-    prepared = prepare_aperture(path, band, q)
+    prepared = prepare_aperture(path, q)
 
     def read(scene, t):
         return (
             aperture_rates(
                 scene,
                 path,
-                band,
+                prepared,
                 time_d=t,
-                prepared_aperture=prepared,
                 exozodi="scene",
                 zodi=None,
                 planet_index=0,
             )
-            .mean.integrate(q)
+            .mean.integrate()
             .exozodi[0]
         )
 
@@ -555,7 +557,8 @@ def test_fixed_angle_uniform_leakage(fixed_angle):
     nodes; 1e-9 relative permits quadrature rounding. The table's primitive
     uniform-density calibration isolates the reader from PSF photometry.
     """
-    system, path, bands, q, prepared = fixed_angle
+    system, path, prepared = fixed_angle
+    q = prepared.quadrature
     from conftest import TabulatedCoronagraph
 
     calibration = make_path(chromatic=False, leakage=1e-9 * np.pi * 0.7**2)
@@ -565,14 +568,13 @@ def test_fixed_angle_uniform_leakage(fixed_angle):
         calibration.coronagraph.curves(),
     )
     path = eqx.tree_at(lambda p: p.coronagraph, path, table)
-    prepared = prepare_aperture(path, bands, q)
+    prepared = prepare_aperture(path, q)
     rates = aperture_rates(
         system,
         path,
-        bands,
+        prepared,
         time_d=0.0,
         planet_index=0,
-        prepared_aperture=prepared,
         zodi=None,
     )
     x, w = np.polynomial.legendre.leggauss(4)
@@ -591,7 +593,7 @@ def test_fixed_angle_uniform_leakage(fixed_angle):
         axis=1,
     )
     np.testing.assert_allclose(
-        path.detector.electrons(rates.mean, q).star_leakage, expected, rtol=1e-9, atol=0
+        path.detector.electrons(rates.mean).star_leakage, expected, rtol=1e-9, atol=0
     )
 
 
@@ -604,14 +606,14 @@ def test_planet_scaled_node_curve(fixed_angle):
     """
     from optixstuff.apertures import Circular
 
-    system, path, bands, q, prepared = fixed_angle
+    system, path, prepared = fixed_angle
+    q = prepared.quadrature
     rates = aperture_rates(
         system,
         path,
-        bands,
+        prepared,
         time_d=0.0,
         planet_index=0,
-        prepared_aperture=prepared,
         zodi=None,
     )
     w = float(q.nodes_nm[0, 0])
@@ -628,22 +630,18 @@ def test_planet_scaled_node_curve(fixed_angle):
 def test_monochromatic_reference_aperture(fixed_angle):
     """Fails if a monochromatic node is scaled away from its reference.
 
-    Basis: exact array equality to the unscaled reference curve; Band has
-    positive width, so a one-node Quadrature represents monochromatic light.
+    Basis: exact array equality to the unscaled reference curve at the
+    monochromatic wavelength.
     """
-    from hwoutils.spectral import Quadrature
-
-    system, path, _, _, _ = fixed_angle
-    band = Band(549.0, 551.0)
-    q = Quadrature(jnp.array([[550.0]]), jnp.array([[1.0]]))
-    prepared = prepare_aperture(path, band, q)
+    system, path, _ = fixed_angle
+    q = Quadrature.monochromatic(550.0)
+    prepared = prepare_aperture(path, q)
     rates = aperture_rates(
         system,
         path,
-        band,
+        prepared,
         time_d=0.0,
         planet_index=0,
-        prepared_aperture=prepared,
         zodi=None,
     )
     sep = 1 / system.dist_pc / path.primary.frame(550.0).lod_to_arcsec(550.0)
@@ -661,16 +659,15 @@ def test_prepared_aperture_jit(fixed_angle):
 
     Basis: eager/JIT arithmetic equality within 1e-12 floating-point error.
     """
-    system, path, bands, _, prepared = fixed_angle
+    system, path, prepared = fixed_angle
 
     def read(scene, aperture):
         return aperture_rates(
             scene,
             path,
-            bands,
+            aperture,
             time_d=0.0,
             planet_index=0,
-            prepared_aperture=aperture,
             zodi=None,
         )
 
@@ -697,7 +694,9 @@ def test_finite_star_image_aperture_sum(finite_star_setup):
     from optixstuff import Detector
     from optixstuff.performance import _circle_square_weights
 
-    system, path, bands, q, prepared = finite_star_setup
+    system, path, prepared = finite_star_setup
+    q = prepared.quadrature
+    bands = q.bands
     system = eqx.tree_at(lambda s: s.star.fixed_diameter_arcsec, system, 0.002)
     scale = path.coronagraph.frame.lod_to_arcsec(550)
     pitch = 0.5 * scale
@@ -708,19 +707,17 @@ def test_finite_star_image_aperture_sum(finite_star_setup):
     rates = aperture_rates(
         system,
         path,
-        bands,
+        prepared,
         time_d=0.0,
         separation_arcsec=separation,
-        prepared_aperture=prepared,
         zodi=None,
     )
     images = image_rates(
         system,
         path,
-        bands,
+        q,
         time_d=0.0,
         pointing=SkyOrientation(0.0),
-        quadrature=q,
         zodi=None,
     )
     yy, xx = jnp.indices((24, 24))

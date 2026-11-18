@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
 from conftest import make_path, make_system, oracle
-from hwoutils.spectral import Band
+from hwoutils.spectral import Band, Quadrature
 from reference.legacy import (
     etc_scene_from_system,
     frame_plan_photon_counting,
@@ -14,9 +14,9 @@ from reference.legacy import (
 )
 from reference.primitives import planet_rate, stellar_leakage_rate, zodi_rate
 from skyscapes.scene import FlatStar
-from zodi.jax import PrecomputedZodi
+from zodi.jax import AYOExozodi, PrecomputedZodi
 
-from jaxedith import aperture_quadrature, aperture_rates
+from jaxedith import aperture_rates
 
 
 @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="pyedith")
@@ -37,10 +37,10 @@ def test_adapter_fed_legacy_limit_and_chromatic_bias(example):
     band = Band(549.999, 550.001)
     zodi = PrecomputedZodi(jnp.array([500.0, 600.0]), jnp.full(2, 1e10))
     scene = etc_scene_from_system(system, 550.0, time_d=0.0, planet_index=0, zodi=zodi)
-    q = aperture_quadrature(system, path, band, zodi=zodi)
+    q = Quadrature.build((band,), system, path, zodi, AYOExozodi())
     rates = aperture_rates(
-        system, path, band, time_d=0.0, planet_index=0, quadrature=q, zodi=zodi
-    ).mean.integrate(q)
+        system, path, q, time_d=0.0, planet_index=0, zodi=zodi
+    ).mean.integrate()
     cp = planet_rate(
         scene.F0, scene.Fs_over_F0, scene.Fp_over_Fs, 40.0, 0.4, 0.3, band.width_nm, 1
     )
@@ -68,14 +68,14 @@ def test_adapter_fed_legacy_limit_and_chromatic_bias(example):
         np.pi * 0.7**2,
     )
     np.testing.assert_allclose(rates.local_zodi, sky, rtol=1e-12, atol=0)
-    system, path, band, q, r = example
+    system, path, r = example
     scene = etc_scene_from_system(system, 550.0, time_d=0.0, planet_index=0, zodi=None)
     chromatic = planet_rate(
         scene.F0, scene.Fs_over_F0, scene.Fp_over_Fs, 40.0, 0.4 * 0.8 * 0.9, 0.3, 100, 1
     )
     assert 0.007 < abs(chromatic / oracle()[1] - 1) < 0.012
     np.testing.assert_allclose(
-        path.detector.electrons(r.mean, q).planet, oracle()[1], rtol=1e-9, atol=0
+        path.detector.electrons(r.mean).planet, oracle()[1], rtol=1e-9, atol=0
     )
     plan = frame_plan_photon_counting(0.02, time_s=100.0)
     np.testing.assert_allclose(plan.frame_time_s * 0.02, 1 / 6.73, rtol=1e-12)

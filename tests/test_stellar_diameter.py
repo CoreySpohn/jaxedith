@@ -20,17 +20,17 @@ def test_finite_diameter_physics_and_transforms(finite_star_setup):
     Larger diameter must raise shot-noise exposure time and lower fixed-time
     S/N, while planet photons stay unchanged. JIT/vmap covers target diameters.
     """
-    system, path, bands, q, prepared = finite_star_setup
+    system, path, prepared = finite_star_setup
+    q = prepared.quadrature
 
     def rates(d):
         scene = eqx.tree_at(lambda s: s.star.fixed_diameter_arcsec, system, d)
         return aperture_rates(
             scene,
             path,
-            bands,
+            prepared,
             time_d=0.0,
             planet_index=0,
-            prepared_aperture=prepared,
             zodi=None,
         )
 
@@ -57,7 +57,6 @@ def test_finite_diameter_physics_and_transforms(finite_star_setup):
                 5.0,
                 r,
                 path.detector,
-                q,
                 frame_time_s=1.0,
                 post_processing=pp,
             ).live_time_s
@@ -66,7 +65,6 @@ def test_finite_diameter_physics_and_transforms(finite_star_setup):
             snr(
                 r,
                 path.detector,
-                q,
                 FramePlan(100.0, 36),
                 post_processing=pp,
             )
@@ -84,7 +82,9 @@ def test_blackbody_diameter_uses_distance(finite_star_setup):
     """
     from hwoutils.constants import pc2m
 
-    system, path, bands, q, prepared = finite_star_setup
+    system, path, prepared = finite_star_setup
+    q = prepared.quadrature
+    bands = q.bands
     # Product diameter is 8 m; a different primary must not set stellar lambda/D.
     path = eqx.tree_at(lambda p: p.primary.circumscribed_diameter_m, path, 6.0)
     star = BlackbodyStar(teff_K=5772.0, radius_m=6.957e8)
@@ -93,10 +93,9 @@ def test_blackbody_diameter_uses_distance(finite_star_setup):
         r = aperture_rates(
             scene,
             path,
-            bands,
+            prepared,
             time_d=0.0,
             separation_arcsec=0.05,
-            prepared_aperture=prepared,
             zodi=None,
         )
         diameter_rad = 2 * star.radius_m / (distance * pc2m)
@@ -119,10 +118,9 @@ def test_blackbody_diameter_uses_distance(finite_star_setup):
             actual = aperture_rates(
                 other,
                 path,
-                bands,
+                prepared,
                 time_d=0.0,
                 separation_arcsec=0.05,
-                prepared_aperture=prepared,
                 zodi=None,
             )
             np.testing.assert_allclose(
