@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
 from conftest import make_path, make_system, oracle
-from hwoutils.spectral import Band, Quadrature
+from optixstuff.spectral import Band, Quadrature
 from reference.legacy import (
     etc_scene_from_system,
     frame_plan_photon_counting,

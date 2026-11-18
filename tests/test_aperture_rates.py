@@ -9,9 +9,9 @@ import optixstuff as ox
 import pytest
 from conftest import ABStar, FlatCompanions, make_path, make_system, oracle
 from hwoutils import constants
-from hwoutils.grids import Measure, PixelGrid, SkyOrientation
-from hwoutils.spectral import Band, Quadrature, Transmission
 from optixstuff import prepare_aperture
+from optixstuff.grids import Measure, PixelGrid, SkyOrientation
+from optixstuff.spectral import Band, Quadrature, Transmission
 from skyscapes.disk import GraterDisk
 from skyscapes.scene import Star
 from zodi import SurfaceBrightnessDust
@@ -320,7 +320,7 @@ def test_all_tabulated_breakpoints_and_multiple_bands():
         # Nodes/weights reveal a split, not just greater unsplit order.
         i = 0 if knot < 550 else 1
         assert np.sum(
-            np.asarray(q.weights_nm[i])[np.asarray(q.nodes_nm[i]) < knot]
+            np.asarray(q.weights("response")[i])[np.asarray(q.nodes_nm[i]) < knot]
         ) == pytest.approx(knot - bands[i].lo_nm, abs=1e-12)
 
     np.testing.assert_allclose(
@@ -392,7 +392,7 @@ def test_transmission_map_and_multiband_dispatch():
     """
     import jax
     from conftest import TabulatedCoronagraph
-    from hwoutils.grids import Image, PixelGrid
+    from optixstuff.grids import Image, PixelGrid
     from optixstuff.performance import PerformanceCurves
     from skyscapes.scene import FlatStar
 

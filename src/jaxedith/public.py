@@ -3,11 +3,11 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from hwoutils.grids import PixelGrid
 from hwoutils.planck import planck_photon_radiance
-from hwoutils.spectral import Band, Quadrature
 from optixstuff import ElectronRates, FramePlan, PhotonRates, aperture_binding
 from optixstuff.apertures import DEFAULT_APERTURE_RULE
+from optixstuff.grids import PixelGrid
+from optixstuff.spectral import Band, Quadrature
 from zodi.jax import AYOZodi
 
 _DEFAULT_ZODI = AYOZodi()
@@ -79,7 +79,7 @@ def _matched_rates(
     yield_fraction = (
         detector.quantum_efficiency(quadrature.nodes_nm) * detector.survival_fraction
     )
-    detected = quadrature.weights_nm * yield_fraction
+    detected = quadrature.weights("response") * yield_fraction
     shot = detected * detector.excess_noise_factor_sq
     diffuse = incident.local_zodi + incident.exozodi + incident.stellar_companions
     native_sr = jnp.stack(

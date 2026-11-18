@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
 import pytest
-from hwoutils.grids import Measure
+from optixstuff.grids import Measure
 from reference.legacy import post_processing_from_exosims, post_processing_from_pyedith
 
 from jaxedith import (
@@ -168,11 +168,11 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
     """
     from conftest import FlatCompanions, TabulatedCoronagraph, make_path, make_system
     from hwoutils.conversions import arcsec_to_rad
-    from hwoutils.grids import Image, PixelGrid
     from hwoutils.planck import planck_photon_radiance
-    from hwoutils.spectral import Band
     from optixstuff.apertures import Circular, Matched
+    from optixstuff.grids import Image, PixelGrid
     from optixstuff.performance import performance_curves
+    from optixstuff.spectral import Band
     from skyscapes.scene import FlatStar
 
     path = make_path(chromatic=False)

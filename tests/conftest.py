@@ -41,9 +41,9 @@ import pytest
 from hwoutils import constants
 from hwoutils.conversions import jy_to_photons_per_nm_per_m2
 from hwoutils.epoch import Epoch
-from hwoutils.grids import Frame, Measure, PixelGrid
-from hwoutils.spectral import Band, Quadrature
 from optixstuff.apertures import Circular
+from optixstuff.grids import Frame, Measure, PixelGrid
+from optixstuff.spectral import Band, Quadrature
 from skyscapes.disk import AbstractDisk, AYOExozodiDisk
 from skyscapes.physical_model import GridPhysicalModel
 from skyscapes.scene import Planet, Scene
@@ -161,8 +161,8 @@ def oracle(order=64):
     )
 
 
-from hwoutils.grids import Image
 from optixstuff.coronagraph import AbstractTableCoronagraph
+from optixstuff.grids import Image
 from yippy import open_yip
 from yippy.testing import write_synthetic_yip
 from yippy.writer import yip_header

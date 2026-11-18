@@ -19,7 +19,7 @@ before integration to give mean electrons/s.
 This example requires a configured `scene` and `instrument`.
 
 ```python notest
-from hwoutils.spectral import Band
+from optixstuff.spectral import Band
 from optixstuff import frames_for_time
 from jaxedith import (
     PostProcessing,
@@ -92,7 +92,7 @@ or companion model. A custom model declares its wavelength breaks in nm
 through `spectral_breaks_nm()`, returning an empty array for a smooth spectrum.
 Disk breaks enter through `scene.disk`.
 
-To reuse sampling, pass a `hwoutils.spectral.Quadrature` as the third argument
+To reuse sampling, pass a `optixstuff.spectral.Quadrature` as the third argument
 to `aperture_rates`. For instance, a planet read with the scene's disk and a
 local zodi model uses `Quadrature.build((band,), scene, instrument, zodi)`. To reuse aperture
 preparation under JIT, pass `prepare_aperture(instrument, quadrature)` as

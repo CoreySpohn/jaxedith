@@ -7,9 +7,9 @@ import jax.numpy as jnp
 import numpy as np
 from conftest import make_path, make_system
 from hwoutils import constants
-from hwoutils.grids import PixelGrid, SkyOrientation
-from hwoutils.spectral import Band
 from optixstuff import prepare_aperture
+from optixstuff.grids import PixelGrid, SkyOrientation
+from optixstuff.spectral import Band
 from reference.primitives import exozodi_rate
 from skyscapes.disk import ExovistaDisk
 
@@ -80,7 +80,7 @@ def test_separation_law_ignored_disk_and_disabled():
     empty = eqx.tree_at(lambda s: s.disk, system, None)
     empty_q = sampling(empty)
     np.testing.assert_array_equal(q.nodes_nm, empty_q.nodes_nm)
-    np.testing.assert_array_equal(q.weights_nm, empty_q.weights_nm)
+    np.testing.assert_array_equal(q.weights("response"), empty_q.weights("response"))
     assert sampling(with_disk).nodes_nm.size == 2 * empty_q.nodes_nm.size
     prepared = prepare_aperture(path, q)
 
@@ -147,7 +147,9 @@ def test_exozodi_knots_split_quadrature():
     )
     q = rates.mean.quadrature
     np.testing.assert_allclose(
-        np.sum(np.asarray(q.weights_nm)[np.asarray(q.nodes_nm) < 537]), 37, rtol=1e-12
+        np.sum(np.asarray(q.weights("response"))[np.asarray(q.nodes_nm) < 537]),
+        37,
+        rtol=1e-12,
     )
     expected = (
         40
