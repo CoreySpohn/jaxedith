@@ -208,7 +208,11 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
         )
 
     def _native_stellar_map(self, stellar_diam_lod):
-        raise NotImplementedError("only transmission is needed by this fixture")
+        # Uniform leakage at the record's calibrated density, so the annular
+        # aperture integral of the map reproduces the record's leakage.
+        density = jnp.asarray(self.record.leakage_density_lod2).ravel()[0]
+        data = jnp.full(self.grid.shape, density * self.grid.pixel_area)
+        return Image(data, self.grid, (), Measure.integral(), "fraction")
 
     def _native_source_psfs(self, x_lod, y_lod):
         valid = jnp.isfinite(x_lod) & jnp.isfinite(y_lod)

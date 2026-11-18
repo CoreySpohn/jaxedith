@@ -383,10 +383,13 @@ def test_thermal_companions_and_absolute_local_zodi(example):
 
 @vv.case("aperture-photon-budget", "code-verification")
 def test_transmission_map_and_multiband_dispatch():
-    """Fails if sky transmission is a radial proxy or dispatch ignores nodes.
+    """Fails if the sky term is not the annular mean of the aperture integral.
 
-    The disk average of y**2 is radius**2/4. The 0.3% tolerance covers
-    finite native pixels in the quadratic field at a 0.25 lod pitch.
+    Over the ring at separation s the aperture mean of x vanishes and that of
+    y**2 is s**2/2 + radius**2/4 (equally spaced position angles average both
+    exactly). The 0.3% tolerance covers finite native pixels in the quadratic
+    field at a 0.25 lod pitch and linear interpolation between knots 0.05 lod
+    apart (at most 0.05**2/8 * 0.1 of the field, below 1e-4 relative).
     """
     import jax
     from conftest import TabulatedCoronagraph
@@ -400,11 +403,12 @@ def test_transmission_map_and_multiband_dispatch():
     )
     grid = PixelGrid.focal(24, 0.25, path.coronagraph.frame)
     x, y = grid.coordinates()
-    # Three calibrated radii resolve the integrated affine sky on either side
-    # of the requested offset. A quadratic term distinguishes an aperture
-    # integral from its centre value, including the variance moment.
+    # Dense calibrated radii around the requested offset (1 lod at 550 nm,
+    # 1.1 lod at 500 nm). The y**2 term distinguishes an aperture integral from
+    # its centre value and the x term an annular mean from one position angle,
+    # in both moments.
     record = path.coronagraph.curves()
-    axis = jnp.arange(3.0)
+    axis = jnp.linspace(0.8, 1.3, 11)
 
     record = PerformanceCurves(
         axis,
@@ -459,9 +463,8 @@ def test_transmission_map_and_multiband_dispatch():
         * ((550 * constants.nm2m) / 8) ** 2
         * (
             50 * 0.5
-            + 0.02 * 550 * np.log(550 / 500)
             + 50 * 0.8
-            + 0.1 * 0.7**2 * 550**2 / 4 * (1 / 500 - 1 / 550)
+            + 0.1 * (0.7**2 / 4 + 1 / 2) * 550**2 * (1 / 500 - 1 / 550)
         )
     )
     np.testing.assert_allclose(read(scale), expected, rtol=0.003, atol=0)
