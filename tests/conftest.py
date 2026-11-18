@@ -124,7 +124,7 @@ def make_path(
         clock_induced_charge_e_per_pixel_frame=0.005,
         read_noise_e_rms=0.2,
     )
-    return ox.OpticalPath(primary, (ox.ConstantThroughput(0.4),), coro, detector)
+    return ox.Instrument(primary, (ox.ConstantThroughput(0.4),), coro, detector)
 
 
 @pytest.fixture(scope="module")

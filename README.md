@@ -1,6 +1,6 @@
 # jaxedith
 
-`jaxedith` reads a `skyscapes.System` and an `optixstuff.OpticalPath` into
+`jaxedith` reads a `skyscapes.System` and an `optixstuff.Instrument` into
 an aperture photon budget, then computes S/N and whole-frame exposure plans
 using the detector's shared statistics contract.
 
@@ -16,7 +16,7 @@ before integration to give mean electrons/s.
 
 ## Usage
 
-This example requires a configured `system` and `optical_path`.
+This example requires a configured `system` and `instrument`.
 
 ```python notest
 from hwoutils.spectral import Band
@@ -31,7 +31,7 @@ from jaxedith import (
 band = Band(500.0, 600.0)
 rates = aperture_rates(
     system,
-    optical_path,
+    instrument,
     band,
     time_d=0.0,
     planet_index=0,
@@ -43,19 +43,19 @@ post_processing = PostProcessing(
 plan = frames_for_time(3600.0, frame_time_s=100.0)
 achieved = snr(
     rates,
-    optical_path.detector,
+    instrument.detector,
     plan,
     post_processing=post_processing,
 )
 required = exposure_time(
     10.0,
     rates,
-    optical_path.detector,
+    instrument.detector,
     frame_time_s=100.0,
     post_processing=post_processing,
 )
 seconds = required.live_time_s
-occupied_seconds = required.occupied_time_s(optical_path.detector)
+occupied_seconds = required.occupied_time_s(instrument.detector)
 ```
 
 Select one flattened `planet_index`, or pass `separation_arcsec` and
@@ -94,10 +94,10 @@ Disk breaks enter only with `exozodi="scene"`.
 
 To reuse sampling, pass a `hwoutils.spectral.Quadrature` as the third argument
 to `aperture_rates`. For instance, a planet read with scene exozodi and a local
-zodi model uses `Quadrature.build((band,), system, optical_path, zodi)`.
-For analytic exozodi, pass `system.star, *system.planets, optical_path, zodi,
+zodi model uses `Quadrature.build((band,), system, instrument, zodi)`.
+For analytic exozodi, pass `system.star, *system.planets, instrument, zodi,
 exozodi` to the builder to exclude the inactive disk. To reuse aperture
-preparation under JIT, pass `prepare_aperture(optical_path, quadrature)` as
+preparation under JIT, pass `prepare_aperture(instrument, quadrature)` as
 the third argument. Photon rates retain their quadrature. Integrated photon
 and electron rates retain the corresponding bands.
 

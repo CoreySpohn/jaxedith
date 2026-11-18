@@ -30,7 +30,7 @@ verified for those contracts.
 
 | Package | Role |
 |---|---|
-| `optixstuff` | OpticalPath, aperture preparation, photon rates, detector statistics and frame plans |
+| `optixstuff` | Instrument, aperture preparation, photon rates, detector statistics and frame plans |
 | `skyscapes` | System, photon spectra and disk radiance |
 | `hwoutils` | Band, Quadrature, PixelGrid, constants and conversions |
 | `zodi[jax]` | Local-zodi photon radiance, spectral tables and dust calibration |

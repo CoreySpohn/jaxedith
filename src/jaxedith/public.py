@@ -134,7 +134,7 @@ def _matched_rates(
 
 def aperture_rates(
     system,
-    optical_path,
+    instrument,
     sampling,
     *,
     time_d,
@@ -202,7 +202,7 @@ def aperture_rates(
             quadrature = sampling
         else:
             bands = (sampling,) if isinstance(sampling, Band) else tuple(sampling)
-            models = [system.star, optical_path]
+            models = [system.star, instrument]
             if planet_index is not None:
                 models.extend(system.planets)
             disk = system.disk if isinstance(exozodi, str) else exozodi
@@ -213,7 +213,7 @@ def aperture_rates(
             )
             quadrature = Quadrature.build(bands, *models, order=quadrature_order)
         prepared_aperture = aperture_binding.prepare_aperture(
-            optical_path,
+            instrument,
             quadrature,
             rule=rule,
             reference_wavelength_nm=reference_wavelength_nm,
@@ -253,8 +253,8 @@ def aperture_rates(
         )
     )
     diameter = system.star.angular_diameter_arcsec(system.dist_pc)
-    area_m2 = optical_path.primary.collecting_area_m2
-    throughput = jax.vmap(optical_path.system_throughput)(wave.reshape(-1)).reshape(
+    area_m2 = instrument.primary.collecting_area_m2
+    throughput = jax.vmap(instrument.system_throughput)(wave.reshape(-1)).reshape(
         wave.shape
     )
     common = area_m2 * throughput
@@ -280,7 +280,7 @@ def aperture_rates(
         )
         return _matched_rates(
             prepared_aperture,
-            optical_path.detector,
+            instrument.detector,
             incident,
             separation,
             diameter,
@@ -338,7 +338,7 @@ def aperture_rates(
             ),
         )
 
-    pixels_per_lod2 = (scales / optical_path.detector.pixel_scale_arcsec) ** 2
+    pixels_per_lod2 = (scales / instrument.detector.pixel_scale_arcsec) ** 2
     return ApertureRates(
         mean=photon_rates(tau, leak, areas, sky),
         variance=photon_rates(
