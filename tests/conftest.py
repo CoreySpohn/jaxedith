@@ -41,7 +41,7 @@ import pytest
 from hwoutils import constants
 from hwoutils.conversions import jy_to_photons_per_nm_per_m2
 from hwoutils.epoch import Epoch
-from hwoutils.grids import PixelGrid
+from hwoutils.grids import Frame, PixelGrid
 from hwoutils.spectral import Band
 from optixstuff.apertures import Circular
 from skyscapes.physical_model import GridPhysicalModel
@@ -157,7 +157,9 @@ def oracle(order=64):
 
 from hwoutils.grids import Image
 from optixstuff.coronagraph import AbstractTableCoronagraph
-from yippy import Coronagraph
+from yippy import open_yip
+from yippy.testing import write_synthetic_yip
+from yippy.writer import yip_header
 
 
 class TabulatedCoronagraph(AbstractTableCoronagraph):
@@ -205,7 +207,6 @@ class TabulatedCoronagraph(AbstractTableCoronagraph):
 @pytest.fixture(scope="module")
 def fixed_angle(tmp_path_factory):
     """Gaussian YIP, uniform 1e-9/lod^2 leakage, real eager aperture records."""
-    from astropy.io import fits
     from optixstuff import prepare_aperture
     from skyscapes.scene import FlatStar
 
@@ -224,38 +225,25 @@ def fixed_angle(tmp_path_factory):
             for x, y in offsets
         ]
     )
-    header = fits.Header(
-        dict(
-            D=8.0,
-            D_INSC=7.0,
-            OBSCURED=0.2,
-            PIXSCALE=step,
-            LAMBDA=550.0,
-            MINLAM=500.0,
-            MAXLAM=600.0,
-            XCENTER=n / 2,
-            YCENTER=n / 2,
-            N_LAM=1,
-            N_STAR=3,
-        )
+    grid = PixelGrid.focal(n, step, Frame(550.0, 8.0, "circumscribed"))
+    write_synthetic_yip(
+        directory,
+        grid=grid,
+        offsets_xy_lod=offsets,
+        psfs=psfs,
+        stellar=(np.array([0.0, 0.1, 0.2]), np.full((3, n, n), 1e-9 * step**2)),
+        sky=np.full((n, n), 0.3),
+        headers=yip_header(
+            grid,
+            inscribed_diameter_m=7.0,
+            obscured=0.2,
+            min_wavelength_nm=500.0,
+            max_wavelength_nm=600.0,
+            n_wavelengths=1,
+            n_pointings=3,
+        ),
     )
-    for key, unit in (
-        ("D", "m"),
-        ("D_INSC", "m"),
-        ("LAMBDA", "nm"),
-        ("MINLAM", "nm"),
-        ("MAXLAM", "nm"),
-    ):
-        header.comments[key] = f"value in {unit}"
-    for name, data in (
-        ("offax_psf", psfs),
-        ("offax_psf_offset_list", offsets),
-        ("stellar_intens", np.full((3, n, n), 1e-9 * step**2)),
-        ("stellar_intens_diam_list", np.array([0.0, 0.1, 0.2])),
-        ("sky_trans", np.full((n, n), 0.3)),
-    ):
-        fits.PrimaryHDU(data, header).writeto(directory / f"{name}.fits")
-    coro = Coronagraph(directory, rules=(Circular(0.7),))
+    coro = open_yip(directory).prepare(rules=(Circular(0.7),))
     import equinox as eqx
 
     path = eqx.tree_at(lambda p: p.coronagraph, make_path(chromatic=False), coro)
