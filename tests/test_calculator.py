@@ -25,21 +25,15 @@ def test_post_processing_count_variance(example):
     Basis: exact algebra with 1e-12 relative float64 rounding allowance.
     """
     _, path, rates = example
-    q = rates.mean.quadrature
+    q = rates.quadrature
     rates = eqx.tree_at(
-        lambda r: (r.mean.star_leakage, r.mean.exozodi),
+        lambda r: (r.star_leakage, r.exozodi),
         rates,
         (jnp.full(q.nodes_nm.shape, 0.001), jnp.full(q.nodes_nm.shape, 0.002)),
     )
-    e = path.detector.electrons(rates.mean)
+    e = path.detector.electrons(rates)
     plan = ox.FramePlan(100.0, 36)
-    _, base = path.detector.mean_and_variance(
-        e,
-        plan,
-        rates.n_pix,
-        variance_rates=path.detector.electrons(rates.variance),
-        n_pix_variance=rates.n_pix_variance,
-    )
+    _, base = path.detector.mean_and_variance(e, plan)
     for f, g in ((0.0, 0.0), (0.1, 0.0), (0.1, 0.2)):
         actual = snr(
             rates,
@@ -69,9 +63,9 @@ def test_exposure_inverts_snr_and_rejects_floor(example):
     Basis: exact inverse algebra; integer frame equality uses upstream rounding.
     """
     _, path, rates = example
-    q = rates.mean.quadrature
+    q = rates.quadrature
     rates = eqx.tree_at(
-        lambda r: r.mean.star_leakage, rates, jnp.full(q.nodes_nm.shape, 1e-4)
+        lambda r: r.star_leakage, rates, jnp.full(q.nodes_nm.shape, 1e-4)
     )
     pp = PostProcessing(0.1, 0.2)
     counts = jnp.array([1.0, 7.0, 36.0, 100.0])
@@ -95,7 +89,7 @@ def test_exposure_inverts_snr_and_rejects_floor(example):
     assert snr(rates, path.detector, plan, post_processing=pp)[0] >= 9.5
     previous = ox.frames_for_time(plan.live_time_s - 100.0, 100.0)
     assert snr(rates, path.detector, previous, post_processing=pp)[0] < 9.5
-    e = path.detector.electrons(rates.mean)
+    e = path.detector.electrons(rates)
     ceiling = e.planet / (0.1 * e.star_leakage)
     assert jnp.isinf(solve(ceiling * 1.001).live_time_s).all()
     assert (solve(0.0).n_frames == 0).all()
@@ -123,7 +117,7 @@ def test_reader_jit_vmap_and_scene_gradient(example):
     is O(h^2), allowing 1e-7 relative for a smooth flux-dependent S/N.
     """
     system, path, reference = example
-    q = reference.mean.quadrature
+    q = reference.quadrature
     pp = PostProcessing(0.0, 0.0)
 
     def evaluate(scale, time):
@@ -146,7 +140,7 @@ def test_reader_jit_vmap_and_scene_gradient(example):
         rates = aperture_rates(
             system, path, q, time_d=0.0, planet_index=index, zodi=None
         )
-        return rates.mean.planet
+        return rates.planet
 
     # A traced out-of-range index gives NaN, not the last planet's rates.
     by_index = jax.vmap(planet_rate)(jnp.array([0, system.n_planets]))
@@ -266,7 +260,7 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
     background = poisson + read_variance / frame_time
     weights = np.asarray(psf) / background
     np.testing.assert_allclose(rates.n_pix, 4 * weights.sum(), rtol=1e-12)
-    np.testing.assert_allclose(rates.n_pix_variance, 4 * (weights**2).sum(), rtol=1e-12)
+    np.testing.assert_allclose(rates.variance.n_pix, 4 * (weights**2).sum(), rtol=1e-12)
     signal = np.sum(weights * planet)
     variance = np.sum(weights**2 * (planet + background))
     np.testing.assert_allclose(calculated, signal * np.sqrt(frame_time / variance))

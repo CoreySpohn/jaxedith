@@ -4,27 +4,12 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from hwoutils.planck import planck_photon_radiance
-from optixstuff import ElectronRates, FramePlan, PhotonRates, aperture_binding
+from optixstuff import FramePlan, Rates, aperture_binding
 from optixstuff.apertures import DEFAULT_APERTURE_RULE
-from optixstuff.grids import PixelGrid
 from optixstuff.spectral import Band, Quadrature
 from zodi.jax import AYOZodi
 
 _DEFAULT_ZODI = AYOZodi()
-
-
-class ApertureRates(eqx.Module):
-    """Photon-rate integrands and detector pixel counts for a weighted aperture.
-
-    Mean rates use the aperture weights; Poisson variance rates use their
-    squares. Pixel counts have one value per band and use the same two
-    area moments in detector pixels.
-    """
-
-    mean: PhotonRates
-    variance: PhotonRates
-    n_pix: jax.Array
-    n_pix_variance: jax.Array
 
 
 def _position(scene, time_d, planet_index, separation_arcsec, position_angle_deg):
@@ -73,7 +58,7 @@ def _matched_rates(
         )
     quadrature = prepared.quadrature
     _, detector_variance = detector.mean_and_variance(
-        ElectronRates(quadrature.bands),
+        Rates(quadrature.bands, "electron"),
         FramePlan(frame_time_s, 1),
     )
     yield_fraction = (
@@ -85,10 +70,7 @@ def _matched_rates(
     native_sr = jnp.stack(
         [ref.stamps.pixel_solid_angle_sr for ref in prepared.references]
     )
-    detector_grid = PixelGrid.regular(
-        detector.shape, detector.pixel_scale_arcsec, "arcsec"
-    )
-    detector_pixels = native_sr / detector_grid.cell_area("sr")
+    detector_pixels = native_sr / detector.grid.cell_area("sr")
     uniform = (
         detector_variance / frame_time_s * detector_pixels
         + quadrature.integrate(yield_fraction * incident.thermal)
@@ -111,9 +93,12 @@ def _matched_rates(
         )
     m = jax.tree.map(lambda *values: jnp.stack(values), *moments)
 
-    def photons(tau, leak, sky_sr, n_pix):
-        return PhotonRates(
+    def photons(tau, leak, sky_sr, n_pix, variance=None):
+        return Rates(
             quadrature,
+            "photon",
+            n_pix=n_pix * detector_pixels,
+            variance=variance,
             planet=incident.planet * tau,
             star_leakage=incident.star_leakage * leak,
             local_zodi=incident.local_zodi * sky_sr,
@@ -122,11 +107,12 @@ def _matched_rates(
             thermal=incident.thermal * (native_sr * n_pix)[:, None],
         )
 
-    return ApertureRates(
-        photons(m.tau1, m.L1, m.Omega1, m.n_pix1),
-        photons(m.tau2, m.L2, m.Omega2, m.n_pix2),
-        m.n_pix1 * detector_pixels,
-        m.n_pix2 * detector_pixels,
+    return photons(
+        m.tau1,
+        m.L1,
+        m.Omega1,
+        m.n_pix1,
+        variance=photons(m.tau2, m.L2, m.Omega2, m.n_pix2),
     )
 
 
@@ -149,8 +135,12 @@ def aperture_rates(
     temperature_K=270.0,
     eps_warm_T_cold=0.0,
     companion_flux_density=None,
-) -> ApertureRates:
-    """Return mean and variance integrands in photons/s/nm, with shape (W, Q).
+) -> Rates:
+    """Return one weighted aperture's integrands in photons/s/nm, shape (W, Q).
+
+    The record's fields are summed with the aperture weights and its n_pix is
+    their sum in detector pixels, one value per band. Its variance record is
+    the same with squared weights, for Poisson variance.
 
     Select one planet by flattened scene index, or a background-only aperture
     by separation_arcsec and astronomical position_angle_deg (north to east).
@@ -252,8 +242,9 @@ def aperture_rates(
         reference_sr = jnp.stack(
             [ref.lod_cell_solid_angle_sr for ref in prepared_aperture.references]
         )
-        incident = PhotonRates(
+        incident = Rates(
             quadrature,
+            "photon",
             planet=common * planet,
             star_leakage=common * star,
             local_zodi=common * local,
@@ -300,7 +291,9 @@ def aperture_rates(
     areas = jnp.stack(areas)
     variance_areas = jnp.stack(variance_areas)
 
-    def photon_rates(tau, leak, area, sky):
+    pixels_per_lod2 = (scales / instrument.detector.pixel_scale_arcsec) ** 2
+
+    def photon_rates(tau, leak, area, sky, variance=None):
         background = common * sky
         solid_angle_sr = jnp.stack(
             [
@@ -308,8 +301,11 @@ def aperture_rates(
                 for ref, a in zip(prepared_aperture.references, area, strict=True)
             ]
         )[:, None]
-        return PhotonRates(
+        return Rates(
             quadrature,
+            "photon",
+            n_pix=area * pixels_per_lod2,
+            variance=variance,
             planet=common * tau * planet,
             star_leakage=common * leak * star,
             local_zodi=background * local * solid_angle_sr,
@@ -323,12 +319,12 @@ def aperture_rates(
             ),
         )
 
-    pixels_per_lod2 = (scales / instrument.detector.pixel_scale_arcsec) ** 2
-    return ApertureRates(
-        mean=photon_rates(tau, leak, areas, sky),
+    return photon_rates(
+        tau,
+        leak,
+        areas,
+        sky,
         variance=photon_rates(
             tau_variance, leak_variance, variance_areas, sky_variance
         ),
-        n_pix=areas * pixels_per_lod2,
-        n_pix_variance=variance_areas * pixels_per_lod2,
     )

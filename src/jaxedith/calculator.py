@@ -3,12 +3,11 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from optixstuff import FramePlan, frames_for_time
+from optixstuff import FramePlan, Rates, frames_for_time
 from optixstuff.detector import AbstractDetector
 
 from jaxedith._checks import check_not_nan
 from jaxedith._types import FloatOut, Num
-from jaxedith.public import ApertureRates
 
 
 class PostProcessing(eqx.Module):
@@ -35,20 +34,13 @@ def _floor_sq(electrons, post_processing):
 
 def _count_statistics(rates, detector, plan):
     """Return mean source electrons/s and independent count variance."""
-    electrons = detector.electrons(rates.mean)
-    variance_rates = detector.electrons(rates.variance)
-    _, variance = detector.mean_and_variance(
-        electrons,
-        plan,
-        rates.n_pix,
-        variance_rates=variance_rates,
-        n_pix_variance=rates.n_pix_variance,
-    )
+    electrons = detector.electrons(rates)
+    _, variance = detector.mean_and_variance(electrons, plan)
     return electrons, variance
 
 
 def snr(
-    rates: ApertureRates,
+    rates: Rates,
     detector: AbstractDetector,
     plan: FramePlan,
     *,
@@ -79,7 +71,7 @@ def snr(
 
 def exposure_time(
     target_snr: Num,
-    rates: ApertureRates,
+    rates: Rates,
     detector: AbstractDetector,
     *,
     frame_time_s: Num,
@@ -98,7 +90,7 @@ def exposure_time(
     require zero frames. Only optixstuff.frames_for_time rounds frames.
     """
     target_snr = jnp.asarray(target_snr)
-    if target_snr.shape not in ((), (len(rates.mean.quadrature.bands),)):
+    if target_snr.shape not in ((), (len(rates.bands),)):
         raise ValueError("target_snr must be scalar or (W,) matching the bands")
     one_frame = FramePlan(frame_time_s, 1)
     electrons, variance = _count_statistics(rates, detector, one_frame)

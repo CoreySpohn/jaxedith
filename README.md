@@ -4,15 +4,16 @@
 an aperture photon budget, then computes S/N and whole-frame exposure plans
 using the detector's shared statistics contract.
 
-`aperture_rates` returns an `ApertureRates` record. Its `mean` and `variance`
-fields are `optixstuff.PhotonRates` weighted by the aperture weights and their
-squares, respectively. Each contains six integrands in photons/s/nm with
+`aperture_rates` returns an `optixstuff.Rates` record of photon integrands
+weighted by the aperture weights. It holds six fields in photons/s/nm with
 shape `(W, Q)`: `planet`, `star_leakage`, `local_zodi`, `exozodi`, `thermal`,
-and `stellar_companions`. The per-band arrays `n_pix` and `n_pix_variance`
-give the corresponding weighted detector pixel counts.
-`rates.mean.integrate()` returns mean photons/s.
-`detector.electrons(rates.mean)` applies spectral QE and survival
-before integration to give mean electrons/s.
+and `stellar_companions`. Its `variance` field is a second `Rates` record
+weighted by the squared weights. The per-band arrays `rates.n_pix` and
+`rates.variance.n_pix` give the corresponding weighted detector pixel counts.
+`rates.integrate()` returns mean photons/s.
+`detector.electrons(rates)` applies spectral QE and survival
+before integration to give mean electrons/s, and converts the variance
+record with it.
 
 ## Usage
 

@@ -1,6 +1,6 @@
 # Architecture
 
-The primary path is `Scene -> aperture_rates -> ApertureRates -> detector`.
+The primary path is `Scene -> aperture_rates -> Rates -> detector`.
 The reader accepts bands, a shared `Quadrature`, or a `PreparedAperture`.
 For bands it builds nodes and dimensional weights on the host from the
 active spectra and instrument.

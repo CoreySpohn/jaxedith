@@ -40,7 +40,7 @@ def test_adapter_fed_legacy_limit_and_chromatic_bias(example):
     q = Quadrature.build((band,), system, path, zodi, AYOExozodi())
     rates = aperture_rates(
         system, path, q, time_d=0.0, planet_index=0, zodi=zodi
-    ).mean.integrate()
+    ).integrate()
     cp = planet_rate(
         scene.F0, scene.Fs_over_F0, scene.Fp_over_Fs, 40.0, 0.4, 0.3, band.width_nm, 1
     )
@@ -75,7 +75,7 @@ def test_adapter_fed_legacy_limit_and_chromatic_bias(example):
     )
     assert 0.007 < abs(chromatic / oracle()[1] - 1) < 0.012
     np.testing.assert_allclose(
-        path.detector.electrons(r.mean).planet, oracle()[1], rtol=1e-9, atol=0
+        path.detector.electrons(r).planet, oracle()[1], rtol=1e-9, atol=0
     )
     plan = frame_plan_photon_counting(0.02, time_s=100.0)
     np.testing.assert_allclose(plan.frame_time_s * 0.02, 1 / 6.73, rtol=1e-12)

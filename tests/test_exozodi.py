@@ -50,7 +50,7 @@ def test_analytic_default_matches_scalar_electrons():
         0.1,
     )
     np.testing.assert_allclose(
-        path.detector.electrons(rates.mean).exozodi, expected, rtol=1e-9, atol=0
+        path.detector.electrons(rates).exozodi, expected, rtol=1e-9, atol=0
     )
 
 
@@ -74,7 +74,7 @@ def test_separation_law_ignored_disk_and_disabled():
     def sampling(scene, **kwargs):
         return je.aperture_rates(
             scene, path, band, time_d=0.0, separation_arcsec=0.1, zodi=None, **kwargs
-        ).mean.quadrature
+        ).quadrature
 
     q = sampling(system)
     empty = eqx.tree_at(lambda s: s.disk, system, None)
@@ -95,7 +95,7 @@ def test_separation_law_ignored_disk_and_disabled():
             position_angle_deg=angle,
             zodi=None,
             **kwargs,
-        ).mean.exozodi
+        ).exozodi
 
     base = read(10.0, 0.1)
     np.testing.assert_array_equal(read(20.0, 0.1), base / 4)
@@ -110,7 +110,7 @@ def test_separation_law_ignored_disk_and_disabled():
             time_d=0.0,
             separation_arcsec=0.1,
             zodi=None,
-        ).mean.exozodi,
+        ).exozodi,
         0,
     )
     distances, separations = jnp.array([10.0, 20.0, 10.0]), jnp.array([0.1, 0.1, 0.2])
@@ -145,7 +145,7 @@ def test_exozodi_knots_split_quadrature():
         quadrature_order=1,
         zodi=None,
     )
-    q = rates.mean.quadrature
+    q = rates.quadrature
     np.testing.assert_allclose(
         np.sum(np.asarray(q.weights("response"))[np.asarray(q.nodes_nm) < 537]),
         37,
@@ -160,6 +160,4 @@ def test_exozodi_knots_split_quadrature():
         * ((550 * constants.nm2m) / 8) ** 2
         * (37 * 2.5e10 + 63 * 3e10)
     )
-    np.testing.assert_allclose(
-        rates.mean.integrate().exozodi, expected, rtol=1e-12, atol=0
-    )
+    np.testing.assert_allclose(rates.integrate().exozodi, expected, rtol=1e-12, atol=0)
