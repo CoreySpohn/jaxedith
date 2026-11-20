@@ -1,10 +1,8 @@
 # jaxedith Roadmap
 
-Potential extensions to the aperture calculator:
+Potential extensions to the calculator:
 
-- Support frozen-template dilation for polychromatic `HalfMaximum` and
-  `Matched` apertures when the upstream coronagraph API provides it.
-- Quantify disk-grid convergence and the approximation from centre sampling
-  to an aperture footprint integral.
-- Verify published dependency floors against the photon-scene, aperture and
-  detector contracts.
+- Decide which of `snr`, `exposure_time` and `PostProcessing` here and their
+  counterparts in the simulator package survives, and give the survivor one
+  argument order and one return type.
+- Verify published dependency floors against the rates and detector contracts.

@@ -1,4 +1,4 @@
-"""Scene and convention adapters for the scalar comparison dialects.
+"""Convention adapters for the scalar comparison dialects.
 
 Rate arithmetic lives in primitives.py and the AYO/EXOSIMS equations in
 etc.py. Their plain-number inputs and electron units remain unchanged.
@@ -6,19 +6,10 @@ These adapters never supply an alternative optical-path rate derivation.
 """
 
 import jax.numpy as jnp
-from hwoutils.constants import arcsec2rad
-from hwoutils.conversions import (
-    arcsec_to_au,
-    arcsec_to_mas,
-    jy_to_photons_per_nm_per_m2,
-    mag_to_flux_jy,
-)
 from optixstuff import FramePlan, frames_for_time
 
 from jaxedith.calculator import PostProcessing
-from jaxedith.public import _DEFAULT_ZODI, _position
 from reference.primitives import detector_noise_rate, photon_counting_time
-from reference.scene import ETCScene
 
 
 def post_processing_from_pyedith(ppfact) -> PostProcessing:
@@ -63,57 +54,4 @@ def legacy_pyedith_noise_rate(
         read_frame_time_s,
         clock_induced_charge_e_per_pixel_frame,
         photon_counting_time(count_rate_per_pixel, 1.0),
-    )
-
-
-def etc_scene_from_system(
-    system,
-    wavelength_nm,
-    *,
-    time_d,
-    planet_index=None,
-    separation_arcsec=None,
-    position_angle_deg=0.0,
-    zodi=_DEFAULT_ZODI,
-    companion_flux_density=None,
-) -> ETCScene:
-    """Produce monochromatic F0-relative ratios solely for legacy comparison.
-
-    F0 is the AB zero-magnitude photon density. Fzodi is per arcsec^2.
-    Fexozodi is the local disk ratio times projected radius in AU squared,
-    so the legacy inverse-square primitive reconstructs the sampled local
-    brightness. This effective 1-AU value does not assume a disk profile.
-    Companion input uses the reader's per-reference-lod^2 photon convention.
-    """
-    east, north, ephemeris = _position(
-        system, time_d, planet_index, separation_arcsec, position_angle_deg
-    )
-    sep = jnp.hypot(east, north)
-    wave = jnp.asarray(wavelength_nm)
-    zero = jy_to_photons_per_nm_per_m2(mag_to_flux_jy(0.0), wave)
-    star = system.star.photon_flux_density(wave, time_d, dist_pc=system.dist_pc)
-    planet = (
-        0.0
-        if planet_index is None
-        else system.planet_flux_densities(
-            wave, jnp.atleast_1d(time_d), ephemeris=ephemeris
-        )[planet_index, 0]
-    )
-    local = (
-        0.0 if zodi is None else zodi.photon_radiance(wave, system.sky_frame, time_d)
-    )
-    disk = system.photon_radiance_at(wave, time_d, east, north)
-    diameter = system.star.angular_diameter_arcsec(system.dist_pc)
-    return ETCScene(
-        F0=zero,
-        Fs_over_F0=star / zero,
-        Fp_over_Fs=planet / star,
-        Fzodi=local * arcsec2rad**2 / zero,
-        Fexozodi=disk * arcsec2rad**2 / zero * arcsec_to_au(sep, system.dist_pc) ** 2,
-        dist_pc=system.dist_pc,
-        sep_arcsec=sep,
-        stellar_diam_mas=arcsec_to_mas(diameter),
-        Fbinary=0.0
-        if companion_flux_density is None
-        else companion_flux_density(wave, time_d) / zero,
     )
