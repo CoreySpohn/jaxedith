@@ -7,7 +7,7 @@ from hwoutils.planck import planck_photon_radiance
 from optixstuff import FramePlan, Rates, aperture_binding
 from optixstuff.apertures import DEFAULT_APERTURE_RULE
 from optixstuff.spectral import Band, Quadrature
-from zodi.jax import AYOZodi
+from skyscapes import AYOZodi
 
 _DEFAULT_ZODI = AYOZodi()
 
@@ -128,8 +128,6 @@ def aperture_rates(
     rule=DEFAULT_APERTURE_RULE,
     quadrature_order=4,
     zodi=_DEFAULT_ZODI,
-    ecliptic_latitude_deg=0.0,
-    solar_longitude_deg=135.0,
     reference_wavelength_nm=None,
     frame_time_s=None,
     temperature_K=270.0,
@@ -156,7 +154,7 @@ def aperture_rates(
     Exozodi is scene.disk, evaluated directly at the aperture's sky position
     and approximating the footprint integral by centre radiance times aperture
     solid angle. No disk gives zero. For the analytic AYO exozodi, build the
-    scene with disk=skyscapes.disk.AYOExozodiDisk(); it evaluates at the
+    scene with disk=skyscapes.disk.AYOExozodi(); it evaluates at the
     projected physical separation scene.dist_pc * separation_arcsec, also for
     background-only apertures. Include the same disk in Quadrature.build when
     preparing the sampling separately.
@@ -221,11 +219,7 @@ def aperture_rates(
     local = (
         jnp.zeros_like(wave)
         if zodi is None
-        else zodi.photon_radiance(
-            wave,
-            ecliptic_latitude_deg=ecliptic_latitude_deg,
-            solar_longitude_deg=solar_longitude_deg,
-        )
+        else zodi.photon_radiance(wave, scene.sky_frame, time_d)
     )
     diameter = scene.star.angular_diameter_arcsec(scene.dist_pc)
     area_m2 = instrument.primary.collecting_area_m2

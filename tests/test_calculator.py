@@ -230,7 +230,7 @@ def test_matched_snr_agrees_with_weighted_poisson_draws():
         def spectral_breaks_nm(self):
             return np.empty(0)
 
-        def photon_radiance(self, wave, **kwargs):
+        def photon_radiance(self, wave, sky_frame, time_d):
             return jnp.full_like(wave, radiance)
 
     kwargs = dict(

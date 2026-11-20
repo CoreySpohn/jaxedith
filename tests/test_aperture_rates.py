@@ -12,10 +12,10 @@ from hwoutils import constants
 from optixstuff import prepare_aperture
 from optixstuff.grids import Measure, PixelGrid, SkyOrientation
 from optixstuff.spectral import Band, Quadrature, Transmission
-from skyscapes.disk import GraterDisk
+from skyscapes import PrecomputedZodi
+from skyscapes.disk import AYOExozodi, GraterDisk
 from skyscapes.scene import Star
 from zodi import SurfaceBrightnessDust
-from zodi.jax import AYOExozodi, PrecomputedZodi
 
 from jaxedith import (
     PostProcessing,

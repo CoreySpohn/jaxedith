@@ -75,8 +75,6 @@ def etc_scene_from_system(
     separation_arcsec=None,
     position_angle_deg=0.0,
     zodi=_DEFAULT_ZODI,
-    ecliptic_latitude_deg=0.0,
-    solar_longitude_deg=135.0,
     companion_flux_density=None,
 ) -> ETCScene:
     """Produce monochromatic F0-relative ratios solely for legacy comparison.
@@ -102,13 +100,7 @@ def etc_scene_from_system(
         )[planet_index, 0]
     )
     local = (
-        0.0
-        if zodi is None
-        else zodi.photon_radiance(
-            wave,
-            ecliptic_latitude_deg=ecliptic_latitude_deg,
-            solar_longitude_deg=solar_longitude_deg,
-        )
+        0.0 if zodi is None else zodi.photon_radiance(wave, system.sky_frame, time_d)
     )
     disk = system.photon_radiance_at(wave, time_d, east, north)
     diameter = system.star.angular_diameter_arcsec(system.dist_pc)

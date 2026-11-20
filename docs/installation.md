@@ -31,9 +31,9 @@ verified for those contracts.
 | Package | Role |
 |---|---|
 | `optixstuff` | Instrument, Band, Quadrature, PixelGrid, aperture preparation, photon rates, detector statistics and frame plans |
-| `skyscapes` | Scene, photon spectra and disk radiance |
+| `skyscapes` | Scene, local-zodi models, photon spectra and disk radiance |
 | `hwoutils` | Constants and conversions |
-| `zodi[jax]` | Local-zodi photon radiance, spectral tables and dust calibration |
+| `zodi` | Spectral tables and dust calibration |
 
 Runtime dependencies also include Equinox, JAX and jaxtyping.
 Install test dependencies with:

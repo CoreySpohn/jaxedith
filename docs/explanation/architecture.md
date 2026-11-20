@@ -20,7 +20,7 @@ Scalar models describe a calibrated fixed angular aperture without a PSF
 scaling law. Polychromatic `HalfMaximum` and `Matched` table apertures require
 upstream frozen-template dilation and currently raise `NotImplementedError`.
 Stellar leakage is already an aperture sum. Exozodi is `scene.disk`; no disk gives zero. The analytic AYO exozodi is
-`skyscapes.disk.AYOExozodiDisk()`: an AB-zero-point surface brightness at
+`skyscapes.disk.AYOExozodi()`: an AB-zero-point surface brightness at
 three zodis, 22 mag/arcsec² per zodi at 1 AU, scaled by
 `(dist_pc * separation_arcsec)**-2`. A disk declares
 its own breakpoints through `spectral_breaks_nm()`.

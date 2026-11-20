@@ -102,14 +102,14 @@ and electron rates retain the corresponding bands.
 
 ## Backgrounds and sampling
 
-Local zodi defaults to `zodi.jax.AYOZodi()`. Supply a local-zodi
-model and `ecliptic_latitude_deg` / `solar_longitude_deg` for pointing dependence,
-or `zodi=None` to disable it. Solar longitude means target minus solar
-longitude. The caller computes pointing geometry from its observatory.
+Local zodi defaults to `skyscapes.AYOZodi()`. Supply another local-zodi
+model, such as `skyscapes.LeinertZodi()` for sightline dependence, or
+`zodi=None` to disable it. The model reads the scene's sky frame and `time_d`,
+so a sightline-dependent model needs a scene built with a sky position.
 
 Exozodi is `scene.disk`; a scene without a disk has none. The analytic AYO
-exozodi is the disk `skyscapes.disk.AYOExozodiDisk(zodi.jax.AYOExozodi(level_zodis=3.0,
-surface_brightness_mag_arcsec2=22.0))`. Its photon radiance is the exact AB
+exozodi is the disk `skyscapes.disk.AYOExozodi(level_zodis=3.0,
+surface_brightness_mag_arcsec2=22.0)`. Its photon radiance is the exact AB
 magnitude-zero photon flux times `level_zodis * 10**(-0.4 * 22)` per arcsec²
 at 1 AU, converted to steradians and scaled by
 `(scene.dist_pc * separation_arcsec)**-2`. The brightness parameter replaces

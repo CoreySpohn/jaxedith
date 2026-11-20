@@ -13,8 +13,9 @@ from reference.legacy import (
     legacy_pyedith_noise_rate,
 )
 from reference.primitives import planet_rate, stellar_leakage_rate, zodi_rate
+from skyscapes import PrecomputedZodi
+from skyscapes.disk import AYOExozodi
 from skyscapes.scene import FlatStar
-from zodi.jax import AYOExozodi, PrecomputedZodi
 
 from jaxedith import aperture_rates
 

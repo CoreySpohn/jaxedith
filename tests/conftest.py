@@ -44,11 +44,10 @@ from hwoutils.epoch import Epoch
 from optixstuff.apertures import Circular
 from optixstuff.grids import Frame, Measure, PixelGrid
 from optixstuff.spectral import Band, Quadrature
-from skyscapes.disk import AbstractDisk, AYOExozodiDisk
+from skyscapes.disk import AbstractDisk, AYOExozodi
 from skyscapes.physical_model import GridPhysicalModel
 from skyscapes.scene import Planet, Scene
 from skyscapes.scene.star import AbstractStar
-from zodi.jax import AYOExozodi
 
 
 class ABStar(AbstractStar):
@@ -73,7 +72,7 @@ class ChromaticCoronagraph(ox.ScalarCoronagraph):
         return 0.30 + 0.0006 * (jnp.asarray(wavelength_nm) - 550)
 
 
-_AYO_DISK = AYOExozodiDisk()
+_AYO_DISK = AYOExozodi()
 
 
 def make_system(star=None, *, chromatic=True, disk=_AYO_DISK):
