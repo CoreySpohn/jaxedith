@@ -15,14 +15,17 @@ and the scene holds a companion source.
 import math
 
 import jax.numpy as jnp
+import optixstuff as ox
 from hwoutils.conversions import arcsec_to_rad, lambda_d_to_arcsec
 from jax import Array
 from jax.core import Tracer
 from jax.typing import ArrayLike
 from optixstuff import (
     AbstractDetector,
+    ExposureTime,
     Instrument,
     PerformanceCurves,
+    PostProcessing,
     Quadrature,
     Rates,
     SampledProfile,
@@ -188,6 +191,90 @@ def rates(
             quadrature, "photon", n_pix=jnp.stack(n_pix_variance), **stack(variance)
         ),
         **stack(mean),
+    )
+
+
+def exposure_time(
+    curves: PerformanceCurves | tuple[PerformanceCurves, ...],
+    scene: Scene,
+    instrument: Instrument,
+    quadrature: Quadrature,
+    east_arcsec: ArrayLike,
+    north_arcsec: ArrayLike,
+    contrast: ArrayLike,
+    *,
+    time_d: ArrayLike,
+    uniform_sky: SampledProfile | None,
+    target_snr: ArrayLike,
+    frame_time_s: ArrayLike,
+    post_processing: PostProcessing | None = None,
+) -> ExposureTime:
+    """Return the live time reaching ``target_snr``, from :func:`rates`.
+
+    The one-call entry point for the scalar calculators. It is
+    ``optixstuff.exposure_time(rates(...), instrument.detector, target_snr,
+    frame_time_s=frame_time_s, post_processing=post_processing)`` and does no
+    arithmetic of its own; see those functions for every argument and for the
+    meaning of ``valid``.
+    """
+    record = rates(
+        curves,
+        scene,
+        instrument,
+        quadrature,
+        east_arcsec,
+        north_arcsec,
+        contrast,
+        time_d=time_d,
+        uniform_sky=uniform_sky,
+    )
+    return ox.exposure_time(
+        record,
+        instrument.detector,
+        target_snr,
+        frame_time_s=frame_time_s,
+        post_processing=post_processing,
+    )
+
+
+def snr(
+    curves: PerformanceCurves | tuple[PerformanceCurves, ...],
+    scene: Scene,
+    instrument: Instrument,
+    quadrature: Quadrature,
+    east_arcsec: ArrayLike,
+    north_arcsec: ArrayLike,
+    contrast: ArrayLike,
+    *,
+    time_d: ArrayLike,
+    uniform_sky: SampledProfile | None,
+    time_s: ArrayLike,
+    frame_time_s: ArrayLike,
+    post_processing: PostProcessing | None = None,
+) -> Array:
+    """Return S/N per band after ``time_s`` live seconds, from :func:`rates`.
+
+    It is ``optixstuff.snr(rates(...), instrument.detector, time_s,
+    frame_time_s=frame_time_s, post_processing=post_processing)`` and does no
+    arithmetic of its own.
+    """
+    record = rates(
+        curves,
+        scene,
+        instrument,
+        quadrature,
+        east_arcsec,
+        north_arcsec,
+        contrast,
+        time_d=time_d,
+        uniform_sky=uniform_sky,
+    )
+    return ox.snr(
+        record,
+        instrument.detector,
+        time_s,
+        frame_time_s=frame_time_s,
+        post_processing=post_processing,
     )
 
 

@@ -397,3 +397,51 @@ def test_photon_counting_frame_time_follows_the_occupancy_rule():
             eqx.tree_at(lambda r: r.n_pix, rates, None, is_leaf=lambda x: x is None),
             detector,
         )
+
+
+def test_one_call_entry_points_equal_the_two_step_calls():
+    """Fails if ``jaxedith.snr`` or ``jaxedith.exposure_time`` does any work of its own.
+
+    Basis: exact equality with ``rates`` followed by the optixstuff function,
+    for no post-processing and for the AYO setting, and for per-band times.
+    """
+    quadrature = _quadrature((BAND, Band(600.0, 700.0)))
+    curves, scene, instrument = _curves(), _scene(), _instrument()
+    common = (curves, scene, instrument, quadrature, EAST, NORTH, 1e-6)
+    keywords = dict(time_d=0.0, uniform_sky=_sky())
+    rates = jaxedith.rates(*common, **keywords)
+    frame = jnp.array([100.0, 60.0])
+    for post_processing in (None, ox.PostProcessing(0.1, 0.05, 2.0)):
+        wanted = ox.exposure_time(
+            rates,
+            instrument.detector,
+            jnp.array([5.0, 7.0]),
+            frame_time_s=frame,
+            post_processing=post_processing,
+        )
+        got = jaxedith.exposure_time(
+            *common,
+            **keywords,
+            target_snr=jnp.array([5.0, 7.0]),
+            frame_time_s=frame,
+            post_processing=post_processing,
+        )
+        assert bool(got.valid.all())
+        np.testing.assert_array_equal(got.time_s, wanted.time_s)
+        np.testing.assert_array_equal(got.valid, wanted.valid)
+        np.testing.assert_array_equal(
+            jaxedith.snr(
+                *common,
+                **keywords,
+                time_s=3600.0,
+                frame_time_s=frame,
+                post_processing=post_processing,
+            ),
+            ox.snr(
+                rates,
+                instrument.detector,
+                3600.0,
+                frame_time_s=frame,
+                post_processing=post_processing,
+            ),
+        )
