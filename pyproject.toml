@@ -17,14 +17,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
 dependencies = [
-    "equinox>=0.13.2",
     "hwoutils[jax]>=1.15.0",
     "jax>=0.8.1",
     "jaxlib>=0.8.1",
-    "jaxtyping>=0.3.3",
-    "optixstuff>=5.0.0",
-    "skyscapes>=6.0.0",
-    "zodi>=2.0.0",
+    "optixstuff>=7.0.0",  # unreleased: next release, see .github/sibling-pins.txt
+    "skyscapes>=6.0.0",  # unreleased: next release
 ]
 [project.optional-dependencies]
 dev = ["pre-commit>=3.6.0"]
@@ -41,6 +38,8 @@ test = [
     "ineedvalidation>=1.1.0",
     "pytest>=7.3.2",
     "beartype>=0.20.1",
+    "equinox>=0.13.2",
+    "jaxtyping>=0.3.3",
     "hypothesis>=6.112.1",
     "pytest-xdist>=2.5",
     "pytest-testmon>=2.0.7",
@@ -49,12 +48,8 @@ test = [
     "pytest-fail-slow>=0.1.0",
     "numpy>=2.1.2",
     "scipy>=1.13",
-    "orbix>=4.1.0",
-    "optixstuff>=5.0.0",
-    "skyscapes>=6.0.0",
-    "yippy>=2.11.0",
-    "coronalyze>=1.1.1",
-    "coronagraphoto>=4.1",
+    "optixstuff>=7.0.0",  # unreleased: next release
+    "skyscapes>=6.0.0",  # unreleased: next release
 ]
 
 [project.urls]
