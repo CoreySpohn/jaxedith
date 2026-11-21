@@ -121,9 +121,7 @@ def rates(
     def per_node(values):
         return jnp.broadcast_to(values, nodes.shape)
 
-    gain = per_node(
-        instrument.primary.collecting_area_m2 * instrument.system_throughput(nodes)
-    )
+    gain = per_node(instrument.effective_area_m2(nodes))
     star = per_node(
         scene.star.photon_flux_density(nodes, time_d, dist_pc=scene.dist_pc)
     )
