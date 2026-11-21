@@ -13,7 +13,7 @@ aperture solid angle.
 | `star_leakage` | `A T F leakage_density(s) core_area(s)` | AYO `CR_bs`; the leakage rule chosen when the curves are requested sets whether the density is the aperture mean or the azimuthal ring mean |
 | `local_zodi` | `A T L_zodi sky(s) Omega` | AYO `CR_bz`: a uniform surface brightness times sky transmission times aperture solid angle |
 | `exozodi` | `A T L_disk sky(s) Omega` | AYO `CR_bez`: the disk radiance at the aperture centre times the aperture solid angle |
-| `thermal` | zero | returns with a warm-telescope description |
+| `thermal` | `A_geo e B Omega` | pyEDITH `calculate_CRbth`: `B` the Planck photon radiance at the temperature of `Instrument.warm_emission`, `e` its effective emissivity (warm emissivity times cold transmission), `A_geo` the collecting area without `T` or the flux scale; zero when the instrument has no `warm_emission`, the default |
 | `stellar_companions` | zero | returns with a companion source |
 | `n_pix` | `Omega / pixel_scale**2`, per band | AYO and pyEDITH `det_npix` |
 | `variance` | the same record from the squared-weight moments | equal to the mean for `Circular` and `HalfMaximum` |

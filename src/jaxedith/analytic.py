@@ -7,9 +7,9 @@ radiance and the aperture, evaluated once per spectral node. The result is an
 ``optixstuff.Rates`` that ``optixstuff.snr`` and ``optixstuff.exposure_time``
 reduce to a signal-to-noise ratio or a time.
 
-Thermal emission and stellar-companion light are zero in this release, as in
-the image path; they return when the instrument describes the warm telescope
-and the scene holds a companion source.
+Thermal emission is read from ``Instrument.warm_emission`` and is zero when
+the instrument has none. Stellar-companion light is zero in this release, as in
+the image path; it returns when the scene holds a companion source.
 """
 
 import jax
@@ -32,7 +32,7 @@ from skyscapes import Scene
 
 # A photon-counting EMCCD is run at 1 / 6.73 electrons per pixel per frame.
 _OCCUPANCY_DIVISOR = 6.73
-_READ_FIELDS = ("planet", "star_leakage", "local_zodi", "exozodi")
+_READ_FIELDS = ("planet", "star_leakage", "local_zodi", "exozodi", "thermal")
 
 
 def _moments(record, separation, squared):
@@ -45,11 +45,12 @@ def _moments(record, separation, squared):
     )
 
 
-def _terms(moments, gain, star, zodi, disk, sky, contrast, solid_angle):
-    """Return the five node fields of one band, each of shape (Q,).
+def _terms(moments, gain, star, zodi, disk, sky, contrast, thermal, solid_angle):
+    """Return the node fields of one band, each of shape (Q,).
 
     ``moments`` is (throughput, core area, leakage density) in the same
-    statistic, mean or squared weight, and ``solid_angle`` the aperture in sr.
+    statistic, mean or squared weight, ``thermal`` the warm telescope's photon
+    rate per steradian and ``solid_angle`` the aperture in sr.
     """
     throughput, area, density = moments
     flux = gain * star
@@ -58,6 +59,7 @@ def _terms(moments, gain, star, zodi, disk, sky, contrast, solid_angle):
         star_leakage=flux * density * area,
         local_zodi=gain * zodi * sky * solid_angle,
         exozodi=gain * disk * sky * solid_angle,
+        thermal=thermal * solid_angle,
     )
 
 
@@ -85,12 +87,22 @@ def rates(
     - ``star_leakage = A T F leakage_density(s) core_area(s)``
     - ``local_zodi = A T L_zodi sky(s) Omega``
     - ``exozodi = A T L_disk sky(s) Omega``
+    - ``thermal = A_geo e B Omega``
 
     with ``Omega = core_area(s) (lambda_c / D)**2`` the aperture solid angle,
     ``L_zodi`` the scene's local-zodi radiance and ``L_disk`` the disk radiance
-    at the aperture centre. ``n_pix`` is ``Omega`` over the detector pixel
-    solid angle, and ``variance`` holds the same terms from the squared-weight
-    moments of the curves. Detector yield is not applied: the record is
+    at the aperture centre. ``thermal`` is the warm telescope's own emission,
+    pyEDITH's ``calculate_CRbth``: ``B`` the Planck photon radiance at the
+    temperature of ``instrument.warm_emission``, ``e`` its effective emissivity
+    (warm emissivity times cold transmission) and ``A_geo`` the geometric
+    collecting area, with no system throughput and no flux scale (see
+    ``Instrument.thermal_photon_rate_per_sr``). It is zero for an instrument
+    without ``warm_emission``, the default. ``optixstuff`` owns the
+    description and ``jaxedith`` is the producer that fills the term; the
+    image path of ``coronagraphoto`` does not render thermal emission.
+    ``n_pix`` is ``Omega`` over the detector pixel solid angle, and
+    ``variance`` holds the same terms from the squared-weight moments of the
+    curves. Detector yield is not applied: the record is
     photons, and ``detector.electrons`` applies QE and survival once.
 
     ``curves`` is one ``PerformanceCurves`` or a tuple with one per band of
@@ -134,6 +146,7 @@ def rates(
         if scene.local_zodi is None
         else scene.local_zodi.photon_radiance(nodes, scene.sky_frame, time_d)
     )
+    thermal = per_node(instrument.thermal_photon_rate_per_sr(nodes))
     contrast = jnp.broadcast_to(jnp.asarray(contrast), nodes.shape)
     pixel_arcsec2 = instrument.detector.pixel_scale_arcsec**2
     angle = jnp.hypot(east, north)
@@ -158,6 +171,7 @@ def rates(
                 disk[w],
                 sky,
                 contrast[w],
+                thermal[w],
                 solid_angle,
             )
             fields_out.append(

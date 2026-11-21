@@ -24,6 +24,7 @@ from reference.primitives import (
     exozodi_rate,
     planet_rate,
     stellar_leakage_rate,
+    thermal_rate,
     zodi_rate,
 )
 from skyscapes import AYOZodi
@@ -118,12 +119,13 @@ def _scene(*, disk=True, zodi=True):
     )
 
 
-def _instrument(diameter=DIAMETER_M):
+def _instrument(diameter=DIAMETER_M, **kwargs):
     return Instrument(
         SimplePrimary(circumscribed_diameter_m=diameter, collecting_area_m2=AREA_M2),
         (ConstantThroughput(OPTICS),),
         None,
         IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)),
+        **kwargs,
     )
 
 
@@ -220,8 +222,92 @@ def test_every_term_matches_the_scalar_formulas():
         np.testing.assert_allclose(
             record.n_pix[0], expected[statistic]["n_pix"], rtol=RTOL
         )
-    assert float(jnp.max(jnp.abs(rates.thermal))) == 0.0
     assert float(jnp.max(jnp.abs(rates.stellar_companions))) == 0.0
+
+
+@pytest.mark.parametrize("temperature_K", [290.0, 1500.0])
+def test_thermal_matches_the_pyedith_scalar_formula(temperature_K):
+    """Fails if the warm telescope's rate departs from pyEDITH calculate_CRbth.
+
+    Basis: ``reference.primitives.thermal_rate`` (the pyEDITH product of Planck
+    photon radiance, emissivity times cold transmission, collecting area
+    without throughput, bandwidth and aperture solid angle) in float64 on the
+    node of a one-node band, for the mean and the squared-weight records;
+    rtol 1e-12 for the exp and a six-factor product. The system throughput
+    and flux scale must not enter, so both are non-unity here.
+    """
+    eps = 0.638
+    instrument = _instrument(
+        warm_emission=ox.WarmEmission(temperature_K, eps), flux_scale=1.3
+    )
+    rates = _read(instrument=instrument)
+    electrons = ox.IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)).electrons(rates)
+    node = float(_quadrature().nodes_nm[0, 0])
+    width = float(_quadrature().weights("response")[0, 0])
+    lod_arcsec = float(lambda_d_to_arcsec(1.0, BAND.center_nm, DIAMETER_M))
+    lod_rad = float(arcsec_to_rad(lod_arcsec))
+    for record, area in ((electrons, AREA), (electrons.variance, AREA2)):
+        expected = thermal_rate(
+            node, AREA_M2, width, temperature_K, lod_rad, eps, 1, 1, area
+        )
+        assert expected > 0
+        np.testing.assert_allclose(record.thermal[0], expected, rtol=1e-12)
+    others = _read()
+    for name in ("planet", "star_leakage", "local_zodi", "exozodi"):
+        np.testing.assert_allclose(
+            getattr(rates, name), 1.3 * getattr(others, name), rtol=1e-12
+        )
+
+
+def test_default_instrument_has_zero_thermal():
+    """Fails if an instrument without a warm-emission description emits.
+
+    Basis: exact zeros in the mean and the variance record, and in a scene read.
+    """
+    assert _instrument().warm_emission is None
+    rates = _read()
+    assert float(jnp.max(jnp.abs(rates.thermal))) == 0.0
+    assert float(jnp.max(jnp.abs(rates.variance.thermal))) == 0.0
+    scene_read = jaxedith.scene_rates(
+        _curves(),
+        _scene(),
+        _instrument(),
+        _quadrature(),
+        jnp.array([0.0]),
+        uniform_sky=_sky(),
+    )
+    assert float(jnp.max(jnp.abs(scene_read.thermal))) == 0.0
+
+
+def test_scene_rates_carries_thermal_to_every_planet():
+    """Fails if the vmapped scene read drops or reshapes the thermal term.
+
+    Basis: the scene read at one planet and time equals the scalar read,
+    exactly the same arithmetic, so rtol 1e-12.
+    """
+    instrument = _instrument(warm_emission=ox.WarmEmission(290.0, 0.638))
+    scene = _scene()
+    read = jaxedith.scene_rates(
+        _curves(),
+        scene,
+        instrument,
+        _quadrature(),
+        jnp.array([0.0]),
+        uniform_sky=_sky(),
+    )
+    east, north = scene.positions(jnp.array([0.0]))
+    contrast = scene.contrasts(_quadrature().nodes_nm[0, 0], jnp.array([0.0]))
+    scalar = _read(
+        instrument=instrument,
+        east_arcsec=east[0, 0],
+        north_arcsec=north[0, 0],
+        contrast=contrast[0, 0],
+    )
+    assert read.thermal.shape == (1, 1, 1, 1)
+    assert float(read.thermal[0, 0, 0, 0]) > 0
+    np.testing.assert_allclose(
+        read.thermal[0, 0, 0, 0], scalar.thermal[0, 0], rtol=1e-12
+    )
 
 
 def test_missing_sources_are_zero_and_the_sky_is_required_with_them():

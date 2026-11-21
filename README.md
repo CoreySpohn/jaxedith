@@ -107,7 +107,10 @@ The reduction itself is described in optixstuff's
 [how an exposure time is computed](https://optixstuff.readthedocs.io/en/latest/explanation/exposure_time.html).
 The conventions of the terms, and how AYO, pyEDITH and EXOSIMS map onto
 `PostProcessing`, are on the [conventions page](docs/explanation/conventions.md).
-Thermal emission and stellar companions are zero in this release.
+Thermal emission is read from `Instrument.warm_emission` (optixstuff's
+`WarmEmission`) and is zero without it; stellar companions are zero in this
+release. `coronagraphoto` does not render thermal emission, so `jaxedith` is the
+producer that fills the `thermal` field.
 
 ## Cross-code references
 
