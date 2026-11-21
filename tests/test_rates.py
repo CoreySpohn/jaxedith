@@ -423,7 +423,7 @@ def test_scene_entry_points_equal_the_two_step_calls():
             frame_time_s=frame,
             post_processing=post_processing,
         )
-        got = jaxedith.scene_exposure_time(
+        got = jaxedith.planet_exposure_time(
             *common,
             **keywords,
             target_snr=jnp.array([5.0, 7.0]),
@@ -434,7 +434,7 @@ def test_scene_entry_points_equal_the_two_step_calls():
         np.testing.assert_array_equal(got.time_s, wanted.time_s)
         np.testing.assert_array_equal(got.valid, wanted.valid)
         np.testing.assert_array_equal(
-            jaxedith.scene_snr(
+            jaxedith.planet_snr(
                 *common,
                 **keywords,
                 time_s=3600.0,
@@ -448,4 +448,87 @@ def test_scene_entry_points_equal_the_two_step_calls():
                 frame_time_s=frame,
                 post_processing=post_processing,
             ),
+        )
+
+
+def _two_planet_scene():
+    wavelengths = jnp.array([400.0, 700.0])
+    angles = jnp.array([0.0, 180.0])
+    models = (
+        GridPhysicalModel(wavelengths, angles, jnp.full((1, 2, 2), 1e-10)),
+        GridPhysicalModel(wavelengths, angles, jnp.full((1, 2, 2), 4e-10)),
+    )
+    return Scene.from_classical(
+        FlatStar(flux_phot_per_nm_m2=FLUX),
+        tuple(Planet(jnp.ones(1), model) for model in models),
+        star_mass_Msun=1.0,
+        planet_mass_Msun=jnp.array([3e-6, 1e-5]),
+        dist_pc=DIST_PC,
+        epoch=Epoch(2451545.0),
+        ra_deg=100.0,
+        dec_deg=-20.0,
+        a_AU=jnp.array([1.0, 2.0]),
+        e=jnp.array([0.0, 0.1]),
+        W_rad=0.0,
+        i_rad=jnp.array([0.3, 0.6]),
+        w_rad=0.0,
+        M0_rad=jnp.array([0.0, 1.0]),
+        disk=AYOExozodi(level_zodis=3.0),
+        local_zodi=AYOZodi(),
+    )
+
+
+def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
+    """Fails if scene_rates differs from the loop over rates.
+
+    Basis: two planets, three times, two bands. Each field, pixel count and
+    squared-weight field is compared with the Python loop over ``rates`` at the
+    scene's own positions and contrasts to float rounding (measured 1.6e-16,
+    one ulp; rtol 1e-14); one trace serves a second call with new times.
+    """
+    curves, scene, instrument = _curves(), _two_planet_scene(), _instrument()
+    quadrature, sky = _quadrature((BAND, Band(600.0, 700.0))), _sky()
+    times = jnp.array([0.0, 40.0, 90.0])
+    traces = []
+
+    @jax.jit
+    def read(time_d):
+        traces.append(1)
+        return jaxedith.scene_rates(
+            curves, scene, instrument, quadrature, time_d, uniform_sky=sky
+        )
+
+    got = read(times)
+    assert got.planet.shape == (2, 1, 2, 3) and got.n_pix.shape == (2, 2, 3)
+    assert got.variance.planet.shape == (2, 1, 2, 3)
+    east, north = scene.positions(times)
+    for k in range(2):
+        for t in range(3):
+            contrast = jnp.stack(
+                [scene.contrasts(n, times)[k, t] for n in quadrature.nodes_nm[:, 0]]
+            )[:, None]
+            want = jaxedith.rates(
+                curves,
+                scene,
+                instrument,
+                quadrature,
+                east[k, t],
+                north[k, t],
+                contrast,
+                time_d=times[t],
+                uniform_sky=sky,
+            )
+            for name in ("planet", "star_leakage", "local_zodi", "exozodi"):
+                for record, expected in ((got, want), (got.variance, want.variance)):
+                    np.testing.assert_allclose(
+                        getattr(record, name)[:, :, k, t],
+                        getattr(expected, name),
+                        rtol=1e-14,
+                    )
+            np.testing.assert_allclose(got.n_pix[:, k, t], want.n_pix, rtol=1e-14)
+    read(times + 1.0)
+    assert len(traces) == 1
+    with pytest.raises(ValueError, match="shape"):
+        jaxedith.scene_rates(
+            curves, scene, instrument, quadrature, 0.0, uniform_sky=sky
         )

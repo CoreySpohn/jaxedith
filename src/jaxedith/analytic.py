@@ -12,6 +12,7 @@ the image path; they return when the instrument describes the warm telescope
 and the scene holds a companion source.
 """
 
+import jax
 import jax.numpy as jnp
 import optixstuff as ox
 from hwoutils.conversions import arcsec_to_rad
@@ -31,6 +32,7 @@ from skyscapes import Scene
 
 # A photon-counting EMCCD is run at 1 / 6.73 electrons per pixel per frame.
 _OCCUPANCY_DIVISOR = 6.73
+_READ_FIELDS = ("planet", "star_leakage", "local_zodi", "exozodi")
 
 
 def _moments(record, separation, squared):
@@ -101,7 +103,8 @@ def rates(
     field are not read, and neither is any channel multiplier.
 
     ``time_d`` is days from the scene epoch. The function is a pure scalar
-    read; batch it with ``jax.vmap`` over position and contrast.
+    read; batch it with ``jax.vmap`` over position and contrast, or read a
+    whole scene with :func:`scene_rates`.
     """
     bands = quadrature.bands
     per_band = tuple(curves) if isinstance(curves, tuple) else (curves,) * len(bands)
@@ -177,7 +180,80 @@ def rates(
     )
 
 
-def scene_exposure_time(
+def scene_rates(
+    curves: PerformanceCurves | tuple[PerformanceCurves, ...],
+    scene: Scene,
+    instrument: Instrument,
+    quadrature: Quadrature,
+    time_d: ArrayLike,
+    *,
+    uniform_sky: SampledProfile | None,
+) -> Rates:
+    """Return every planet of a scene at every time, in photons/s/nm.
+
+    A ``jax.vmap`` of :func:`rates` over the scene's planets and the times:
+    positions come from ``scene.positions(time_d)`` and each planet's contrast
+    from ``scene.contrasts`` at every spectral node of ``quadrature``. It
+    follows ``coronagraphoto.scene_aperture_rates``, so the two reads swap:
+    ``time_d`` has shape ``(T,)``, days from the scene epoch, and the returned
+    ``Rates`` has the band and node axes leading and the batch axes trailing.
+    Fields have shape ``(W, Q, K, T)``, ``n_pix`` has shape ``(W, K, T)``, and
+    ``variance`` holds the squared-weight rates. Pass it to
+    ``optixstuff.snr`` or ``optixstuff.exposure_time``, which return one value
+    per band, planet and time. A planet with ``scene.valid`` False reads zero
+    in every field, so its exposure time is invalid, not a number. A scene with
+    a batch of systems is not read; map this function over them.
+
+    ``curves`` and ``uniform_sky`` are as in :func:`rates`. Every planet is
+    read with the same aperture rule as :func:`rates`, so a planet beyond
+    ``curves.data_extent_lod`` reads NaN.
+    """
+    time_d = jnp.asarray(time_d)
+    if time_d.ndim != 1:
+        raise ValueError("time_d must have shape (T,)")
+    if scene.batch_shape:
+        raise ValueError("scene_rates reads one system; vmap it over a batch")
+    east, north = scene.positions(time_d)
+    contrast = jax.vmap(
+        jax.vmap(lambda wavelength: scene.contrasts(wavelength, time_d))
+    )(quadrature.nodes_nm)
+
+    def read(east_arcsec, north_arcsec, contrast, time):
+        record = rates(
+            curves,
+            scene,
+            instrument,
+            quadrature,
+            east_arcsec,
+            north_arcsec,
+            contrast,
+            time_d=time,
+            uniform_sky=uniform_sky,
+        )
+        return tuple(
+            (*(getattr(r, name) for name in _READ_FIELDS), r.n_pix)
+            for r in (record, record.variance)
+        )
+
+    over_times = jax.vmap(read, in_axes=(0, 0, -1, 0), out_axes=-1)
+    mean, variance = jax.vmap(over_times, in_axes=(0, 0, -2, None), out_axes=-2)(
+        east, north, contrast, time_d
+    )
+
+    def build(values, variance=None):
+        *fields, n_pix = (jnp.where(scene.valid[:, None], v, 0.0) for v in values)
+        return Rates(
+            quadrature,
+            "photon",
+            **dict(zip(_READ_FIELDS, fields, strict=True)),
+            n_pix=n_pix,
+            variance=variance,
+        )
+
+    return build(mean, build(variance))
+
+
+def planet_exposure_time(
     curves: PerformanceCurves | tuple[PerformanceCurves, ...],
     scene: Scene,
     instrument: Instrument,
@@ -192,9 +268,11 @@ def scene_exposure_time(
     frame_time_s: ArrayLike,
     post_processing: PostProcessing,
 ) -> ExposureTime:
-    """Return the live time reaching ``target_snr``, from :func:`rates`.
+    """Return the live time reaching ``target_snr`` for one planet.
 
-    The one-call entry point for the scalar calculators. It is
+    The one-call entry point for the scalar calculators, for the single planet
+    at ``east_arcsec``, ``north_arcsec`` with ``contrast``; the scene's other
+    planets are not read (:func:`scene_rates` reads all of them). It is
     ``optixstuff.exposure_time(rates(...), instrument.detector, target_snr,
     frame_time_s=frame_time_s, post_processing=post_processing)`` and does no
     arithmetic of its own; see those functions for every argument and for the
@@ -220,7 +298,7 @@ def scene_exposure_time(
     )
 
 
-def scene_snr(
+def planet_snr(
     curves: PerformanceCurves | tuple[PerformanceCurves, ...],
     scene: Scene,
     instrument: Instrument,
@@ -235,9 +313,11 @@ def scene_snr(
     frame_time_s: ArrayLike,
     post_processing: PostProcessing,
 ) -> Array:
-    """Return S/N per band after ``time_s`` live seconds, from :func:`rates`.
+    """Return one planet's S/N per band after ``time_s`` live seconds.
 
-    It is ``optixstuff.snr(rates(...), instrument.detector, time_s,
+    The planet is the one at ``east_arcsec``, ``north_arcsec`` with
+    ``contrast``; the scene's other planets are not read. It is
+    ``optixstuff.snr(rates(...), instrument.detector, time_s,
     frame_time_s=frame_time_s, post_processing=post_processing)`` and does no
     arithmetic of its own.
     """

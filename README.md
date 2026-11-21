@@ -4,8 +4,8 @@
 position into analytic aperture rates: the scalar AYO and pyEDITH count-rate
 terms, evaluated in JAX. It returns an `optixstuff.Rates` record, which
 `optixstuff.snr` and `optixstuff.exposure_time` reduce to a signal-to-noise
-ratio or an exposure time. The package has four functions: `rates`,
-`photon_counting_frame_time`, and the one-call `scene_exposure_time` and `scene_snr`.
+ratio or an exposure time. The package has five functions: `rates`, `scene_rates`,
+`photon_counting_frame_time`, and the one-call `planet_exposure_time` and `planet_snr`.
 
 ## Usage
 
@@ -40,11 +40,11 @@ time = ox.exposure_time(
 frames = ox.frames_for_time(time.time_s, frame_time_s)
 ```
 
-For pyEDITH and EXOSIMS users the one-call form takes the same arguments plus
+For pyEDITH and EXOSIMS users the one-call form, which answers for one planet, takes the same arguments plus
 the target and the frame time, and returns what the two steps above return:
 
 ```python notest
-time = jaxedith.scene_exposure_time(
+time = jaxedith.planet_exposure_time(
     curves,
     scene,
     instrument,
@@ -58,7 +58,7 @@ time = jaxedith.scene_exposure_time(
     frame_time_s=frame_time_s,
     post_processing=ox.PostProcessing(1 / 30, 0.0, background_variance_factor=2.0),
 )
-snr = jaxedith.scene_snr(
+snr = jaxedith.planet_snr(
     curves,
     scene,
     instrument,
@@ -74,15 +74,34 @@ snr = jaxedith.scene_snr(
 )
 ```
 
-`jaxedith.scene_exposure_time` is `rates` followed by `optixstuff.exposure_time` on
-`instrument.detector`, and `jaxedith.scene_snr` is `rates` followed by
+`jaxedith.planet_exposure_time` is `rates` followed by `optixstuff.exposure_time` on
+`instrument.detector`, and `jaxedith.planet_snr` is `rates` followed by
 `optixstuff.snr`; neither adds arithmetic. They return an
 `optixstuff.ExposureTime` and the S/N per band.
 
-`rates` is a scalar read; map it over positions and contrasts with `jax.vmap`.
+`rates` is a scalar read of one planet; map it over positions and contrasts with `jax.vmap`.
 Fields are photons/s/nm of shape `(W, Q)`, with `n_pix` per band and a
 squared-weight `variance` record. Detector yield is not applied there:
 `detector.electrons(rates)` applies QE and survival once, downstream.
+
+To read every planet of the scene at every time, `scene_rates` is a `vmap` of `rates`
+over the planets and the times, and takes the same layout as
+`coronagraphoto.scene_aperture_rates`, so the two reads swap:
+
+```python notest
+record = jaxedith.scene_rates(
+    curves, scene, instrument, quadrature, time_d, uniform_sky=uniform_sky
+)  # time_d: (T,) days; fields (W, Q, K, T), n_pix (W, K, T)
+time = ox.exposure_time(
+    record,
+    instrument.detector,
+    7.0,
+    frame_time_s=frame_time_s,
+    post_processing=post_processing,
+)  # one time per band, planet and time
+```
+
+Planets with `scene.valid` False read zero, so their exposure time is invalid.
 
 The reduction itself is described in optixstuff's
 [how an exposure time is computed](https://optixstuff.readthedocs.io/en/latest/explanation/exposure_time.html).

@@ -28,13 +28,21 @@ band, with `r` the electron rate of all sources per aperture pixel, the
 cadence at which a photon-counting EMCCD sees 1/6.73 electrons per pixel per
 frame.
 
-## One-call entry points
+## One-call entry points for one planet
 
-`jaxedith.scene_exposure_time(..., target_snr=, frame_time_s=, post_processing=)` and
-`jaxedith.scene_snr(..., time_s=, frame_time_s=, post_processing=)` take the arguments
+`jaxedith.planet_exposure_time(..., target_snr=, frame_time_s=, post_processing=)` and
+`jaxedith.planet_snr(..., time_s=, frame_time_s=, post_processing=)` take the arguments
 of `rates` and compose it with `optixstuff.exposure_time` and `optixstuff.snr`
 on `instrument.detector`. The frame time is explicit; use
 `photon_counting_frame_time` for the photon-counting cadence.
+
+## Every planet of a scene
+
+`jaxedith.scene_rates(curves, scene, instrument, quadrature, time_d, *, uniform_sky)`
+reads each planet at each time with the terms of `rates`, taking positions and
+contrasts from the scene. Its `Rates` has fields of shape `(W, Q, K, T)` and
+`n_pix` of shape `(W, K, T)`, the layout of `coronagraphoto.scene_aperture_rates`,
+and goes to `optixstuff.snr` or `optixstuff.exposure_time` unchanged.
 
 ## Post-processing settings
 
