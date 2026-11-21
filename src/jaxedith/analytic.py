@@ -98,8 +98,8 @@ def rates(
     collecting area, with no system throughput and no flux scale (see
     ``Instrument.thermal_photon_rate_per_sr``). It is zero for an instrument
     without ``warm_emission``, the default. ``optixstuff`` owns the
-    description and ``jaxedith`` is the producer that fills the term; the
-    image path of ``coronagraphoto`` does not render thermal emission.
+    description; ``jaxedith`` and the image path of ``coronagraphoto`` both
+    fill the term.
     ``n_pix`` is ``Omega`` over the detector pixel solid angle, and
     ``variance`` holds the same terms from the squared-weight moments of the
     curves. Detector yield is not applied: the record is

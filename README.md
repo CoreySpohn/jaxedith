@@ -109,8 +109,8 @@ The conventions of the terms, and how AYO, pyEDITH and EXOSIMS map onto
 `PostProcessing`, are on the [conventions page](docs/explanation/conventions.md).
 Thermal emission is read from `Instrument.warm_emission` (optixstuff's
 `WarmEmission`) and is zero without it; stellar companions are zero in this
-release. `coronagraphoto` does not render thermal emission, so `jaxedith` is the
-producer that fills the `thermal` field.
+release. `coronagraphoto` fills the same field from its images and aperture
+records.
 
 ## Cross-code references
 
