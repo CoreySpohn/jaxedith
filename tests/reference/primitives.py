@@ -8,7 +8,7 @@ from hwoutils.conversions import arcsec_to_au
 from hwoutils.planck import planck_photon_radiance
 from jaxtyping import ArrayLike, Real
 
-from jaxedith._types import FloatOut, Num
+from reference.types import FloatOut, Num
 
 # Reference products preserve integer or floating arithmetic.
 NumOut = Real[ArrayLike, "..."]

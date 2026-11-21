@@ -1,7 +1,5 @@
-"""Shape and dtype aliases for jaxtyping annotations.
+"""Shape and dtype aliases for the reference code's jaxtyping annotations.
 
-The annotations are documentation in production and are enforced only in the
-test suite, where ``tests/conftest.py`` installs a jaxtyping import hook.
 ``"..."`` accepts any shape, so scalars, batches and broadcasting all pass;
 the check is on dtype kind and on array-likeness.
 """

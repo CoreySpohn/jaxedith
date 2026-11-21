@@ -6,15 +6,18 @@ These adapters never supply an alternative optical-path rate derivation.
 """
 
 import jax.numpy as jnp
-from optixstuff import FramePlan, frames_for_time
+from optixstuff import FramePlan, PostProcessing, frames_for_time
 
-from jaxedith.calculator import PostProcessing
 from reference.primitives import detector_noise_rate, photon_counting_time
 
 
 def post_processing_from_pyedith(ppfact) -> PostProcessing:
-    """Convert pyEDITH's divisor to a speckle residual fraction; disk is zero."""
-    return PostProcessing(1 / jnp.asarray(ppfact), 0.0)
+    """Convert pyEDITH's divisor to a speckle residual fraction.
+
+    The disk residual is zero and the background variance is counted twice, as
+    pyEDITH's ``CRb_multiplier`` does.
+    """
+    return PostProcessing(1 / jnp.asarray(ppfact), 0.0, 2.0)
 
 
 def post_processing_from_exosims(ppFact) -> PostProcessing:
