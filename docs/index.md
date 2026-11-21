@@ -3,7 +3,9 @@
 Analytic aperture rates from performance curves, a scene and an instrument,
 in the AYO and pyEDITH conventions, with one-call `jaxedith.scene_exposure_time`
 and `jaxedith.scene_snr`. The reduction itself is `optixstuff.snr` and
-`optixstuff.exposure_time`.
+`optixstuff.exposure_time`; optixstuff's page on
+[how an exposure time is computed](https://optixstuff.readthedocs.io/en/latest/explanation/exposure_time.html) follows this path and the image path
+of coronagraphoto to it.
 
 The [README](https://github.com/CoreySpohn/jaxedith#readme) contains the full
 calling example. The [conventions](explanation/conventions) page lists every

@@ -5,12 +5,12 @@ pip install jaxedith
 ```
 
 This pulls in jaxedith and its JAX-CPU dependencies. For most ETC
-work -- yield curves, sensitivity sweeps, retrievals -- the CPU
+work (yield curves, sensitivity sweeps, retrievals) the CPU
 build is fast enough.
 
 ## GPU install
 
-If you're running large vmap loops over targets, wavelengths, or
+For large vmap loops over targets, wavelengths, or
 exposure-time grids, GPU acceleration helps. Install JAX with CUDA
 12:
 

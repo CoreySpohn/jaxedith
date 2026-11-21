@@ -84,6 +84,8 @@ Fields are photons/s/nm of shape `(W, Q)`, with `n_pix` per band and a
 squared-weight `variance` record. Detector yield is not applied there:
 `detector.electrons(rates)` applies QE and survival once, downstream.
 
+The reduction itself is described in optixstuff's
+[how an exposure time is computed](https://optixstuff.readthedocs.io/en/latest/explanation/exposure_time.html).
 The conventions of the terms, and how AYO, pyEDITH and EXOSIMS map onto
 `PostProcessing`, are on the [conventions page](docs/explanation/conventions.md).
 Thermal emission and stellar companions are zero in this release.
