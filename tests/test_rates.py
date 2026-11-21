@@ -399,8 +399,8 @@ def test_photon_counting_frame_time_follows_the_occupancy_rule():
         )
 
 
-def test_one_call_entry_points_equal_the_two_step_calls():
-    """Fails if ``jaxedith.snr`` or ``jaxedith.exposure_time`` does work of its own.
+def test_scene_entry_points_equal_the_two_step_calls():
+    """Fails if a scene entry point does any work of its own.
 
     Basis: exact equality with ``rates`` followed by the optixstuff function,
     for no post-processing and for the AYO setting, and for per-band times.
@@ -422,7 +422,7 @@ def test_one_call_entry_points_equal_the_two_step_calls():
             frame_time_s=frame,
             post_processing=post_processing,
         )
-        got = jaxedith.exposure_time(
+        got = jaxedith.scene_exposure_time(
             *common,
             **keywords,
             target_snr=jnp.array([5.0, 7.0]),
@@ -433,7 +433,7 @@ def test_one_call_entry_points_equal_the_two_step_calls():
         np.testing.assert_array_equal(got.time_s, wanted.time_s)
         np.testing.assert_array_equal(got.valid, wanted.valid)
         np.testing.assert_array_equal(
-            jaxedith.snr(
+            jaxedith.scene_snr(
                 *common,
                 **keywords,
                 time_s=3600.0,

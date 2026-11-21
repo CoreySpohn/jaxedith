@@ -30,8 +30,8 @@ frame.
 
 ## One-call entry points
 
-`jaxedith.exposure_time(..., target_snr=, frame_time_s=, post_processing=)` and
-`jaxedith.snr(..., time_s=, frame_time_s=, post_processing=)` take the arguments
+`jaxedith.scene_exposure_time(..., target_snr=, frame_time_s=, post_processing=)` and
+`jaxedith.scene_snr(..., time_s=, frame_time_s=, post_processing=)` take the arguments
 of `rates` and compose it with `optixstuff.exposure_time` and `optixstuff.snr`
 on `instrument.detector`. The frame time is explicit; use
 `photon_counting_frame_time` for the photon-counting cadence.

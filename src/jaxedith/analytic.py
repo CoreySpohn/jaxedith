@@ -179,7 +179,7 @@ def rates(
     )
 
 
-def exposure_time(
+def scene_exposure_time(
     curves: PerformanceCurves | tuple[PerformanceCurves, ...],
     scene: Scene,
     instrument: Instrument,
@@ -222,7 +222,7 @@ def exposure_time(
     )
 
 
-def snr(
+def scene_snr(
     curves: PerformanceCurves | tuple[PerformanceCurves, ...],
     scene: Scene,
     instrument: Instrument,
