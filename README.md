@@ -35,7 +35,7 @@ time = ox.exposure_time(
     instrument.detector,
     7.0,
     frame_time_s=frame_time_s,
-    post_processing=ox.PostProcessing(1 / 30, 0.0, 2.0),
+    post_processing=ox.PostProcessing(1 / 30, 0.0, background_variance_factor=2.0),
 )
 frames = ox.frames_for_time(time.time_s, frame_time_s)
 ```
@@ -56,7 +56,7 @@ time = jaxedith.exposure_time(
     uniform_sky=uniform_sky,
     target_snr=7.0,
     frame_time_s=frame_time_s,
-    post_processing=ox.PostProcessing(1 / 30, 0.0, 2.0),
+    post_processing=ox.PostProcessing(1 / 30, 0.0, background_variance_factor=2.0),
 )
 snr = jaxedith.snr(
     curves,

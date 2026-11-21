@@ -41,7 +41,8 @@ on `instrument.detector`. The frame time is explicit; use
 `optixstuff.PostProcessing(speckle_residual_fraction, exozodi_residual_fraction,
 background_variance_factor)` carries the assumption of the subtraction. The
 factor multiplies the variance of every source except the planet's own shot
-noise.
+noise. It is required and keyword-only: two when a reference image is
+subtracted (differential imaging), one when it is not.
 
 | Convention | `speckle_residual_fraction` | `exozodi_residual_fraction` | `background_variance_factor` |
 |---|---|---|---|

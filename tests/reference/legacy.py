@@ -17,12 +17,12 @@ def post_processing_from_pyedith(ppfact) -> PostProcessing:
     The disk residual is zero and the background variance is counted twice, as
     pyEDITH's ``CRb_multiplier`` does.
     """
-    return PostProcessing(1 / jnp.asarray(ppfact), 0.0, 2.0)
+    return PostProcessing(1 / jnp.asarray(ppfact), 0.0, background_variance_factor=2.0)
 
 
 def post_processing_from_exosims(ppFact) -> PostProcessing:
     """Read EXOSIMS ppFact as the residual fraction itself; disk is zero."""
-    return PostProcessing(ppFact, 0.0)
+    return PostProcessing(ppFact, 0.0, background_variance_factor=1.0)
 
 
 def frame_plan_photon_counting(count_rate_per_pixel, *, time_s) -> FramePlan:

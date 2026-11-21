@@ -280,7 +280,9 @@ class ScalarCase:
             detector,
             snr,
             frame_time_s=frame_time_s,
-            post_processing=PostProcessing(speckle, exozodi, factor),
+            post_processing=PostProcessing(
+                speckle, exozodi, background_variance_factor=factor
+            ),
         )
         return result
 

@@ -400,7 +400,7 @@ def test_photon_counting_frame_time_follows_the_occupancy_rule():
 
 
 def test_one_call_entry_points_equal_the_two_step_calls():
-    """Fails if ``jaxedith.snr`` or ``jaxedith.exposure_time`` does any work of its own.
+    """Fails if ``jaxedith.snr`` or ``jaxedith.exposure_time`` does work of its own.
 
     Basis: exact equality with ``rates`` followed by the optixstuff function,
     for no post-processing and for the AYO setting, and for per-band times.
@@ -411,7 +411,10 @@ def test_one_call_entry_points_equal_the_two_step_calls():
     keywords = dict(time_d=0.0, uniform_sky=_sky())
     rates = jaxedith.rates(*common, **keywords)
     frame = jnp.array([100.0, 60.0])
-    for post_processing in (None, ox.PostProcessing(0.1, 0.05, 2.0)):
+    for post_processing in (
+        None,
+        ox.PostProcessing(0.1, 0.05, background_variance_factor=2.0),
+    ):
         wanted = ox.exposure_time(
             rates,
             instrument.detector,
