@@ -12,13 +12,10 @@ the image path; they return when the instrument describes the warm telescope
 and the scene holds a companion source.
 """
 
-import math
-
 import jax.numpy as jnp
 import optixstuff as ox
-from hwoutils.conversions import arcsec_to_rad, lambda_d_to_arcsec
+from hwoutils.conversions import arcsec_to_rad
 from jax import Array
-from jax.core import Tracer
 from jax.typing import ArrayLike
 from optixstuff import (
     AbstractDetector,
@@ -34,20 +31,6 @@ from skyscapes import Scene
 
 # A photon-counting EMCCD is run at 1 / 6.73 electrons per pixel per frame.
 _OCCUPANCY_DIVISOR = 6.73
-
-
-def _check_telescope(curves, instrument):
-    """Raise when a record was measured for another telescope diameter."""
-    frame = curves.frame
-    supplied = instrument.primary.diameter(frame.diameter_convention)
-    if isinstance(supplied, Tracer):
-        return
-    if not math.isclose(float(supplied), frame.diameter_m, rel_tol=1e-6):
-        raise ValueError(
-            f"primary {frame.diameter_convention} diameter {float(supplied)} m "
-            f"differs from the curves' lambda/D frame ({frame.diameter_m} m); "
-            "request curves for this telescope"
-        )
 
 
 def _moments(record, separation, squared):
@@ -127,7 +110,9 @@ def rates(
     if uniform_sky is None and (scene.disk is not None or scene.local_zodi is not None):
         raise ValueError("uniform_sky is required when the scene has a disk or zodi")
     for record in {id(record): record for record in per_band}.values():
-        _check_telescope(record, instrument)
+        ox.check_primary_matches_frame(
+            instrument.primary, record.frame, source="curves"
+        )
 
     time_d = jnp.asarray(time_d)
     east, north = jnp.asarray(east_arcsec), jnp.asarray(north_arcsec)
@@ -154,7 +139,7 @@ def rates(
 
     mean, variance, n_pix, n_pix_variance = [], [], [], []
     for w, (band, record) in enumerate(zip(bands, per_band, strict=True)):
-        lod_arcsec = lambda_d_to_arcsec(1.0, band.center_nm, record.frame.diameter_m)
+        lod_arcsec = record.frame.lod_to_arcsec(band.center_nm)
         separation = angle / lod_arcsec
         sky = 1.0 if uniform_sky is None else uniform_sky.evaluate(separation)
         outside = separation > record.data_extent_lod
