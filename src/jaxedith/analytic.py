@@ -356,13 +356,17 @@ def planet_snr(
 
 
 def photon_counting_frame_time(rates: Rates, detector: AbstractDetector) -> Array:
-    """Return the photon-counting frame time per band, shape ``(W,)`` seconds.
+    """Return the photon-counting frame time per band, shape ``(W, *batch)`` seconds.
 
     The frame time at which a photon-counting EMCCD sees a mean of 1/6.73
     electrons per aperture pixel per frame, ``1 / (6.73 r)`` with ``r`` the
     electron rate of all sources, planet included, per aperture pixel (the
     cadence pyEDITH takes for clock-induced charge). ``rates`` is one aperture
-    in photons/s/nm or electrons/s with ``n_pix`` set.
+    in photons/s/nm or electrons/s with ``n_pix`` set. The batch axes are those
+    of ``rates``: ``()`` for one aperture, ``(K, T)`` for a record from
+    :func:`scene_rates`. ``optixstuff.snr`` and ``optixstuff.exposure_time``
+    take a frame time that is a scalar or ``(W,)``, so a cadence per planet is a
+    ``jax.vmap`` of the calculator over the batch axes.
     """
     if rates.n_pix is None:
         raise ValueError("rates must carry n_pix, the aperture's pixel count")
