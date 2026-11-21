@@ -4,8 +4,8 @@
 position into analytic aperture rates: the scalar AYO and pyEDITH count-rate
 terms, evaluated in JAX. It returns an `optixstuff.Rates` record, which
 `optixstuff.snr` and `optixstuff.exposure_time` reduce to a signal-to-noise
-ratio or an exposure time. The package has two functions, `rates` and
-`photon_counting_frame_time`.
+ratio or an exposure time. The package has four functions: `rates`,
+`photon_counting_frame_time`, and the one-call `exposure_time` and `snr`.
 
 ## Usage
 
@@ -39,6 +39,44 @@ time = ox.exposure_time(
 )
 frames = ox.frames_for_time(time.time_s, frame_time_s)
 ```
+
+For pyEDITH and EXOSIMS users the one-call form takes the same arguments plus
+the target and the frame time, and returns what the two steps above return:
+
+```python notest
+time = jaxedith.exposure_time(
+    curves,
+    scene,
+    instrument,
+    quadrature,
+    east_arcsec,
+    north_arcsec,
+    contrast,
+    time_d=0.0,
+    uniform_sky=uniform_sky,
+    target_snr=7.0,
+    frame_time_s=frame_time_s,
+    post_processing=ox.PostProcessing(1 / 30, 0.0, 2.0),
+)
+snr = jaxedith.snr(
+    curves,
+    scene,
+    instrument,
+    quadrature,
+    east_arcsec,
+    north_arcsec,
+    contrast,
+    time_d=0.0,
+    uniform_sky=uniform_sky,
+    time_s=3600.0,
+    frame_time_s=frame_time_s,
+)
+```
+
+`jaxedith.exposure_time` is `rates` followed by `optixstuff.exposure_time` on
+`instrument.detector`, and `jaxedith.snr` is `rates` followed by
+`optixstuff.snr`; neither adds arithmetic. They return an
+`optixstuff.ExposureTime` and the S/N per band.
 
 `rates` is a scalar read; map it over positions and contrasts with `jax.vmap`.
 Fields are photons/s/nm of shape `(W, Q)`, with `n_pix` per band and a

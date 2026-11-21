@@ -5,7 +5,9 @@ exposure_time`. `jaxedith.rates` reads the curves at the planet's separation
 in lambda/D at each band centre and multiplies each source by the collecting
 area, the system throughput and the aperture, per spectral node. It returns an
 `optixstuff.Rates` record: mean and squared-weight photon rates of shape
-`(W, Q)` and per-band pixel counts.
+`(W, Q)` and per-band pixel counts. `jaxedith.exposure_time` and `jaxedith.snr`
+are the one-call entry points: `rates` followed by the optixstuff function on
+`instrument.detector`, with no arithmetic of their own.
 
 `detector.electrons` applies wavelength-dependent yield and integrates over
 each band. `optixstuff.snr` and `optixstuff.exposure_time` read the detector's

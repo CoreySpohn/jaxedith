@@ -28,6 +28,14 @@ band, with `r` the electron rate of all sources per aperture pixel, the
 cadence at which a photon-counting EMCCD sees 1/6.73 electrons per pixel per
 frame.
 
+## One-call entry points
+
+`jaxedith.exposure_time(..., target_snr=, frame_time_s=, post_processing=)` and
+`jaxedith.snr(..., time_s=, frame_time_s=, post_processing=)` take the arguments
+of `rates` and compose it with `optixstuff.exposure_time` and `optixstuff.snr`
+on `instrument.detector`. The frame time is explicit; use
+`photon_counting_frame_time` for the photon-counting cadence.
+
 ## Post-processing settings
 
 `optixstuff.PostProcessing(speckle_residual_fraction, exozodi_residual_fraction,
