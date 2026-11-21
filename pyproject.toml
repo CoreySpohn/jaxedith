@@ -78,8 +78,8 @@ select = ["B", "D", "E", "F", "I", "UP", "RUF"]
 convention = "google"
 
 [tool.codespell]
-# lod is the lambda/D angular unit.
-ignore-words-list = "lod"
+# lod is the lambda/D angular unit; tread is pyEDITH's read-time attribute.
+ignore-words-list = "lod,tread"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jaxedith"]
