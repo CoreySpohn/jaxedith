@@ -1,16 +1,19 @@
 # jaxedith
 
-Detector-based S/N and exposure planning from photon rates. Detectors own
-electron yield and variance.
+Analytic aperture rates from performance curves, a scene and an instrument,
+in the AYO and pyEDITH conventions. The S/N and exposure-time reduction is
+`optixstuff.snr` and `optixstuff.exposure_time`.
 
 The [README](https://github.com/CoreySpohn/jaxedith#readme) contains the full
-calling example, units and detector conventions.
+calling example. The [conventions](explanation/conventions) page lists every
+term and the post-processing settings of each community code.
 
 ```{toctree}
 :maxdepth: 2
 
 installation
 explanation/architecture
+explanation/conventions
 explanation/variants
 autoapi/index
 ```

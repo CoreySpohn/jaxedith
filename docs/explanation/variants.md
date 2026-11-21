@@ -1,13 +1,14 @@
 # Comparison references
 
-jaxedith provides `PostProcessing`, `snr` and `exposure_time`. Detector yield,
-variance and frame counting come from optixstuff.
+jaxedith provides `rates` and `photon_counting_frame_time`. The S/N and
+exposure-time reduction, `PostProcessing`, detector yield, variance and frame
+counting come from optixstuff.
 
 The source checkout's `tests/reference/` package holds plain-number
 pyEDITH, EXOSIMS and AYO reference implementations. Its `primitives.py`
 contains scalar electron-rate formulas, `etc.py` the rate-to-S/N and
 time equations, and `legacy.py` test adapters for processing and cadence
-conventions.
+conventions. The adapters build `optixstuff.PostProcessing` records.
 This test support is excluded from both the wheel and source distribution.
 
 Cross-code benchmarks import these references from the test suite and carry

@@ -1,8 +1,9 @@
 # jaxedith Roadmap
 
-Potential extensions to the calculator:
+Potential extensions:
 
-- Decide which of `snr`, `exposure_time` and `PostProcessing` here and their
-  counterparts in the simulator package survives, and give the survivor one
-  argument order and one return type.
+- Fill the `thermal` term from a warm-telescope description on `Instrument`.
+- Fill `stellar_companions` from a companion source on the scene.
+- A `scene_rates` map of `rates` over planets and times.
+- Validate against pyEDITH and the AYO and EXOSIMS cross-code workbooks.
 - Verify published dependency floors against the rates and detector contracts.

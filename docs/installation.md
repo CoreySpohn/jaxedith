@@ -30,7 +30,7 @@ verified for those contracts.
 
 | Package | Role |
 |---|---|
-| `optixstuff` | Instrument, Band, Quadrature, PixelGrid, aperture preparation, photon rates, detector statistics and frame plans |
+| `optixstuff` | Instrument, Band, Quadrature, PerformanceCurves, photon rates, detector statistics, frame plans, S/N and exposure time |
 | `skyscapes` | Scene, local-zodi models, photon spectra and disk radiance |
 | `hwoutils` | Constants and conversions |
 | `zodi` | Spectral tables and dust calibration |
