@@ -403,7 +403,8 @@ def test_scene_entry_points_equal_the_two_step_calls():
     """Fails if a scene entry point does any work of its own.
 
     Basis: exact equality with ``rates`` followed by the optixstuff function,
-    for no post-processing and for the AYO setting, and for per-band times.
+    for a unit background factor with no residual, for the AYO setting and for
+    per-band times.
     """
     quadrature = _quadrature((BAND, Band(600.0, 700.0)))
     curves, scene, instrument = _curves(), _scene(), _instrument()
@@ -412,7 +413,7 @@ def test_scene_entry_points_equal_the_two_step_calls():
     rates = jaxedith.rates(*common, **keywords)
     frame = jnp.array([100.0, 60.0])
     for post_processing in (
-        None,
+        ox.PostProcessing(background_variance_factor=1.0),
         ox.PostProcessing(0.1, 0.05, background_variance_factor=2.0),
     ):
         wanted = ox.exposure_time(

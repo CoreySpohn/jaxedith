@@ -190,7 +190,7 @@ def scene_exposure_time(
     uniform_sky: SampledProfile | None,
     target_snr: ArrayLike,
     frame_time_s: ArrayLike,
-    post_processing: PostProcessing | None = None,
+    post_processing: PostProcessing,
 ) -> ExposureTime:
     """Return the live time reaching ``target_snr``, from :func:`rates`.
 
@@ -233,7 +233,7 @@ def scene_snr(
     uniform_sky: SampledProfile | None,
     time_s: ArrayLike,
     frame_time_s: ArrayLike,
-    post_processing: PostProcessing | None = None,
+    post_processing: PostProcessing,
 ) -> Array:
     """Return S/N per band after ``time_s`` live seconds, from :func:`rates`.
 

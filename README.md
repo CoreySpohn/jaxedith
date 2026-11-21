@@ -70,6 +70,7 @@ snr = jaxedith.scene_snr(
     uniform_sky=uniform_sky,
     time_s=3600.0,
     frame_time_s=frame_time_s,
+    post_processing=ox.PostProcessing(1 / 30, 0.0, background_variance_factor=2.0),
 )
 ```
 
