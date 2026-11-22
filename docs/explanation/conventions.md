@@ -18,6 +18,12 @@ aperture solid angle.
 | `n_pix` | `Omega / pixel_scale**2`, per band | AYO and pyEDITH `det_npix` |
 | `variance` | the same record from the squared-weight moments | equal to the mean for `Circular` and `HalfMaximum` |
 
+The scene's `flux_scale` leaves act through the scene methods that `rates` reads,
+so `F`, `L_zodi` and `L_disk` above already include them: the star scale
+multiplies `planet` and `star_leakage`, the zodi scale `local_zodi` and the disk
+scale `exozodi`. A planet's scale is part of the contrast the scene reports. The
+instrument's own `flux_scale` multiplies every sky term through `A`.
+
 The aperture is fixed in angle within a band. A separation beyond the curves'
 `data_extent_lod` gives NaN rates. The curves must be measured for the
 telescope's diameter, and for the star's angular diameter: jaxedith does not
