@@ -27,6 +27,7 @@ from reference.primitives import (
     thermal_rate,
     zodi_rate,
 )
+from reference.scalar_case import ConstantDisk
 from skyscapes import AYOZodi
 from skyscapes.disk import AYOExozodi
 from skyscapes.physical_model import GridPhysicalModel
@@ -190,6 +191,57 @@ def _scalar_expectations():
             n_pix=area * lod_arcsec**2 / 0.01**2,
         )
     return out
+
+
+def _scaled(scene, **scales):
+    """The scene with ``flux_scale`` set on the named sources."""
+    where = dict(
+        star=lambda s: s.star.flux_scale,
+        zodi=lambda s: s.local_zodi.flux_scale,
+        disk=lambda s: s.disk.flux_scale,
+    )
+    for name, value in scales.items():
+        scene = eqx.tree_at(where[name], scene, jnp.asarray(value))
+    return scene
+
+
+def test_each_flux_scale_scales_its_own_terms_exactly():
+    """Fails if a source's scale is applied twice, or reaches another source.
+
+    Basis: the star scale multiplies the planet and the leakage, the zodi scale
+    the local zodi, the disk scale the exozodi, each by exactly its factor
+    (rtol 1e-12, products of float64 scalars) and nothing else.
+    """
+    base = _read()
+    terms = ("planet", "star_leakage", "local_zodi", "exozodi")
+    for source, hit, factor in (
+        ("star", ("planet", "star_leakage"), 2.0),
+        ("zodi", ("local_zodi",), 3.0),
+        ("disk", ("exozodi",), 5.0),
+    ):
+        rates = _read(scene=_scaled(_scene(), **{source: factor}))
+        for name in terms:
+            want = factor if name in hit else 1.0
+            np.testing.assert_allclose(
+                getattr(rates, name),
+                want * getattr(base, name),
+                rtol=1e-12,
+                err_msg=f"{source} scale on {name}",
+            )
+
+
+def test_a_disk_hook_implementer_sees_the_scale_applied_once():
+    """Fails if ``ConstantDisk`` or the base method bypasses the private hook.
+
+    ``ConstantDisk`` implements only ``_photon_radiance_at``; the public method
+    must return its radiance times ``flux_scale``, exactly.
+    """
+    args = (jnp.array([550.0]), 0.0, jnp.array(0.1), jnp.array(0.2))
+    kwargs = dict(star=FlatStar(flux_phot_per_nm_m2=1.0), dist_pc=10.0)
+    plain = ConstantDisk(7.0).photon_radiance_at(*args, **kwargs)
+    scaled = ConstantDisk(7.0, flux_scale=3.0).photon_radiance_at(*args, **kwargs)
+    np.testing.assert_array_equal(plain, 7.0)
+    np.testing.assert_array_equal(scaled, 21.0)
 
 
 def test_every_term_matches_the_scalar_formulas():

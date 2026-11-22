@@ -55,8 +55,9 @@ class ConstantDisk(AbstractDisk):
     """A disk of the same photon radiance everywhere, ph/s/m^2/nm/sr."""
 
     radiance: float
+    flux_scale: float = 1.0
 
-    def photon_radiance_at(
+    def _photon_radiance_at(
         self, wavelength_nm, time_d, east_arcsec, north_arcsec, *, star, dist_pc
     ):
         """Return the constant radiance, wavelength axes first."""
