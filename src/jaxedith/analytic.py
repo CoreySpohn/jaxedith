@@ -107,7 +107,22 @@ def rates(
 
     ``curves`` is one ``PerformanceCurves`` or a tuple with one per band of
     ``quadrature``, measured for this telescope and star (the curves are not
-    broadened here). The separation is read at the band-centre lambda/D for
+    broadened here).
+
+    The star leakage is read from curves that are functions of separation
+    alone, so the position angle of the planet is never used. What
+    ``leakage_density`` means at a separation depends on how the record was
+    made. For a rotationally symmetric (1D) product it is the aperture
+    leakage, the same at every angle. For a 2D product prepared by yippy with
+    its default rule (``aperture_ring_mean``) it is the exact-coverage aperture
+    averaged over position angle at that separation, the roll-averaged
+    leakage and not the value at the planet's own angle; with ``aperture_mean``
+    it is the aperture on the +x axis only. Where the leakage at a specific
+    planet position angle and roll is wanted, read it from the image or
+    aperture-record route (``coronagraphoto.aperture_record``), which agrees
+    with a roll average of this read and gives the single-angle value.
+
+    The separation is read at the band-centre lambda/D for
     every node of the band, so the aperture is fixed in angle within a band.
     A separation beyond ``curves.data_extent_lod`` gives NaN rates.
     ``uniform_sky`` is the sky transmission profile, required when the scene
