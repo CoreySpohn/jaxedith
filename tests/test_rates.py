@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
 import pytest
+from hwoutils.constants import Rsun2m
 from hwoutils.conversions import arcsec_to_rad, lambda_d_to_arcsec
 from hwoutils.epoch import Epoch
 from optixstuff import (
@@ -30,8 +31,8 @@ from reference.primitives import (
 from reference.scalar_case import ConstantDisk
 from skyscapes import AYOZodi
 from skyscapes.disk import AYOExozodi
-from skyscapes.physical_model import GridPhysicalModel
-from skyscapes.scene import FlatStar, Planet, Scene
+from skyscapes.physical_model import BlackbodyPhysicalModel, GridPhysicalModel
+from skyscapes.scene import BlackbodyStar, FlatStar, Planet, Scene
 
 import jaxedith
 
@@ -359,6 +360,50 @@ def test_scene_rates_carries_thermal_to_every_planet():
     assert float(read.thermal[0, 0, 0, 0]) > 0
     np.testing.assert_allclose(
         read.thermal[0, 0, 0, 0], scalar.thermal[0, 0], rtol=1e-12
+    )
+
+
+@pytest.mark.parametrize(
+    "leaf, planet_factor, leakage_factor",
+    [("star", 1.0, 2.0), ("planet", 2.0, 1.0)],
+)
+def test_thermal_planet_scale_is_its_own_in_the_scene_read(
+    leaf, planet_factor, leakage_factor
+):
+    """Fails if a star's ``flux_scale`` reaches a thermal planet in a scene read.
+
+    A 300 K blackbody planet's own flux does not depend on the host, so a star
+    scale of two doubles only the leakage and a planet scale of two doubles
+    only the planet, each by exactly its factor (rtol 1e-12, float64).
+    """
+    scene = eqx.tree_at(
+        lambda s: (s.star, s.planets[0].physical_model),
+        _scene(),
+        (
+            BlackbodyStar(5772.0, Rsun2m),
+            BlackbodyPhysicalModel(teff_K=jnp.array([300.0])),
+        ),
+    )
+    where = {
+        "star": lambda s: s.star.flux_scale,
+        "planet": lambda s: s.planets[0].flux_scale,
+    }[leaf]
+
+    def read(scene):
+        return jaxedith.scene_rates(
+            _curves(),
+            scene,
+            _instrument(),
+            _quadrature(),
+            jnp.array([0.0]),
+            uniform_sky=_sky(),
+        )
+
+    base = read(scene)
+    scaled = read(eqx.tree_at(where, scene, jnp.full_like(where(scene), 2.0)))
+    np.testing.assert_allclose(scaled.planet, planet_factor * base.planet, rtol=1e-12)
+    np.testing.assert_allclose(
+        scaled.star_leakage, leakage_factor * base.star_leakage, rtol=1e-12
     )
 
 
