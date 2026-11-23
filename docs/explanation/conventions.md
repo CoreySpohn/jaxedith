@@ -24,8 +24,9 @@ multiplies `planet` and `star_leakage`, the zodi scale `local_zodi` and the disk
 scale `exozodi`. A planet's scale is part of the contrast the scene reports. The
 instrument's own `flux_scale` multiplies every sky term through `A`.
 
-The aperture is fixed in angle within a band. An aperture that leaves the curves'
-`data_extent_lod` (separation plus the rule's radius) reads zero in every field
+The aperture is fixed in angle within a band. A planet outside the curves' support
+(`curves.supported`: between the first and last sample, with the aperture inside
+`data_extent_lod`) reads zero in every field
 with `Rates.supported` False, so the exposure time and S/N are NaN there. The curves must be measured for the
 telescope's diameter, and for the star's angular diameter: jaxedith does not
 broaden them.

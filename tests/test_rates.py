@@ -63,11 +63,11 @@ def _frame():
     return Frame(550.0, DIAMETER_M, "circumscribed")
 
 
-def _curves(frame=None, throughput=(TAU, TAU), extent=15.0):
+def _curves(frame=None, throughput=(TAU, TAU), extent=15.0, last=20.0):
     """Constant curves on a two-point axis; the throughput may vary with separation."""
     flat = lambda value: np.array([value, value])  # noqa: E731
     return PerformanceCurves(
-        np.array([0.0, 20.0]),
+        np.array([0.0, last]),
         _frame() if frame is None else frame,
         Circular(0.7),
         np.array(throughput),
@@ -497,6 +497,44 @@ def test_beyond_the_data_is_zero_and_unsupported_and_a_diameter_mismatch_raises(
     assert not np.any(_read(curves=_curves(extent=separation + 0.7 - 1e-6)).supported)
     with pytest.raises(ValueError, match="differs from the curves"):
         _read(instrument=_instrument(diameter=DIAMETER_M * 1.05))
+
+
+@pytest.mark.parametrize("offset", [-0.01, 0.0, 0.01])
+def test_a_read_past_the_last_sample_is_unsupported_inside_the_extent(offset):
+    """Fails if samples that end inside the array extent are read as data beyond them.
+
+    Basis: the last sample sits ``offset`` lambda/D from the planet while the
+    extent (15) leaves the aperture room; past the sample every field is an exact
+    zero, ``supported`` False and the exposure time NaN, and at or inside it the
+    values equal those of curves that run on (rtol 1e-12: constant curves refit on a
+    shorter axis differ by float64 rounding only).
+    """
+    lod = float(lambda_d_to_arcsec(1.0, BAND.center_nm, DIAMETER_M))
+    separation = np.hypot(EAST, NORTH) / lod
+    short = _curves(last=separation + offset)
+    got = _read(curves=short)
+    detector = _instrument().detector
+    time = ox.exposure_time(
+        got,
+        detector,
+        5.0,
+        frame_time_s=1.0,
+        post_processing=ox.PostProcessing(background_variance_factor=1.0),
+    ).time_s
+    if offset < 0:
+        assert not np.any(got.supported) and not np.any(got.variance.supported)
+        for name in ("planet", "star_leakage", "local_zodi", "exozodi", "thermal"):
+            np.testing.assert_array_equal(getattr(got, name), 0.0)
+        np.testing.assert_array_equal(got.n_pix, 0.0)
+        assert np.isnan(time).all()
+    else:
+        whole = _read(curves=_curves())
+        assert np.all(got.supported)
+        for name in ("planet", "star_leakage", "local_zodi", "exozodi", "thermal"):
+            np.testing.assert_allclose(
+                getattr(got, name), getattr(whole, name), rtol=1e-12
+            )
+        assert np.isfinite(time).all()
 
 
 def test_scene_rates_flag_the_unsupported_planets_and_have_no_nan_gradient():

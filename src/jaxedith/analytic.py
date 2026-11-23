@@ -124,10 +124,10 @@ def rates(
 
     The separation is read at the band-centre lambda/D for
     every node of the band, so the aperture is fixed in angle within a band.
-    A planet whose aperture leaves the curves' extent (``separation +
-    rule.radius_lod > data_extent_lod``) reads zero in every field with
-    ``Rates.supported`` False, so ``optixstuff.snr`` and ``exposure_time``
-    return NaN there. The curves' support is a disk of radius
+    A planet where ``curves.supported(separation)`` is False (beyond the first
+    or last sample, or its aperture leaving ``data_extent_lod``) reads zero in
+    every field with ``Rates.supported`` False, so ``optixstuff.snr`` and
+    ``exposure_time`` return NaN there. The curves' support is a disk of radius
     ``data_extent_lod`` and does not know the detector.
     ``uniform_sky`` is the sky transmission profile, required when the scene
     has a disk or a local zodi. The instrument's coronagraph slot and speckle
@@ -155,8 +155,8 @@ def rates(
     Returns:
         Aperture rates in photons/s/nm with fields of shape ``(W, Q)``,
         ``n_pix`` of shape ``(W,)``, the squared-weight rates in ``variance``
-        and ``supported`` False for a planet whose aperture leaves the curves'
-        extent.
+        and ``supported`` False for a planet the curves do not support (past their
+        samples or extent).
     """
     bands = quadrature.bands
     per_band = tuple(curves) if isinstance(curves, tuple) else (curves,) * len(bands)
@@ -195,10 +195,12 @@ def rates(
     for w, (band, record) in enumerate(zip(bands, per_band, strict=True)):
         lod_arcsec = record.frame.lod_to_arcsec(band.center_nm)
         separation = angle / lod_arcsec
-        outside = separation + record.rule.radius_lod > record.data_extent_lod
+        outside = ~record.supported(separation)
         # Read inside the table so values and gradients stay finite; the
         # unsupported reads are zeroed below.
-        separation = jnp.minimum(separation, record.data_extent_lod)
+        separation = jnp.clip(
+            separation, record.separation_lod[0], record.separation_lod[-1]
+        )
         sky = 1.0 if uniform_sky is None else uniform_sky.evaluate(separation)
         for squared, fields_out, pixels_out in (
             (False, mean, n_pix),
@@ -269,8 +271,8 @@ def scene_rates(
     a batch of systems is not read; map this function over them.
 
     ``curves`` and ``uniform_sky`` are as in :func:`rates`. Every planet is
-    read with the same aperture rule as :func:`rates`, so a planet beyond
-    ``curves.data_extent_lod`` reads zero with ``supported`` False, shape
+    read with the same aperture rule as :func:`rates`, so a planet the curves
+    do not support reads zero with ``supported`` False, shape
     ``(W, K, T)``.
 
     Args:
