@@ -124,7 +124,11 @@ def rates(
 
     The separation is read at the band-centre lambda/D for
     every node of the band, so the aperture is fixed in angle within a band.
-    A separation beyond ``curves.data_extent_lod`` gives NaN rates.
+    A planet whose aperture leaves the curves' extent (``separation +
+    rule.radius_lod > data_extent_lod``) reads zero in every field with
+    ``Rates.supported`` False, so ``optixstuff.snr`` and ``exposure_time``
+    return NaN there. The curves' support is a disk of radius
+    ``data_extent_lod`` and does not know the detector.
     ``uniform_sky`` is the sky transmission profile, required when the scene
     has a disk or a local zodi. The instrument's coronagraph slot and speckle
     field are not read, and neither is any channel multiplier.
@@ -166,12 +170,15 @@ def rates(
     pixel_arcsec2 = instrument.detector.pixel_scale_arcsec**2
     angle = jnp.hypot(east, north)
 
-    mean, variance, n_pix, n_pix_variance = [], [], [], []
+    mean, variance, n_pix, n_pix_variance, supported = [], [], [], [], []
     for w, (band, record) in enumerate(zip(bands, per_band, strict=True)):
         lod_arcsec = record.frame.lod_to_arcsec(band.center_nm)
         separation = angle / lod_arcsec
+        outside = separation + record.rule.radius_lod > record.data_extent_lod
+        # Read inside the table so values and gradients stay finite; the
+        # unsupported reads are zeroed below.
+        separation = jnp.minimum(separation, record.data_extent_lod)
         sky = 1.0 if uniform_sky is None else uniform_sky.evaluate(separation)
-        outside = separation > record.data_extent_lod
         for squared, fields_out, pixels_out in (
             (False, mean, n_pix),
             (True, variance, n_pix_variance),
@@ -190,21 +197,28 @@ def rates(
                 solid_angle,
             )
             fields_out.append(
-                {name: jnp.where(outside, jnp.nan, v) for name, v in fields.items()}
+                {name: jnp.where(outside, 0.0, v) for name, v in fields.items()}
             )
             pixels = area * lod_arcsec**2 / pixel_arcsec2
-            pixels_out.append(jnp.where(outside, jnp.nan, pixels))
+            pixels_out.append(jnp.where(outside, 0.0, pixels))
+        supported.append(~outside)
 
     def stack(fields):
         return {name: jnp.stack([band[name] for band in fields]) for name in fields[0]}
 
+    flag = jnp.stack(supported)
     return Rates(
         quadrature,
         "photon",
         n_pix=jnp.stack(n_pix),
         variance=Rates(
-            quadrature, "photon", n_pix=jnp.stack(n_pix_variance), **stack(variance)
+            quadrature,
+            "photon",
+            n_pix=jnp.stack(n_pix_variance),
+            supported=flag,
+            **stack(variance),
         ),
+        supported=flag,
         **stack(mean),
     )
 
@@ -235,7 +249,8 @@ def scene_rates(
 
     ``curves`` and ``uniform_sky`` are as in :func:`rates`. Every planet is
     read with the same aperture rule as :func:`rates`, so a planet beyond
-    ``curves.data_extent_lod`` reads NaN.
+    ``curves.data_extent_lod`` reads zero with ``supported`` False, shape
+    ``(W, K, T)``.
     """
     time_d = jnp.asarray(time_d)
     if time_d.ndim != 1:
@@ -260,7 +275,7 @@ def scene_rates(
             uniform_sky=uniform_sky,
         )
         return tuple(
-            (*(getattr(r, name) for name in _READ_FIELDS), r.n_pix)
+            (*(getattr(r, name) for name in _READ_FIELDS), r.n_pix, r.supported)
             for r in (record, record.variance)
         )
 
@@ -270,13 +285,16 @@ def scene_rates(
     )
 
     def build(values, variance=None):
-        *fields, n_pix = (jnp.where(scene.valid[:, None], v, 0.0) for v in values)
+        *fields, n_pix, supported = values
+        fields = [jnp.where(scene.valid[:, None], v, 0.0) for v in fields]
+        n_pix = jnp.where(scene.valid[:, None], n_pix, 0.0)
         return Rates(
             quadrature,
             "photon",
             **dict(zip(_READ_FIELDS, fields, strict=True)),
             n_pix=n_pix,
             variance=variance,
+            supported=supported,
         )
 
     return build(mean, build(variance))

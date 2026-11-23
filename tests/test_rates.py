@@ -465,20 +465,64 @@ def test_separation_is_read_at_each_band_centre():
         _read(curves=(curves,), quadrature=quadrature)
 
 
-def test_beyond_the_data_is_nan_and_a_diameter_mismatch_raises():
-    """Fails if an out-of-data read looks valid or another telescope's curves pass.
+def test_beyond_the_data_is_zero_and_unsupported_and_a_diameter_mismatch_raises():
+    """Fails if an out-of-data read looks supported or another telescope's curves pass.
 
-    Basis: exact NaN beyond ``data_extent_lod``; a 5 percent diameter change is
-    far outside the 1e-6 relative tolerance of the frame check.
+    Basis: exact zero in every field and ``supported`` False once the aperture
+    (separation plus the rule's radius) leaves ``data_extent_lod``, and the
+    flag turning the exposure time into NaN with ``valid`` False; a read whose
+    aperture ends exactly inside the extent is supported. A 5 percent diameter
+    change is far outside the 1e-6 relative tolerance of the frame check.
     """
     short = _curves(extent=1.0)
     outside = _read(curves=short)
-    for name in ("planet", "star_leakage", "local_zodi", "exozodi"):
-        assert np.isnan(getattr(outside, name)).all()
-        assert np.isnan(getattr(outside.variance, name)).all()
-    assert np.isnan(outside.n_pix).all()
+    assert not np.any(outside.supported) and not np.any(outside.variance.supported)
+    for name in ("planet", "star_leakage", "local_zodi", "exozodi", "thermal"):
+        np.testing.assert_array_equal(getattr(outside, name), 0.0)
+        np.testing.assert_array_equal(getattr(outside.variance, name), 0.0)
+    np.testing.assert_array_equal(outside.n_pix, 0.0)
+    result = ox.exposure_time(
+        outside,
+        _instrument().detector,
+        5.0,
+        frame_time_s=1.0,
+        post_processing=ox.PostProcessing(background_variance_factor=1.0),
+    )
+    assert np.isnan(result.time_s).all() and not np.any(result.valid)
+    # The aperture reaches the extent exactly at separation + radius = extent.
+    lod = float(lambda_d_to_arcsec(1.0, BAND.center_nm, DIAMETER_M))
+    separation = np.hypot(EAST, NORTH) / lod
+    edge = _curves(extent=separation + 0.7)
+    assert np.all(_read(curves=edge).supported)
+    assert not np.any(_read(curves=_curves(extent=separation + 0.7 - 1e-6)).supported)
     with pytest.raises(ValueError, match="differs from the curves"):
         _read(instrument=_instrument(diameter=DIAMETER_M * 1.05))
+
+
+def test_scene_rates_flag_the_unsupported_planets_and_have_no_nan_gradient():
+    """Fails if ``scene_rates`` drops the flag or the zeroed read poisons a gradient.
+
+    Basis: ``supported`` has shape (W, K, T) and is False for every planet beyond
+    the extent, whose fields are exact zeros; the gradient of the summed planet
+    rate in the planet position is exactly zero there, not NaN.
+    """
+    short = _curves(extent=1.0)
+    record = jaxedith.scene_rates(
+        short,
+        _scene(),
+        _instrument(),
+        _quadrature(),
+        jnp.array([0.0]),
+        uniform_sky=_sky(),
+    )
+    assert record.supported.shape == (1, 1, 1)
+    assert not np.any(record.supported)
+    np.testing.assert_array_equal(record.planet, 0.0)
+
+    def total(east):
+        return _read(curves=short, east_arcsec=east).planet.sum()
+
+    assert float(jax.grad(total)(EAST)) == 0.0
 
 
 def test_transformations_are_finite_inside_the_data():
