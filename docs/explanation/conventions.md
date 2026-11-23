@@ -10,7 +10,7 @@ aperture solid angle.
 | `Rates` field | Formula | Convention |
 |---|---|---|
 | `planet` | `A T F contrast throughput(s)` | AYO `CR_p`, pyEDITH `calculate_CRp` |
-| `star_leakage` | `A T F leakage_density(s) core_area(s)` | AYO `CR_bs`; the leakage rule chosen when the curves are requested sets whether the density is the aperture mean or the azimuthal ring mean |
+| `star_leakage` | `A T F leakage_density(s) core_area(s)` | AYO `CR_bs`; the leakage rule chosen when the curves are requested sets whether the density is the aperture mean or the azimuthal ring mean; the density is read at the star's angular diameter in lambda/D at each node, so the star's size sets the leakage |
 | `local_zodi` | `A T L_zodi sky(s) Omega` | AYO `CR_bz`: a uniform surface brightness times sky transmission times aperture solid angle |
 | `exozodi` | `A T L_disk sky(s) Omega` | AYO `CR_bez`: the disk radiance at the aperture centre times the aperture solid angle |
 | `thermal` | `A_geo e B Omega` | pyEDITH `calculate_CRbth`: `B` the Planck photon radiance at the temperature of `Instrument.warm_emission`, `e` its effective emissivity (warm emissivity times cold transmission), `A_geo` the collecting area without `T` or the flux scale; zero when the instrument has no `warm_emission`, the default |

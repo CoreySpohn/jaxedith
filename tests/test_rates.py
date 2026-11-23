@@ -94,7 +94,7 @@ def _sky():
     )
 
 
-def _scene(*, disk=True, zodi=True):
+def _scene(*, disk=True, zodi=True, diameter_arcsec=0.0):
     wavelengths = jnp.array([300.0, 900.0])
     model = GridPhysicalModel(
         wavelengths,
@@ -102,7 +102,7 @@ def _scene(*, disk=True, zodi=True):
         jnp.full((1, 2, 2), 1e-10),
     )
     return Scene.from_classical(
-        FlatStar(flux_phot_per_nm_m2=FLUX),
+        FlatStar(flux_phot_per_nm_m2=FLUX, fixed_diameter_arcsec=diameter_arcsec),
         (Planet(jnp.ones(1), model),),
         star_mass_Msun=1.0,
         planet_mass_Msun=3e-6,
@@ -832,3 +832,112 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
             resolution=resolution,
             uniform_sky=sky,
         )
+
+
+DIAMETERS_LOD = np.array([0.0, 0.05, 0.2])
+DENSITY_ROWS = np.array([1.0, 3.0, 10.0])
+
+
+def _diameter_curves(diameters=DIAMETERS_LOD, rows=DENSITY_ROWS):
+    """Curves with one flat leakage profile per tabulated stellar diameter."""
+    flat = lambda value: np.array([value, value])  # noqa: E731
+    over = lambda value: np.outer(rows, flat(value))  # noqa: E731
+    return PerformanceCurves(
+        np.array([0.0, 20.0]),
+        _frame(),
+        Circular(0.7),
+        flat(TAU),
+        flat(AREA),
+        over(1e-10),
+        over(DENSITY),
+        over(1e-9),
+        1.0,
+        15.0,
+        stellar_diameters_lod=diameters,
+        throughput_variance=flat(TAU2),
+        core_area_variance_lod2=flat(AREA2),
+        leakage_fraction_variance=over(1e-10),
+        leakage_density_variance_lod2=over(DENSITY2),
+    )
+
+
+def _node_lod_arcsec():
+    return float(
+        _frame().lod_to_arcsec(float(_quadrature().nodes_nm[0, 0])),
+    )
+
+
+def _star_leakage(curves, diameter_lod):
+    """The leakage of a star of ``diameter_lod`` (lambda/D at the node)."""
+    scene = _scene(diameter_arcsec=diameter_lod * _node_lod_arcsec())
+    return _read(curves=curves, scene=scene)
+
+
+@pytest.mark.parametrize("diameter_lod", [0.0, 0.03, 0.05, 0.12])
+def test_leakage_is_read_at_the_stars_diameter_in_lambda_over_d(diameter_lod):
+    """Fails if the star's size is dropped, or its units are not lambda/D at the node.
+
+    Basis: the leakage rate is linear in the density the record returns, so the
+    ratio to a point star's rate equals the record's own read at that diameter
+    (rtol 1e-9, float64 products). The record's rows differ by 3 and 10 times,
+    so a diameter ignored or read in arcseconds changes the ratio by far more.
+    """
+    curves = _diameter_curves()
+    base = _star_leakage(curves, 0.0)
+    rates = _star_leakage(curves, diameter_lod)
+    separation = np.hypot(EAST, NORTH) / _node_lod_arcsec()
+    for record, rate, point in (
+        (curves, rates, base),
+        (curves, rates.variance, base.variance),
+    ):
+        name = (
+            "leakage_density_variance_lod2"
+            if rate is rates.variance
+            else ("leakage_density_lod2")
+        )
+        want = record.evaluate(name, separation, diameter_lod) / record.evaluate(
+            name, separation, 0.0
+        )
+        np.testing.assert_allclose(
+            rate.star_leakage / point.star_leakage, want, rtol=RTOL
+        )
+    if diameter_lod > 0:
+        assert float(rates.star_leakage[0, 0]) > float(base.star_leakage[0, 0])
+
+
+def test_leakage_gradient_in_the_star_diameter():
+    """Fails if the star's size cannot be differentiated through the rates.
+
+    Basis: the autodiff derivative of the leakage rate in the stellar diameter
+    against a central finite difference (rtol 1e-6, float64 step 1e-5 lambda/D);
+    it is finite and nonzero.
+    """
+    curves = _diameter_curves()
+    lod = _node_lod_arcsec()
+
+    def leakage(diameter_lod):
+        scene = _scene(diameter_arcsec=diameter_lod * lod)
+        return _read(curves=curves, scene=scene).star_leakage[0, 0]
+
+    at = 0.07
+    grad = float(jax.grad(leakage)(at))
+    step = 1e-5
+    fd = float(leakage(at + step) - leakage(at - step)) / (2 * step)
+    assert np.isfinite(grad) and grad != 0.0
+    np.testing.assert_allclose(grad, fd, rtol=1e-6)
+
+
+def test_a_one_profile_record_serves_only_its_own_star():
+    """Fails if a record measured for one star is read for another without notice."""
+    own = 0.05
+    curves = _diameter_curves(np.array([own]), np.array([1.0]))
+    rates = _star_leakage(curves, own)
+    assert np.isfinite(float(rates.star_leakage[0, 0]))
+    with pytest.raises(ValueError, match="one profile"):
+        _star_leakage(curves, 0.3)
+
+
+def test_a_diameter_record_refuses_a_star_beyond_its_table():
+    """Fails if a star larger than the tabulated range is read by extrapolation."""
+    with pytest.raises(ValueError, match="outside the tabulated range"):
+        _star_leakage(_diameter_curves(), 0.5)

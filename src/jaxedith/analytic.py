@@ -38,13 +38,17 @@ _OCCUPANCY_DIVISOR = 6.73
 _READ_FIELDS = ("planet", "star_leakage", "local_zodi", "exozodi", "thermal")
 
 
-def _moments(record, separation, squared):
-    """Return throughput, core area and leakage density, as means or squared weights."""
+def _moments(record, separation, diameter, squared):
+    """Return throughput, core area and leakage density, as means or squared weights.
+
+    ``diameter`` is the star's angular diameter in lambda/D at each node, which
+    the leakage density is read at.
+    """
     suffix = "_variance" if squared else ""
     return (
         record.evaluate(f"throughput{suffix}", separation),
         record.evaluate(f"core_area{suffix}_lod2", separation),
-        record.evaluate(f"leakage_density{suffix}_lod2", separation),
+        record.evaluate(f"leakage_density{suffix}_lod2", separation, diameter),
     )
 
 
@@ -120,8 +124,11 @@ def rates(
     photons, and ``detector.electrons`` applies QE and survival once.
 
     ``curves`` is one ``PerformanceCurves`` or a tuple with one per band of
-    ``quadrature``, measured for this telescope and star (the curves are not
-    broadened here).
+    ``quadrature``, measured for this telescope. The leakage is read at the
+    star's angular diameter (``sources.star_diameter_arcsec``) in lambda/D at
+    each node, so a record tabulated over stellar diameter is read at the
+    star's size, and a record of one profile is read only for a star of that
+    profile's diameter (it raises otherwise, never a silent point-star read).
 
     The function reads no source spectrum. ``F``, ``L_zodi`` and the star the
     disk is defined against are the node-effective rows of ``sources``, from
@@ -165,7 +172,7 @@ def rates(
     whole scene with :func:`scene_rates`.
 
     Args:
-        curves: Performance curves measured for this telescope and star, one
+        curves: Performance curves measured for this telescope, one
             record or a tuple with one per band of ``quadrature``.
         scene: Scene holding the star, the planets and any disk or local zodi.
         instrument: Instrument supplying the collecting area, detector pixel
@@ -227,6 +234,8 @@ def rates(
     for w, (band, record) in enumerate(zip(bands, per_band, strict=True)):
         lod_arcsec = record.frame.lod_to_arcsec(band.center_nm)
         separation = angle / lod_arcsec
+        # The star spans a different number of lambda/D at each node.
+        diameter = sources.star_diameter_arcsec / record.frame.lod_to_arcsec(nodes[w])
         outside = ~record.supported(separation)
         # Read inside the table so values and gradients stay finite; the
         # unsupported reads are zeroed below.
@@ -238,7 +247,7 @@ def rates(
             (False, mean, n_pix),
             (True, variance, n_pix_variance),
         ):
-            throughput, area, density = _moments(record, separation, squared)
+            throughput, area, density = _moments(record, separation, diameter, squared)
             solid_angle = area * arcsec_to_rad(lod_arcsec) ** 2
             fields = _terms(
                 (throughput, area, density),
@@ -315,7 +324,7 @@ def scene_rates(
     ``(W, K, T)``.
 
     Args:
-        curves: Performance curves measured for this telescope and star, one
+        curves: Performance curves measured for this telescope, one
             record or a tuple with one per band of ``quadrature``.
         scene: Scene holding the star, the planets and any disk or local zodi.
         instrument: Instrument supplying the collecting area, detector pixel
@@ -408,7 +417,7 @@ def planet_exposure_time(
     meaning of ``valid``.
 
     Args:
-        curves: Performance curves measured for this telescope and star, one
+        curves: Performance curves measured for this telescope, one
             record or a tuple with one per band of ``quadrature``.
         scene: Scene holding the star, the planets and any disk or local zodi.
         instrument: Instrument supplying the collecting area, detector pixel
@@ -479,7 +488,7 @@ def planet_snr(
     arithmetic of its own.
 
     Args:
-        curves: Performance curves measured for this telescope and star, one
+        curves: Performance curves measured for this telescope, one
             record or a tuple with one per band of ``quadrature``.
         scene: Scene holding the star, the planets and any disk or local zodi.
         instrument: Instrument supplying the collecting area, detector pixel
