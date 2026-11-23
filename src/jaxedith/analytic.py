@@ -12,6 +12,7 @@ the instrument has none. Stellar-companion light is zero in this release, as in
 the image path; it returns when the scene holds a companion source.
 """
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import optixstuff as ox
@@ -26,9 +27,11 @@ from optixstuff import (
     PostProcessing,
     Quadrature,
     Rates,
+    Resolution,
     SampledProfile,
 )
 from skyscapes import Scene
+from skyscapes.scene import Sources
 
 # A photon-counting EMCCD is run at 1 / 6.73 electrons per pixel per frame.
 _OCCUPANCY_DIVISOR = 6.73
@@ -63,6 +66,27 @@ def _terms(moments, gain, star, zodi, disk, sky, contrast, thermal, solid_angle)
     )
 
 
+def _at_time(sources: Sources, index) -> Sources:
+    """Return ``sources`` holding only the time at ``index``, which may be traced."""
+    held = jnp.take(sources.unscaled_star, index, axis=-1)[..., None]
+    sources = eqx.tree_at(lambda s: s.unscaled_star, sources, held)
+    if sources.local_zodi is not None:
+        zodi = jnp.take(sources.local_zodi, index, axis=-1)[..., None]
+        sources = eqx.tree_at(lambda s: s.local_zodi, sources, zodi)
+    return sources
+
+
+def _node_star(sources: Sources):
+    """Return the node star of every node, built eagerly when its leaves are concrete.
+
+    The star validates a concrete ``flux_scale`` with an array operation, which
+    cannot be read as a Python bool inside a trace; evaluating that check
+    eagerly keeps a scene or ``Sources`` closed over by ``jax.jit`` usable.
+    """
+    with jax.ensure_compile_time_eval():
+        return sources.node_star()
+
+
 def rates(
     curves: PerformanceCurves | tuple[PerformanceCurves, ...],
     scene: Scene,
@@ -73,6 +97,7 @@ def rates(
     contrast: ArrayLike,
     *,
     time_d: ArrayLike,
+    sources: Sources,
     uniform_sky: SampledProfile | None,
 ) -> Rates:
     """Return one planet's aperture rates in photons/s/nm, fields ``(W, Q)``.
@@ -108,6 +133,19 @@ def rates(
     ``curves`` is one ``PerformanceCurves`` or a tuple with one per band of
     ``quadrature``, measured for this telescope and star (the curves are not
     broadened here).
+
+    The function reads no source spectrum. ``F``, ``L_zodi`` and the star the
+    disk is defined against are the node-effective rows of ``sources``, from
+    ``scene.sources(quadrature, resolution, time_d)`` at the one time read
+    here, so a tabulated star or local zodi is integrated exactly over each
+    band however few nodes it has. ``contrast`` is the star-weighted node
+    contrast, ``sources.contrast`` of the planet and time, for a scene read;
+    a scalar is the natural input of an exposure-time calculation and is exact
+    for a contrast that does not vary across the band. Build the quadrature
+    with ``Quadrature.build(bands, *models, field_lod=0)``: the curves are read
+    at the band-centre lambda/D for every node, so the response sets no
+    extra nodes. Under a different ``field_lod`` the result is the same to
+    quadrature accuracy and costs more nodes.
 
     The star leakage is read from curves that are functions of separation
     alone, so the position angle of the planet is never used. What
@@ -148,6 +186,8 @@ def rates(
         north_arcsec: Planet offset north of the star in arcsec.
         contrast: Planet-to-star flux ratio, a scalar or shape ``(W, Q)``.
         time_d: Time in days from the scene epoch.
+        sources: Node-effective sources of ``scene`` on ``quadrature`` at
+            ``time_d`` alone (shape ``T = 1``), from ``scene.sources``.
         uniform_sky: Sky transmission profile read at the separation in
             lambda/D, or None. Required when the scene has a disk or a local
             zodi.
@@ -172,20 +212,23 @@ def rates(
     time_d = jnp.asarray(time_d)
     east, north = jnp.asarray(east_arcsec), jnp.asarray(north_arcsec)
     nodes = quadrature.nodes_nm
+    held = sources.unscaled_star.shape
+    if held != (*nodes.shape, 1):
+        raise ValueError(
+            f"sources hold star rows of shape {held}; rates reads one time on "
+            f"the nodes {nodes.shape}, so pass scene.sources(quadrature, "
+            "resolution, time_d) for this quadrature and a single time"
+        )
 
     def per_node(values):
         return jnp.broadcast_to(values, nodes.shape)
 
     gain = per_node(instrument.effective_area_m2(nodes))
-    star = per_node(
-        scene.star.photon_flux_density(nodes, time_d, dist_pc=scene.dist_pc)
+    star = per_node(sources.star[..., 0])
+    disk = per_node(
+        scene.photon_radiance_at(nodes, time_d, east, north, star=_node_star(sources))
     )
-    disk = per_node(scene.photon_radiance_at(nodes, time_d, east, north))
-    zodi = per_node(
-        0.0
-        if scene.local_zodi is None
-        else scene.local_zodi.photon_radiance(nodes, scene.sky_frame, time_d)
-    )
+    zodi = per_node(0.0 if sources.local_zodi is None else sources.local_zodi[..., 0])
     thermal = per_node(instrument.thermal_photon_rate_per_sr(nodes))
     contrast = jnp.broadcast_to(jnp.asarray(contrast), nodes.shape)
     pixel_arcsec2 = instrument.detector.pixel_scale_arcsec**2
@@ -253,14 +296,21 @@ def scene_rates(
     quadrature: Quadrature,
     time_d: ArrayLike,
     *,
+    resolution: Resolution,
     uniform_sky: SampledProfile | None,
 ) -> Rates:
     """Return every planet of a scene at every time, in photons/s/nm.
 
     A ``jax.vmap`` of :func:`rates` over the scene's planets and the times:
-    positions come from ``scene.positions(time_d)`` and each planet's contrast
-    from ``scene.contrasts`` at every spectral node of ``quadrature``. It
-    follows ``coronagraphoto.scene_aperture_rates``, so the two reads swap:
+    positions come from ``scene.positions(time_d)``. The sources are read once,
+    outside the map, with ``scene.sources(quadrature, resolution, time_d)``,
+    and each planet's contrast is ``sources.contrast`` at every spectral node
+    of ``quadrature``, so a tabulated star or planet is integrated exactly over
+    each band and nothing is recomputed per planet or time. Build the
+    resolution on the host with
+    ``Resolution.build(quadrature, *scene.spectral_tables())``, and the
+    quadrature with ``field_lod=0`` (see :func:`rates`). It follows
+    ``coronagraphoto.scene_aperture_rates``, so the two reads swap:
     ``time_d`` has shape ``(T,)``, days from the scene epoch, and the returned
     ``Rates`` has the band and node axes leading and the batch axes trailing.
     Fields have shape ``(W, Q, K, T)``, ``n_pix`` has shape ``(W, K, T)``, and
@@ -283,6 +333,7 @@ def scene_rates(
             scale and any warm emission.
         quadrature: Spectral bands and their wavelength nodes in nm.
         time_d: Times in days from the scene epoch, shape ``(T,)``.
+        resolution: Operators for the scene's tables on ``quadrature``.
         uniform_sky: Sky transmission profile read at the separation in
             lambda/D, or None. Required when the scene has a disk or a local
             zodi.
@@ -297,12 +348,12 @@ def scene_rates(
         raise ValueError("time_d must have shape (T,)")
     if scene.batch_shape:
         raise ValueError("scene_rates reads one system; vmap it over a batch")
-    east, north = scene.positions(time_d)
-    contrast = jax.vmap(
-        jax.vmap(lambda wavelength: scene.contrasts(wavelength, time_d))
-    )(quadrature.nodes_nm)
+    ephemeris = scene.ephemeris(time_d)
+    east, north = scene.positions(time_d, ephemeris=ephemeris)
+    sources = scene.sources(quadrature, resolution, time_d, ephemeris=ephemeris)
+    contrast = sources.contrast
 
-    def read(east_arcsec, north_arcsec, contrast, time):
+    def read(east_arcsec, north_arcsec, contrast, time, index):
         record = rates(
             curves,
             scene,
@@ -312,6 +363,7 @@ def scene_rates(
             north_arcsec,
             contrast,
             time_d=time,
+            sources=_at_time(sources, index),
             uniform_sky=uniform_sky,
         )
         return tuple(
@@ -319,9 +371,9 @@ def scene_rates(
             for r in (record, record.variance)
         )
 
-    over_times = jax.vmap(read, in_axes=(0, 0, -1, 0), out_axes=-1)
-    mean, variance = jax.vmap(over_times, in_axes=(0, 0, -2, None), out_axes=-2)(
-        east, north, contrast, time_d
+    over_times = jax.vmap(read, in_axes=(0, 0, -1, 0, 0), out_axes=-1)
+    mean, variance = jax.vmap(over_times, in_axes=(0, 0, -2, None, None), out_axes=-2)(
+        east, north, contrast, time_d, jnp.arange(time_d.size)
     )
 
     def build(values, variance=None):
@@ -350,6 +402,7 @@ def planet_exposure_time(
     contrast: ArrayLike,
     *,
     time_d: ArrayLike,
+    sources: Sources,
     uniform_sky: SampledProfile | None,
     target_snr: ArrayLike,
     frame_time_s: ArrayLike,
@@ -376,6 +429,8 @@ def planet_exposure_time(
         north_arcsec: Planet offset north of the star in arcsec.
         contrast: Planet-to-star flux ratio, a scalar or shape ``(W, Q)``.
         time_d: Time in days from the scene epoch.
+        sources: Node-effective sources of ``scene`` on ``quadrature`` at
+            ``time_d`` alone, from ``scene.sources``; see :func:`rates`.
         uniform_sky: Sky transmission profile read at the separation in
             lambda/D, or None. Required when the scene has a disk or a local
             zodi.
@@ -398,6 +453,7 @@ def planet_exposure_time(
         north_arcsec,
         contrast,
         time_d=time_d,
+        sources=sources,
         uniform_sky=uniform_sky,
     )
     return ox.exposure_time(
@@ -419,6 +475,7 @@ def planet_snr(
     contrast: ArrayLike,
     *,
     time_d: ArrayLike,
+    sources: Sources,
     uniform_sky: SampledProfile | None,
     time_s: ArrayLike,
     frame_time_s: ArrayLike,
@@ -443,6 +500,8 @@ def planet_snr(
         north_arcsec: Planet offset north of the star in arcsec.
         contrast: Planet-to-star flux ratio, a scalar or shape ``(W, Q)``.
         time_d: Time in days from the scene epoch.
+        sources: Node-effective sources of ``scene`` on ``quadrature`` at
+            ``time_d`` alone, from ``scene.sources``; see :func:`rates`.
         uniform_sky: Sky transmission profile read at the separation in
             lambda/D, or None. Required when the scene has a disk or a local
             zodi.
@@ -464,6 +523,7 @@ def planet_snr(
         north_arcsec,
         contrast,
         time_d=time_d,
+        sources=sources,
         uniform_sky=uniform_sky,
     )
     return ox.snr(

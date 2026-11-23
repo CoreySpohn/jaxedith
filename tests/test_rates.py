@@ -20,7 +20,7 @@ from optixstuff import (
 )
 from optixstuff.apertures import Circular
 from optixstuff.grids import Frame
-from optixstuff.spectral import Band
+from optixstuff.spectral import Band, Resolution
 from reference.primitives import (
     exozodi_rate,
     planet_rate,
@@ -95,7 +95,7 @@ def _sky():
 
 
 def _scene(*, disk=True, zodi=True):
-    wavelengths = jnp.array([400.0, 700.0])
+    wavelengths = jnp.array([300.0, 900.0])
     model = GridPhysicalModel(
         wavelengths,
         jnp.array([0.0, 180.0]),
@@ -135,19 +135,31 @@ def _quadrature(bands=(BAND,)):
     return Quadrature.build(bands, order=1)
 
 
+def _resolution(scene, quadrature):
+    """Operators for the scene's tables on the quadrature, built on the host."""
+    return Resolution.build(quadrature, *scene.spectral_tables())
+
+
+def _sources(scene, quadrature, time_d=0.0):
+    """The scene's node-effective sources at one time."""
+    return scene.sources(quadrature, _resolution(scene, quadrature), time_d)
+
+
 def _read(curves=None, scene=None, instrument=None, quadrature=None, **kwargs):
     quadrature = _quadrature() if quadrature is None else quadrature
+    scene = _scene() if scene is None else scene
     arguments = dict(east_arcsec=EAST, north_arcsec=NORTH, contrast=CONTRAST)
     arguments.update(kwargs)
     return jaxedith.rates(
         _curves() if curves is None else curves,
-        _scene() if scene is None else scene,
+        scene,
         _instrument() if instrument is None else instrument,
         quadrature,
         arguments.pop("east_arcsec"),
         arguments.pop("north_arcsec"),
         arguments.pop("contrast"),
         time_d=0.0,
+        sources=_sources(scene, quadrature),
         uniform_sky=_sky(),
     )
 
@@ -327,6 +339,7 @@ def test_default_instrument_has_zero_thermal():
         _instrument(),
         _quadrature(),
         jnp.array([0.0]),
+        resolution=_resolution(_scene(), _quadrature()),
         uniform_sky=_sky(),
     )
     assert float(jnp.max(jnp.abs(scene_read.thermal))) == 0.0
@@ -346,6 +359,7 @@ def test_scene_rates_carries_thermal_to_every_planet():
         instrument,
         _quadrature(),
         jnp.array([0.0]),
+        resolution=_resolution(scene, _quadrature()),
         uniform_sky=_sky(),
     )
     east, north = scene.positions(jnp.array([0.0]))
@@ -396,6 +410,7 @@ def test_thermal_planet_scale_is_its_own_in_the_scene_read(
             _instrument(),
             _quadrature(),
             jnp.array([0.0]),
+            resolution=_resolution(scene, _quadrature()),
             uniform_sky=_sky(),
         )
 
@@ -422,6 +437,7 @@ def test_missing_sources_are_zero_and_the_sky_is_required_with_them():
         NORTH,
         CONTRAST,
         time_d=0.0,
+        sources=_sources(bare, _quadrature()),
         uniform_sky=None,
     )
     np.testing.assert_array_equal(rates.local_zodi, 0.0)
@@ -437,6 +453,7 @@ def test_missing_sources_are_zero_and_the_sky_is_required_with_them():
             NORTH,
             CONTRAST,
             time_d=0.0,
+            sources=_sources(_scene(), _quadrature()),
             uniform_sky=None,
         )
 
@@ -551,6 +568,7 @@ def test_scene_rates_flag_the_unsupported_planets_and_have_no_nan_gradient():
         _instrument(),
         _quadrature(),
         jnp.array([0.0]),
+        resolution=_resolution(_scene(), _quadrature()),
         uniform_sky=_sky(),
     )
     assert record.supported.shape == (1, 1, 1)
@@ -571,6 +589,7 @@ def test_transformations_are_finite_inside_the_data():
     """
     curves, scene, instrument = _curves(), _scene(), _instrument()
     quadrature, sky = _quadrature(), _sky()
+    sources = _sources(scene, quadrature)
 
     def planet(east, north, contrast):
         rates = jaxedith.rates(
@@ -582,6 +601,7 @@ def test_transformations_are_finite_inside_the_data():
             north,
             contrast,
             time_d=0.0,
+            sources=sources,
             uniform_sky=sky,
         )
         return rates.planet[0, 0] + rates.exozodi[0, 0]
@@ -606,6 +626,7 @@ def test_a_large_batch_of_positions_compiles_once():
     """
     curves, scene, instrument = _curves(), _scene(), _instrument()
     quadrature, sky = _quadrature(), _sky()
+    sources = _sources(scene, quadrature)
     traces = []
 
     @jax.jit
@@ -621,6 +642,7 @@ def test_a_large_batch_of_positions_compiles_once():
             north,
             CONTRAST,
             time_d=0.0,
+            sources=sources,
             uniform_sky=sky,
         ).planet
 
@@ -674,7 +696,7 @@ def test_scene_entry_points_equal_the_two_step_calls():
     quadrature = _quadrature((BAND, Band(600.0, 700.0)))
     curves, scene, instrument = _curves(), _scene(), _instrument()
     common = (curves, scene, instrument, quadrature, EAST, NORTH, 1e-6)
-    keywords = dict(time_d=0.0, uniform_sky=_sky())
+    keywords = dict(time_d=0.0, sources=_sources(scene, quadrature), uniform_sky=_sky())
     rates = jaxedith.rates(*common, **keywords)
     frame = jnp.array([100.0, 60.0])
     for post_processing in (
@@ -717,7 +739,7 @@ def test_scene_entry_points_equal_the_two_step_calls():
 
 
 def _two_planet_scene():
-    wavelengths = jnp.array([400.0, 700.0])
+    wavelengths = jnp.array([300.0, 900.0])
     angles = jnp.array([0.0, 180.0])
     models = (
         GridPhysicalModel(wavelengths, angles, jnp.full((1, 2, 2), 1e-10)),
@@ -754,13 +776,21 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
     curves, scene, instrument = _curves(), _two_planet_scene(), _instrument()
     quadrature, sky = _quadrature((BAND, Band(600.0, 700.0))), _sky()
     times = jnp.array([0.0, 40.0, 90.0])
+    resolution = _resolution(scene, quadrature)
+    sources = scene.sources(quadrature, resolution, times)
     traces = []
 
     @jax.jit
     def read(time_d):
         traces.append(1)
         return jaxedith.scene_rates(
-            curves, scene, instrument, quadrature, time_d, uniform_sky=sky
+            curves,
+            scene,
+            instrument,
+            quadrature,
+            time_d,
+            resolution=resolution,
+            uniform_sky=sky,
         )
 
     got = read(times)
@@ -769,9 +799,7 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
     east, north = scene.positions(times)
     for k in range(2):
         for t in range(3):
-            contrast = jnp.stack(
-                [scene.contrasts(n, times)[k, t] for n in quadrature.nodes_nm[:, 0]]
-            )[:, None]
+            at_time = scene.sources(quadrature, resolution, times[t])
             want = jaxedith.rates(
                 curves,
                 scene,
@@ -779,8 +807,9 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
                 quadrature,
                 east[k, t],
                 north[k, t],
-                contrast,
+                sources.contrast[:, :, k, t],
                 time_d=times[t],
+                sources=at_time,
                 uniform_sky=sky,
             )
             for name in ("planet", "star_leakage", "local_zodi", "exozodi"):
@@ -795,5 +824,11 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
     assert len(traces) == 1
     with pytest.raises(ValueError, match="shape"):
         jaxedith.scene_rates(
-            curves, scene, instrument, quadrature, 0.0, uniform_sky=sky
+            curves,
+            scene,
+            instrument,
+            quadrature,
+            0.0,
+            resolution=resolution,
+            uniform_sky=sky,
         )

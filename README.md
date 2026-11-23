@@ -11,12 +11,26 @@ ratio or an exposure time. The package has five functions: `rates`, `scene_rates
 
 This example needs `curves` (an `optixstuff.PerformanceCurves` measured for the
 telescope and star, for example from yippy's `coronagraph.curves(rule)`), a
-`skyscapes.Scene`, an `optixstuff.Instrument` and a `Quadrature` built for the
-star and instrument.
+`skyscapes.Scene`, an `optixstuff.Instrument` and the bands to read.
+
+The curves are read at the band-centre lambda/D for every node, so the response
+does not slide across a pixel and the quadrature is built with `field_lod=0`: a
+wider field would add nodes and change nothing. The scene's tabulated spectra
+(a PHOENIX star, a local-zodi table, a planet model with a grid) are integrated
+exactly over each band by an operator built on the host, and `scene.sources` reads
+them once on the nodes. A band must lie inside every source table.
 
 ```python notest
 import jaxedith
 import optixstuff as ox
+from optixstuff.spectral import Quadrature, Resolution
+
+quadrature = Quadrature.build(
+    bands, instrument, scene.local_zodi, field_lod=0
+)  # the instrument may be passed as a break model: field_lod=0 keeps `order` nodes
+resolution = Resolution.build(quadrature, *scene.spectral_tables())
+sources = scene.sources(quadrature, resolution, time_d)
+contrast = sources.contrast[:, :, planet, 0]  # (W, Q), or pass a scalar contrast
 
 rates = jaxedith.rates(
     curves,
@@ -26,7 +40,8 @@ rates = jaxedith.rates(
     east_arcsec,
     north_arcsec,
     contrast,
-    time_d=0.0,
+    time_d=time_d,
+    sources=sources,  # node rows of the one time read
     uniform_sky=uniform_sky,  # the sky transmission profile
 )
 frame_time_s = jaxedith.photon_counting_frame_time(rates, instrument.detector)
@@ -52,7 +67,8 @@ time = jaxedith.planet_exposure_time(
     east_arcsec,
     north_arcsec,
     contrast,
-    time_d=0.0,
+    time_d=time_d,
+    sources=sources,
     uniform_sky=uniform_sky,
     target_snr=7.0,
     frame_time_s=frame_time_s,
@@ -66,7 +82,8 @@ snr = jaxedith.planet_snr(
     east_arcsec,
     north_arcsec,
     contrast,
-    time_d=0.0,
+    time_d=time_d,
+    sources=sources,
     uniform_sky=uniform_sky,
     time_s=3600.0,
     frame_time_s=frame_time_s,
@@ -79,18 +96,27 @@ snr = jaxedith.planet_snr(
 `optixstuff.snr`; neither adds arithmetic. They return an
 `optixstuff.ExposureTime` and the S/N per band.
 
-`rates` is a scalar read of one planet; map it over positions and contrasts with `jax.vmap`.
+`rates` is a scalar read of one planet that reads no spectrum itself: the star, the local
+zodi and the disk's host star are the node rows of `sources`, and `contrast` is a scalar or
+the star-weighted node contrast `sources.contrast`. Map it over positions and contrasts with
+`jax.vmap`.
 Fields are photons/s/nm of shape `(W, Q)`, with `n_pix` per band and a
 squared-weight `variance` record. Detector yield is not applied there:
 `detector.electrons(rates)` applies QE and survival once, downstream.
 
 To read every planet of the scene at every time, `scene_rates` is a `vmap` of `rates`
-over the planets and the times, and takes the same layout as
+over the planets and the times that reads `scene.sources` once outside the map, and takes the same layout as
 `coronagraphoto.scene_aperture_rates`, so the two reads swap:
 
 ```python notest
 record = jaxedith.scene_rates(
-    curves, scene, instrument, quadrature, time_d, uniform_sky=uniform_sky
+    curves,
+    scene,
+    instrument,
+    quadrature,
+    time_d,
+    resolution=resolution,
+    uniform_sky=uniform_sky,
 )  # time_d: (T,) days; fields (W, Q, K, T), n_pix (W, K, T)
 time = ox.exposure_time(
     record,

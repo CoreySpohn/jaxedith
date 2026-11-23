@@ -3,13 +3,17 @@
 The path is `curves, scene, instrument -> rates -> detector -> snr or
 exposure_time`. `jaxedith.rates` reads the curves at the planet's separation
 in lambda/D at each band centre and multiplies each source by the collecting
-area, the system throughput and the aperture, per spectral node. It returns an
+area, the system throughput and the aperture, per spectral node. It reads no
+spectrum: the star, the local zodi and the disk's host star are node rows from
+`scene.sources`, which integrates a tabulated spectrum exactly over each band.
+It returns an
 `optixstuff.Rates` record: mean and squared-weight photon rates of shape
 `(W, Q)` and per-band pixel counts, for one planet. `jaxedith.planet_exposure_time`
 and `jaxedith.planet_snr` are the one-call entry points for one planet: `rates`
 followed by the optixstuff function on `instrument.detector`, with no arithmetic
 of their own. `jaxedith.scene_rates` is a `vmap` of `rates` over every planet of
-the scene and every time, in the layout of `coronagraphoto.scene_aperture_rates`:
+the scene and every time, which computes `scene.sources` once outside the map and
+passes `sources.contrast`, in the layout of `coronagraphoto.scene_aperture_rates`:
 fields of shape `(W, Q, K, T)` and `n_pix` of shape `(W, K, T)`, for `K` planets
 and `T` times. A planet with `scene.valid` False reads zero, so its exposure time
 is invalid. A scene with a batch of systems is not read; map the function over them.

@@ -18,8 +18,15 @@ aperture solid angle.
 | `n_pix` | `Omega / pixel_scale**2`, per band | AYO and pyEDITH `det_npix` |
 | `variance` | the same record from the squared-weight moments | equal to the mean for `Circular` and `HalfMaximum` |
 
-The scene's `flux_scale` leaves act through the scene methods that `rates` reads,
-so `F`, `L_zodi` and `L_disk` above already include them: the star scale
+`F` and `L_zodi` are the node-effective rows of `scene.sources`, and `L_disk` is read
+against the node-effective star: a tabulated spectrum is integrated exactly over each
+band whatever its roughness, and the rule is exact in the response to the degree of the
+quadrature. `rates` itself reads no spectrum. The curves are read at the band-centre
+lambda/D for every node, so build the quadrature with `field_lod=0`, also when the
+instrument is passed as a break model; a field radius would add nodes and change nothing.
+
+The scene's `flux_scale` leaves act through the sources, so `F`, `L_zodi` and `L_disk`
+above already include them: the star scale
 multiplies `planet` and `star_leakage`, the zodi scale `local_zodi` and the disk
 scale `exozodi`. A planet's scale is part of the contrast the scene reports. The
 instrument's own `flux_scale` multiplies every sky term through `A`.
@@ -40,15 +47,16 @@ frame.
 
 `jaxedith.planet_exposure_time(..., target_snr=, frame_time_s=, post_processing=)` and
 `jaxedith.planet_snr(..., time_s=, frame_time_s=, post_processing=)` take the arguments
-of `rates` and compose it with `optixstuff.exposure_time` and `optixstuff.snr`
+of `rates` (including `sources`) and compose it with `optixstuff.exposure_time` and `optixstuff.snr`
 on `instrument.detector`. The frame time is explicit; use
 `photon_counting_frame_time` for the photon-counting cadence.
 
 ## Every planet of a scene
 
-`jaxedith.scene_rates(curves, scene, instrument, quadrature, time_d, *, uniform_sky)`
-reads each planet at each time with the terms of `rates`, taking positions and
-contrasts from the scene. Its `Rates` has fields of shape `(W, Q, K, T)` and
+`jaxedith.scene_rates(curves, scene, instrument, quadrature, time_d, *, resolution, uniform_sky)`
+reads each planet at each time with the terms of `rates`, taking positions from the scene
+and the node rows and contrasts from one `scene.sources` call made outside the map over
+planets and times. Its `Rates` has fields of shape `(W, Q, K, T)` and
 `n_pix` of shape `(W, K, T)`, the layout of `coronagraphoto.scene_aperture_rates`,
 and goes to `optixstuff.snr` or `optixstuff.exposure_time` unchanged.
 

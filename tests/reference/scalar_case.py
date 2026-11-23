@@ -31,7 +31,7 @@ from optixstuff import (
 )
 from optixstuff.apertures import Circular
 from optixstuff.grids import Frame
-from optixstuff.spectral import Band
+from optixstuff.spectral import Band, Resolution
 from skyscapes import PrecomputedZodi
 from skyscapes.disk import AbstractDisk
 from skyscapes.physical_model import GridPhysicalModel
@@ -211,15 +211,18 @@ class ScalarCase:
 
     def rates(self):
         """The aperture rates in photons/s/nm at the case's separation."""
+        scene, quadrature = self.scene(), self.quadrature()
+        resolution = Resolution.build(quadrature, *scene.spectral_tables())
         return jaxedith.rates(
             self.curves(),
-            self.scene(),
+            scene,
             self.instrument(),
-            self.quadrature(),
+            quadrature,
             self.separation_arcsec,
             0.0,
             self.contrast,
             time_d=0.0,
+            sources=scene.sources(quadrature, resolution, 0.0),
             uniform_sky=self.sky(),
         )
 
