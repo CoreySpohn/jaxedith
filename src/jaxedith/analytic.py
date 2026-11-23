@@ -136,6 +136,27 @@ def rates(
     ``time_d`` is days from the scene epoch. The function is a pure scalar
     read; batch it with ``jax.vmap`` over position and contrast, or read a
     whole scene with :func:`scene_rates`.
+
+    Args:
+        curves: Performance curves measured for this telescope and star, one
+            record or a tuple with one per band of ``quadrature``.
+        scene: Scene holding the star, the planets and any disk or local zodi.
+        instrument: Instrument supplying the collecting area, detector pixel
+            scale and any warm emission.
+        quadrature: Spectral bands and their wavelength nodes in nm.
+        east_arcsec: Planet offset east of the star in arcsec.
+        north_arcsec: Planet offset north of the star in arcsec.
+        contrast: Planet-to-star flux ratio, a scalar or shape ``(W, Q)``.
+        time_d: Time in days from the scene epoch.
+        uniform_sky: Sky transmission profile read at the separation in
+            lambda/D, or None. Required when the scene has a disk or a local
+            zodi.
+
+    Returns:
+        Aperture rates in photons/s/nm with fields of shape ``(W, Q)``,
+        ``n_pix`` of shape ``(W,)``, the squared-weight rates in ``variance``
+        and ``supported`` False for a planet whose aperture leaves the curves'
+        extent.
     """
     bands = quadrature.bands
     per_band = tuple(curves) if isinstance(curves, tuple) else (curves,) * len(bands)
@@ -251,6 +272,23 @@ def scene_rates(
     read with the same aperture rule as :func:`rates`, so a planet beyond
     ``curves.data_extent_lod`` reads zero with ``supported`` False, shape
     ``(W, K, T)``.
+
+    Args:
+        curves: Performance curves measured for this telescope and star, one
+            record or a tuple with one per band of ``quadrature``.
+        scene: Scene holding the star, the planets and any disk or local zodi.
+        instrument: Instrument supplying the collecting area, detector pixel
+            scale and any warm emission.
+        quadrature: Spectral bands and their wavelength nodes in nm.
+        time_d: Times in days from the scene epoch, shape ``(T,)``.
+        uniform_sky: Sky transmission profile read at the separation in
+            lambda/D, or None. Required when the scene has a disk or a local
+            zodi.
+
+    Returns:
+        Aperture rates in photons/s/nm with fields of shape ``(W, Q, K, T)``,
+        ``n_pix`` and ``supported`` of shape ``(W, K, T)``, and the
+        squared-weight rates in ``variance``.
     """
     time_d = jnp.asarray(time_d)
     if time_d.ndim != 1:
@@ -324,6 +362,30 @@ def planet_exposure_time(
     frame_time_s=frame_time_s, post_processing=post_processing)`` and does no
     arithmetic of its own; see those functions for every argument and for the
     meaning of ``valid``.
+
+    Args:
+        curves: Performance curves measured for this telescope and star, one
+            record or a tuple with one per band of ``quadrature``.
+        scene: Scene holding the star, the planets and any disk or local zodi.
+        instrument: Instrument supplying the collecting area, detector pixel
+            scale and any warm emission.
+        quadrature: Spectral bands and their wavelength nodes in nm.
+        east_arcsec: Planet offset east of the star in arcsec.
+        north_arcsec: Planet offset north of the star in arcsec.
+        contrast: Planet-to-star flux ratio, a scalar or shape ``(W, Q)``.
+        time_d: Time in days from the scene epoch.
+        uniform_sky: Sky transmission profile read at the separation in
+            lambda/D, or None. Required when the scene has a disk or a local
+            zodi.
+        target_snr: Target S/N, a scalar or shape ``(W,)``.
+        frame_time_s: Seconds per detector frame, a scalar or shape ``(W,)``.
+        post_processing: Residual fractions and background variance factor of
+            the speckle and exozodi subtraction.
+
+    Returns:
+        Continuous live seconds per band, shape ``(W,)``, with NaN and
+        ``valid`` False where the target cannot be reached or the read is not
+        ``Rates.supported``.
     """
     record = rates(
         curves,
@@ -367,6 +429,29 @@ def planet_snr(
     ``optixstuff.snr(rates(...), instrument.detector, time_s,
     frame_time_s=frame_time_s, post_processing=post_processing)`` and does no
     arithmetic of its own.
+
+    Args:
+        curves: Performance curves measured for this telescope and star, one
+            record or a tuple with one per band of ``quadrature``.
+        scene: Scene holding the star, the planets and any disk or local zodi.
+        instrument: Instrument supplying the collecting area, detector pixel
+            scale and any warm emission.
+        quadrature: Spectral bands and their wavelength nodes in nm.
+        east_arcsec: Planet offset east of the star in arcsec.
+        north_arcsec: Planet offset north of the star in arcsec.
+        contrast: Planet-to-star flux ratio, a scalar or shape ``(W, Q)``.
+        time_d: Time in days from the scene epoch.
+        uniform_sky: Sky transmission profile read at the separation in
+            lambda/D, or None. Required when the scene has a disk or a local
+            zodi.
+        time_s: Live exposure time in seconds, a scalar or shape ``(W,)``.
+        frame_time_s: Seconds per detector frame, a scalar or shape ``(W,)``.
+        post_processing: Residual fractions and background variance factor of
+            the speckle and exozodi subtraction.
+
+    Returns:
+        S/N per band, shape ``(W,)``, NaN where the read is not
+        ``Rates.supported``.
     """
     record = rates(
         curves,
@@ -400,6 +485,14 @@ def photon_counting_frame_time(rates: Rates, detector: AbstractDetector) -> Arra
     :func:`scene_rates`. ``optixstuff.snr`` and ``optixstuff.exposure_time``
     take a frame time that is a scalar or ``(W,)``, so a cadence per planet is a
     ``jax.vmap`` of the calculator over the batch axes.
+
+    Args:
+        rates: Aperture rates of one or more apertures, in photons/s/nm or
+            electrons/s, with ``n_pix`` set.
+        detector: Detector whose yield converts photon rates to electrons.
+
+    Returns:
+        Frame time in seconds per band, shape ``(W, *batch)``.
     """
     if rates.n_pix is None:
         raise ValueError("rates must carry n_pix, the aperture's pixel count")
