@@ -76,17 +76,6 @@ def _at_time(sources: Sources, index) -> Sources:
     return sources
 
 
-def _node_star(sources: Sources):
-    """Return the node star of every node, built eagerly when its leaves are concrete.
-
-    The star validates a concrete ``flux_scale`` with an array operation, which
-    cannot be read as a Python bool inside a trace; evaluating that check
-    eagerly keeps a scene or ``Sources`` closed over by ``jax.jit`` usable.
-    """
-    with jax.ensure_compile_time_eval():
-        return sources.node_star()
-
-
 def rates(
     curves: PerformanceCurves | tuple[PerformanceCurves, ...],
     scene: Scene,
@@ -226,7 +215,7 @@ def rates(
     gain = per_node(instrument.effective_area_m2(nodes))
     star = per_node(sources.star[..., 0])
     disk = per_node(
-        scene.photon_radiance_at(nodes, time_d, east, north, star=_node_star(sources))
+        scene.photon_radiance_at(nodes, time_d, east, north, star=sources.node_star())
     )
     zodi = per_node(0.0 if sources.local_zodi is None else sources.local_zodi[..., 0])
     thermal = per_node(instrument.thermal_photon_rate_per_sr(nodes))
