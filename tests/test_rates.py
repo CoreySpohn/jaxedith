@@ -172,7 +172,7 @@ def _scalar_expectations():
     """Every term of the first band from the scalar formulas, in photons/s."""
     quadrature = _quadrature()
     node = quadrature.nodes_nm[0, 0]
-    width = float(quadrature.weights("response")[0, 0])
+    width = float(quadrature.weights()[0, 0])
     scene = _scene()
     lod_arcsec = float(lambda_d_to_arcsec(1.0, BAND.center_nm, DIAMETER_M))
     separation = np.hypot(EAST, NORTH)
@@ -312,7 +312,7 @@ def test_thermal_matches_the_pyedith_scalar_formula(temperature_K):
     rates = _read(instrument=instrument)
     electrons = ox.IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)).electrons(rates)
     node = float(_quadrature().nodes_nm[0, 0])
-    width = float(_quadrature().weights("response")[0, 0])
+    width = float(_quadrature().weights()[0, 0])
     lod_arcsec = float(lambda_d_to_arcsec(1.0, BAND.center_nm, DIAMETER_M))
     lod_rad = float(arcsec_to_rad(lod_arcsec))
     for record, area in ((electrons, AREA), (electrons.variance, AREA2)):
