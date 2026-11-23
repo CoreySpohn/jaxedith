@@ -135,6 +135,10 @@ def _quadrature(bands=(BAND,)):
     return Quadrature.build(bands, order=1)
 
 
+def _quadrature_for(band, order):
+    return Quadrature.build((band,), order=order)
+
+
 def _resolution(scene, quadrature):
     """Operators for the scene's tables on the quadrature, built on the host."""
     return Resolution.build(quadrature, *scene.spectral_tables())
@@ -941,3 +945,38 @@ def test_a_diameter_record_refuses_a_star_beyond_its_table():
     """Fails if a star larger than the tabulated range is read by extrapolation."""
     with pytest.raises(ValueError, match="outside the tabulated range"):
         _star_leakage(_diameter_curves(), 0.5)
+
+
+def test_the_diameter_is_read_at_each_node_not_the_reference_or_band_centre():
+    """Fails if the star's size is read at the wrong wavelength, in the wrong unit
+    or with the ratio inverted.
+
+    The record's rows are exp(3 d), so the log is linear in diameter and the
+    not-a-knot spline of the log is exact between knots. The ratio of a 6 mas
+    star's rate to a point star's is then exp(3 d) with d = theta / (lambda / D)
+    at each of three nodes of a 700 to 900 nm band, a band away from the frame's
+    550 nm reference. The truth uses hwoutils constants alone. Tolerance 1e-6:
+    the spline abscissa of the zero knot is the float32 epsilon, which leaves
+    3.6e-7 measured. A read at the reference wavelength changes the ratio by
+    up to 43 percent, at the band centre by 6.8 percent, and with the ratio
+    inverted or arcsec taken as lambda/D by far more.
+    """
+    from hwoutils.constants import rad2arcsec
+
+    a = 3.0
+    diameters = np.linspace(0.0, 0.5, 6)
+    curves = _diameter_curves(diameters, np.exp(a * diameters))
+    quadrature = _quadrature_for(Band(700.0, 900.0), order=3)
+    theta = 0.006
+
+    def read(arcsec):
+        scene = _scene(diameter_arcsec=arcsec)
+        return _read(curves=curves, scene=scene, quadrature=quadrature)
+
+    ratio = np.asarray(read(theta).star_leakage[0]) / np.asarray(
+        read(0.0).star_leakage[0]
+    )
+    nodes = np.asarray(quadrature.nodes_nm[0])
+    lod_arcsec = nodes * 1e-9 / DIAMETER_M * rad2arcsec
+    np.testing.assert_allclose(ratio, np.exp(a * theta / lod_arcsec), rtol=1e-6)
+    assert np.ptp(ratio) > 0.1

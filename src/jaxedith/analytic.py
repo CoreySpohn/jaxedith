@@ -127,8 +127,12 @@ def rates(
     ``quadrature``, measured for this telescope. The leakage is read at the
     star's angular diameter (``sources.star_diameter_arcsec``) in lambda/D at
     each node, so a record tabulated over stellar diameter is read at the
-    star's size, and a record of one profile is read only for a star of that
-    profile's diameter (it raises otherwise, never a silent point-star read).
+    star's size. A record of one profile that carries its diameter
+    (``stellar_diameters_lod`` set) raises for a star of a different diameter.
+    A record with ``stellar_diameters_lod=None`` has no provenance to check and
+    is read for any star unchecked; the caller vouches for it. The separation
+    and the aperture solid angle are read at the band centre, the diameter at
+    each node.
 
     The function reads no source spectrum. ``F``, ``L_zodi`` and the star the
     disk is defined against are the node-effective rows of ``sources``, from
