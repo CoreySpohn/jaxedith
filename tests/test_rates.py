@@ -254,7 +254,12 @@ def test_a_disk_hook_implementer_sees_the_scale_applied_once():
     must return its radiance times ``flux_scale``, exactly.
     """
     args = (jnp.array([550.0]), 0.0, jnp.array(0.1), jnp.array(0.2))
-    kwargs = dict(star=FlatStar(flux_phot_per_nm_m2=1.0), dist_pc=10.0)
+    kwargs = dict(
+        star=FlatStar(flux_phot_per_nm_m2=1.0),
+        dist_pc=10.0,
+        inclination_deg=0.0,
+        position_angle_deg=0.0,
+    )
     plain = ConstantDisk(7.0).photon_radiance_at(*args, **kwargs)
     scaled = ConstantDisk(7.0, flux_scale=3.0).photon_radiance_at(*args, **kwargs)
     np.testing.assert_array_equal(plain, 7.0)

@@ -58,7 +58,16 @@ class ConstantDisk(AbstractDisk):
     flux_scale: float = 1.0
 
     def _photon_radiance_at(
-        self, wavelength_nm, time_d, east_arcsec, north_arcsec, *, star, dist_pc
+        self,
+        wavelength_nm,
+        time_d,
+        east_arcsec,
+        north_arcsec,
+        *,
+        star,
+        dist_pc,
+        inclination_deg,
+        position_angle_deg,
     ):
         """Return the constant radiance, wavelength axes first."""
         wave = jnp.asarray(wavelength_nm)
