@@ -30,7 +30,8 @@ quadrature = Quadrature.build(
 )  # the instrument may be passed as a break model: field_lod=0 keeps `order` nodes
 resolution = Resolution.build(quadrature, *scene.spectral_tables())
 sources = scene.sources(quadrature, resolution, time_d)
-contrast = sources.contrast[:, :, planet, 0]  # (W, Q), or pass a scalar contrast
+planet_flux = sources.planets[:, :, planet, 0]  # (W, Q), photons/s/m^2/nm
+contrast = 1e-10  # an optional hypothesis for the one-call contrast calculators
 
 rates = jaxedith.rates(
     curves,
@@ -39,7 +40,7 @@ rates = jaxedith.rates(
     quadrature,
     east_arcsec,
     north_arcsec,
-    contrast,
+    planet=planet_flux,
     time_d=time_d,
     sources=sources,  # node rows of the one time read
     uniform_sky=uniform_sky,  # the sky transmission profile
@@ -97,8 +98,9 @@ snr = jaxedith.planet_snr(
 `optixstuff.ExposureTime` and the S/N per band.
 
 `rates` is a scalar read of one planet that reads no spectrum itself: the star, the local
-zodi and the disk's host star are the node rows of `sources`, and `contrast` is a scalar or
-the star-weighted node contrast `sources.contrast`. Map it over positions and contrasts with
+zodi and the disk's host star are the node rows of `sources`. Pass `planet=` with
+a scene's node-effective photon flux density from `sources.planets`, or `contrast=`
+with a planet-to-star hypothesis; exactly one is required. Map it over positions and fluxes with
 `jax.vmap`.
 Fields are photons/s/nm of shape `(W, Q)`, with `n_pix` per band and a
 squared-weight `variance` record. Detector yield is not applied there:
