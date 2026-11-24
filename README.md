@@ -57,7 +57,8 @@ frames = ox.frames_for_time(time.time_s, frame_time_s)
 ```
 
 For pyEDITH and EXOSIMS users the one-call form, which answers for one planet, takes the same arguments plus
-the target and the frame time, and returns what the two steps above return:
+the target and the frame time. It answers for the fixed `contrast` hypothesis above, so it matches the two steps
+only where that contrast implies the same planet flux at the nodes:
 
 ```python notest
 time = jaxedith.planet_exposure_time(
