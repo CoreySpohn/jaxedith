@@ -254,7 +254,8 @@ def test_rates_reads_the_node_rows_and_not_the_scene_star():
 
     def read(rows):
         return jaxedith.rates(
-            *args,
+            *args[:-1],
+            contrast=args[-1],
             time_d=0.0,
             sources=rows.sources(quadrature, resolution, 0.0),
             uniform_sky=_sky(),
@@ -323,7 +324,7 @@ def test_scene_rates_equal_the_per_time_rates_and_run_under_jit_and_grad():
             quadrature,
             east[0, t],
             north[0, t],
-            sources.contrast[:, :, 0, t],
+            contrast=sources.contrast[:, :, 0, t],
             time_d=times[t],
             sources=scene.sources(quadrature, resolution, times[t]),
             uniform_sky=_sky(),
@@ -390,7 +391,7 @@ def test_rates_refuse_sources_of_another_layout():
                 quadrature,
                 0.03,
                 0.04,
-                3e-10,
+                contrast=3e-10,
                 time_d=0.0,
                 sources=rows,
                 uniform_sky=None,

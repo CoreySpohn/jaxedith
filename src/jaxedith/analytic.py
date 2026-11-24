@@ -52,7 +52,9 @@ def _moments(record, separation, diameter, squared):
     )
 
 
-def _terms(moments, gain, star, zodi, disk, sky, contrast, thermal, solid_angle):
+def _terms(
+    moments, gain, star, zodi, disk, sky, contrast, planet, thermal, solid_angle
+):
     """Return the node fields of one band, each of shape (Q,).
 
     ``moments`` is (throughput, core area, leakage density) in the same
@@ -62,7 +64,7 @@ def _terms(moments, gain, star, zodi, disk, sky, contrast, thermal, solid_angle)
     throughput, area, density = moments
     flux = gain * star
     return dict(
-        planet=flux * contrast * throughput,
+        planet=(gain * planet if contrast is None else flux * contrast) * throughput,
         star_leakage=flux * density * area,
         local_zodi=gain * zodi * sky * solid_angle,
         exozodi=gain * disk * sky * solid_angle,
@@ -87,8 +89,9 @@ def rates(
     quadrature: Quadrature,
     east_arcsec: ArrayLike,
     north_arcsec: ArrayLike,
-    contrast: ArrayLike,
     *,
+    contrast: ArrayLike | None = None,
+    planet: ArrayLike | None = None,
     time_d: ArrayLike,
     sources: Sources,
     uniform_sky: SampledProfile | None,
@@ -97,11 +100,13 @@ def rates(
 
     The planet sits ``east_arcsec`` east and ``north_arcsec`` north of the
     star, the order and meaning of ``coronagraphoto.aperture_rates``, with
-    planet-to-star ``contrast``: a scalar, or shape ``(W, Q)``. Per node, with
-    collecting area ``A``, system throughput ``T``, star photon flux density
-    ``F`` and ``s`` the separation in lambda/D at the band centre:
+    exactly one of ``planet`` (photon flux density in photons/s/m^2/nm) or
+    ``contrast`` (planet-to-star flux ratio), scalar or broadcastable to
+    ``(W, Q)``. Per node, with collecting area ``A``, system throughput ``T``,
+    star photon flux density ``F``, planet photon flux density ``P`` and ``s``
+    the separation in lambda/D at the band center:
 
-    - ``planet = A T F contrast throughput(s)``
+    - ``planet = A T P throughput(s)`` or ``A T F contrast throughput(s)``
     - ``star_leakage = A T F leakage_density(s) core_area(s)``
     - ``local_zodi = A T L_zodi sky(s) Omega``
     - ``exozodi = A T L_disk sky(s) Omega``
@@ -138,10 +143,10 @@ def rates(
     disk is defined against are the node-effective rows of ``sources``, from
     ``scene.sources(quadrature, resolution, time_d)`` at the one time read
     here, so a tabulated star or local zodi is integrated exactly over each
-    band however few nodes it has. ``contrast`` is the star-weighted node
-    contrast, ``sources.contrast`` of the planet and time, for a scene read;
-    a scalar is the natural input of an exposure-time calculation and is exact
-    for a contrast that does not vary across the band. Build the quadrature
+    band however few nodes it has. A scene read should pass the planet's
+    node-effective photon flux density from ``sources.planets`` as ``planet``.
+    ``contrast`` states a hypothesis relative to ``sources.star``; a scalar
+    is exact for a contrast that does not vary across the band. Build the quadrature
     with ``Quadrature.build(bands, *models, field_lod=0)``: the curves are read
     at the band-centre lambda/D for every node, so the response sets no
     extra nodes. Under a different ``field_lod`` the result is the same to
@@ -172,8 +177,8 @@ def rates(
     field are not read, and neither is any channel multiplier.
 
     ``time_d`` is days from the scene epoch. The function is a pure scalar
-    read; batch it with ``jax.vmap`` over position and contrast, or read a
-    whole scene with :func:`scene_rates`.
+    read; batch it with ``jax.vmap`` over position and planet flux or contrast,
+    or read a whole scene with :func:`scene_rates`.
 
     Args:
         curves: Performance curves measured for this telescope, one
@@ -184,7 +189,10 @@ def rates(
         quadrature: Spectral bands and their wavelength nodes in nm.
         east_arcsec: Planet offset east of the star in arcsec.
         north_arcsec: Planet offset north of the star in arcsec.
-        contrast: Planet-to-star flux ratio, a scalar or shape ``(W, Q)``.
+        contrast: Planet-to-star hypothesis, scalar or broadcastable to
+            ``(W, Q)``. Mutually exclusive with ``planet``.
+        planet: Planet photon flux density in photons/s/m^2/nm, scalar or
+            broadcastable to ``(W, Q)``. Mutually exclusive with ``contrast``.
         time_d: Time in days from the scene epoch.
         sources: Node-effective sources of ``scene`` on ``quadrature`` at
             ``time_d`` alone (shape ``T = 1``), from ``scene.sources``.
@@ -198,6 +206,8 @@ def rates(
         and ``supported`` False for a planet the curves do not support (past their
         samples or extent).
     """
+    if (contrast is None) == (planet is None):
+        raise ValueError("give exactly one of contrast and planet")
     bands = quadrature.bands
     per_band = tuple(curves) if isinstance(curves, tuple) else (curves,) * len(bands)
     if len(per_band) != len(bands):
@@ -230,7 +240,8 @@ def rates(
     )
     zodi = per_node(0.0 if sources.local_zodi is None else sources.local_zodi[..., 0])
     thermal = per_node(instrument.thermal_photon_rate_per_sr(nodes))
-    contrast = jnp.broadcast_to(jnp.asarray(contrast), nodes.shape)
+    contrast = None if contrast is None else per_node(jnp.asarray(contrast))
+    planet = None if planet is None else per_node(jnp.asarray(planet))
     pixel_arcsec2 = instrument.detector.pixel_scale_arcsec**2
     angle = jnp.hypot(east, north)
 
@@ -260,7 +271,8 @@ def rates(
                 zodi[w],
                 disk[w],
                 sky,
-                contrast[w],
+                None if contrast is None else contrast[w],
+                None if planet is None else planet[w],
                 thermal[w],
                 solid_angle,
             )
@@ -306,7 +318,7 @@ def scene_rates(
     A ``jax.vmap`` of :func:`rates` over the scene's planets and the times:
     positions come from ``scene.positions(time_d)``. The sources are read once,
     outside the map, with ``scene.sources(quadrature, resolution, time_d)``,
-    and each planet's contrast is ``sources.contrast`` at every spectral node
+    and each planet's photon flux density is ``sources.planets`` at every spectral node
     of ``quadrature``, so a tabulated star or planet is integrated exactly over
     each band and nothing is recomputed per planet or time. Build the
     resolution on the host with
@@ -353,9 +365,9 @@ def scene_rates(
     ephemeris = scene.ephemeris(time_d)
     east, north = scene.positions(time_d, ephemeris=ephemeris)
     sources = scene.sources(quadrature, resolution, time_d, ephemeris=ephemeris)
-    contrast = sources.contrast
+    planet = sources.planets
 
-    def read(east_arcsec, north_arcsec, contrast, time, index):
+    def read(east_arcsec, north_arcsec, planet, time, index):
         record = rates(
             curves,
             scene,
@@ -363,7 +375,7 @@ def scene_rates(
             quadrature,
             east_arcsec,
             north_arcsec,
-            contrast,
+            planet=planet,
             time_d=time,
             sources=_at_time(sources, index),
             uniform_sky=uniform_sky,
@@ -375,7 +387,7 @@ def scene_rates(
 
     over_times = jax.vmap(read, in_axes=(0, 0, -1, 0, 0), out_axes=-1)
     mean, variance = jax.vmap(over_times, in_axes=(0, 0, -2, None, None), out_axes=-2)(
-        east, north, contrast, time_d, jnp.arange(time_d.size)
+        east, north, planet, time_d, jnp.arange(time_d.size)
     )
 
     def build(values, variance=None):
@@ -453,7 +465,7 @@ def planet_exposure_time(
         quadrature,
         east_arcsec,
         north_arcsec,
-        contrast,
+        contrast=contrast,
         time_d=time_d,
         sources=sources,
         uniform_sky=uniform_sky,
@@ -523,7 +535,7 @@ def planet_snr(
         quadrature,
         east_arcsec,
         north_arcsec,
-        contrast,
+        contrast=contrast,
         time_d=time_d,
         sources=sources,
         uniform_sky=uniform_sky,

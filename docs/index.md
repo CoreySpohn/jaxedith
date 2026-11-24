@@ -1,6 +1,7 @@
 # jaxedith
 
 Analytic aperture rates from performance curves, a scene and an instrument,
+with `planet=` photon flux density or a `contrast=` hypothesis,
 in the AYO and pyEDITH conventions, with `jaxedith.scene_rates` for every planet
 of a scene and one-call `jaxedith.planet_exposure_time` and `jaxedith.planet_snr`
 for one planet. The reduction itself is `optixstuff.snr` and

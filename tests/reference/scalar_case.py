@@ -229,7 +229,7 @@ class ScalarCase:
             quadrature,
             self.separation_arcsec,
             0.0,
-            self.contrast,
+            contrast=self.contrast,
             time_d=0.0,
             sources=scene.sources(quadrature, resolution, 0.0),
             uniform_sky=self.sky(),

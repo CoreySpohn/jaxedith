@@ -161,7 +161,7 @@ def _read(curves=None, scene=None, instrument=None, quadrature=None, **kwargs):
         quadrature,
         arguments.pop("east_arcsec"),
         arguments.pop("north_arcsec"),
-        arguments.pop("contrast"),
+        contrast=arguments.pop("contrast"),
         time_d=0.0,
         sources=_sources(scene, quadrature),
         uniform_sky=_sky(),
@@ -444,7 +444,7 @@ def test_missing_sources_are_zero_and_the_sky_is_required_with_them():
         _quadrature(),
         EAST,
         NORTH,
-        CONTRAST,
+        contrast=CONTRAST,
         time_d=0.0,
         sources=_sources(bare, _quadrature()),
         uniform_sky=None,
@@ -460,7 +460,7 @@ def test_missing_sources_are_zero_and_the_sky_is_required_with_them():
             _quadrature(),
             EAST,
             NORTH,
-            CONTRAST,
+            contrast=CONTRAST,
             time_d=0.0,
             sources=_sources(_scene(), _quadrature()),
             uniform_sky=None,
@@ -608,7 +608,7 @@ def test_transformations_are_finite_inside_the_data():
             quadrature,
             east,
             north,
-            contrast,
+            contrast=contrast,
             time_d=0.0,
             sources=sources,
             uniform_sky=sky,
@@ -649,7 +649,7 @@ def test_a_large_batch_of_positions_compiles_once():
             quadrature,
             east,
             north,
-            CONTRAST,
+            contrast=CONTRAST,
             time_d=0.0,
             sources=sources,
             uniform_sky=sky,
@@ -706,7 +706,7 @@ def test_scene_entry_points_equal_the_two_step_calls():
     curves, scene, instrument = _curves(), _scene(), _instrument()
     common = (curves, scene, instrument, quadrature, EAST, NORTH, 1e-6)
     keywords = dict(time_d=0.0, sources=_sources(scene, quadrature), uniform_sky=_sky())
-    rates = jaxedith.rates(*common, **keywords)
+    rates = jaxedith.rates(*common[:-1], contrast=common[-1], **keywords)
     frame = jnp.array([100.0, 60.0])
     for post_processing in (
         ox.PostProcessing(background_variance_factor=1.0),
@@ -816,7 +816,7 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
                 quadrature,
                 east[k, t],
                 north[k, t],
-                sources.contrast[:, :, k, t],
+                contrast=sources.contrast[:, :, k, t],
                 time_d=times[t],
                 sources=at_time,
                 uniform_sky=sky,
@@ -985,3 +985,65 @@ def test_the_diameter_is_read_at_each_node_not_the_reference_or_band_centre():
     lod_arcsec = nodes * 1e-9 / DIAMETER_M * rad2arcsec
     np.testing.assert_allclose(ratio, np.exp(a * theta / lod_arcsec), rtol=1e-6)
     assert np.ptp(ratio) > 0.1
+
+
+def test_zero_star_thermal_planet_flux():
+    """Truth: source photon density times unit collecting gain and curve throughput.
+
+    Floating-point basis: rtol=1e-12, atol=0 for the x64 hand product;
+    dividing by the exactly zero host before multiplying gives NaN.
+    """
+    scene = _scene(disk=False, zodi=False)
+    scene = eqx.tree_at(
+        lambda s: s.star, scene, FlatStar(flux_phot_per_nm_m2=1.0, flux_scale=0.0)
+    )
+    scene = eqx.tree_at(
+        lambda s: s.planets,
+        scene,
+        (Planet(jnp.ones(1), BlackbodyPhysicalModel(jnp.array([300.0]))),),
+    )
+    instrument = Instrument(
+        SimplePrimary(circumscribed_diameter_m=DIAMETER_M, collecting_area_m2=1.0),
+        (ConstantThroughput(1.0),),
+        None,
+        IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)),
+    )
+    quadrature = _quadrature()
+    times = jnp.array([0.0])
+    resolution = _resolution(scene, quadrature)
+    sources = scene.sources(quadrature, resolution, times)
+    record = jaxedith.scene_rates(
+        _curves(throughput=(1.0, 1.0)),
+        scene,
+        instrument,
+        quadrature,
+        times,
+        resolution=resolution,
+        uniform_sky=None,
+    )
+    assert np.isfinite(record.planet).all()
+    assert record.supported.all()
+    np.testing.assert_allclose(record.planet, sources.planets, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(
+        record.variance.planet, sources.planets * TAU2, rtol=1e-12, atol=0
+    )
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"contrast": CONTRAST, "planet": 3.0}])
+def test_rates_requires_one_planet_input(kwargs):
+    """Truth: one radiometric input; exact-algebra host refusal, no tolerance."""
+    scene, quadrature = _scene(), _quadrature()
+    for read in (jaxedith.rates, eqx.filter_jit(jaxedith.rates)):
+        with pytest.raises(ValueError, match=r"contrast.*planet|planet.*contrast"):
+            read(
+                _curves(),
+                scene,
+                _instrument(),
+                quadrature,
+                EAST,
+                NORTH,
+                time_d=0.0,
+                sources=_sources(scene, quadrature),
+                uniform_sky=_sky(),
+                **kwargs,
+            )

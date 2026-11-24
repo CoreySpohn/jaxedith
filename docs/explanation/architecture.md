@@ -13,7 +13,7 @@ and `jaxedith.planet_snr` are the one-call entry points for one planet: `rates`
 followed by the optixstuff function on `instrument.detector`, with no arithmetic
 of their own. `jaxedith.scene_rates` is a `vmap` of `rates` over every planet of
 the scene and every time, which computes `scene.sources` once outside the map and
-passes `sources.contrast`, in the layout of `coronagraphoto.scene_aperture_rates`:
+passes `sources.planets` as `planet=`, in the layout of `coronagraphoto.scene_aperture_rates`:
 fields of shape `(W, Q, K, T)` and `n_pix` of shape `(W, K, T)`, for `K` planets
 and `T` times. A planet with `scene.valid` False reads zero, so its exposure time
 is invalid. A scene with a batch of systems is not read; map the function over them.
