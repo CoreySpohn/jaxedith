@@ -19,15 +19,15 @@ wider field would add nodes and change nothing. The scene's tabulated spectra
 (a PHOENIX star, a local-zodi table, a planet model with a grid) are integrated
 exactly over each band by an operator built on the host, and `scene.sources` reads
 them once on the nodes. A band must lie inside every source table.
+Sky transmission comes with each band's curves in `PerformanceCurves.uniform_sky`.
 
 ```python notest
 import jaxedith
 import optixstuff as ox
 from optixstuff.spectral import Quadrature, Resolution
 
-quadrature = Quadrature.build(
-    bands, instrument, scene.local_zodi, field_lod=0
-)  # the instrument may be passed as a break model: field_lod=0 keeps `order` nodes
+models = [m for m in (instrument, scene.local_zodi, scene.disk) if m is not None]
+quadrature = Quadrature.build(bands, *models, field_lod=0)
 resolution = Resolution.build(quadrature, *scene.spectral_tables())
 sources = scene.sources(quadrature, resolution, time_d)
 planet_flux = sources.planets[:, :, planet, 0]  # (W, Q), photons/s/m^2/nm
@@ -43,7 +43,6 @@ rates = jaxedith.rates(
     planet=planet_flux,
     time_d=time_d,
     sources=sources,  # node rows of the one time read
-    uniform_sky=uniform_sky,  # the sky transmission profile
 )
 frame_time_s = jaxedith.photon_counting_frame_time(rates, instrument.detector)
 time = ox.exposure_time(
@@ -54,6 +53,33 @@ time = ox.exposure_time(
     post_processing=ox.PostProcessing(1 / 30, 0.0, background_variance_factor=2.0),
 )
 frames = ox.frames_for_time(time.time_s, frame_time_s)
+reachable = time.valid  # Boolean mask per band
+```
+
+An unreachable target gives NaN in `time.time_s` and in the plan's frame
+count and live time. A count of zero represents a request for zero seconds.
+
+```python
+import jax.numpy as jnp
+import optixstuff as ox
+from optixstuff.spectral import Band, Quadrature
+
+detector = ox.Detector(pixel_scale_arcsec=0.01, shape=(1, 1), qe=0.9)
+quadrature = Quadrature.build([Band(500.0, 600.0)], detector, order=1)
+rates = ox.Rates(
+    quadrature, "photon", planet=jnp.zeros((1, 1)), local_zodi=jnp.ones((1, 1))
+)
+frame_time_s = 300.0
+time = ox.exposure_time(
+    rates,
+    detector,
+    7.0,
+    frame_time_s=frame_time_s,
+    post_processing=ox.PostProcessing(background_variance_factor=1.0),
+)
+frames = ox.frames_for_time(time.time_s, frame_time_s)
+assert not bool(time.valid[0])
+assert jnp.isnan(frames.n_frames[0])
 ```
 
 For pyEDITH and EXOSIMS users the one-call form, which answers for one planet, takes the same arguments plus
@@ -71,7 +97,6 @@ time = jaxedith.planet_exposure_time(
     contrast,
     time_d=time_d,
     sources=sources,
-    uniform_sky=uniform_sky,
     target_snr=7.0,
     frame_time_s=frame_time_s,
     post_processing=ox.PostProcessing(1 / 30, 0.0, background_variance_factor=2.0),
@@ -86,7 +111,6 @@ snr = jaxedith.planet_snr(
     contrast,
     time_d=time_d,
     sources=sources,
-    uniform_sky=uniform_sky,
     time_s=3600.0,
     frame_time_s=frame_time_s,
     post_processing=ox.PostProcessing(1 / 30, 0.0, background_variance_factor=2.0),
@@ -119,7 +143,6 @@ record = jaxedith.scene_rates(
     quadrature,
     time_d,
     resolution=resolution,
-    uniform_sky=uniform_sky,
 )  # time_d: (T,) days; fields (W, Q, K, T), n_pix (W, K, T)
 time = ox.exposure_time(
     record,

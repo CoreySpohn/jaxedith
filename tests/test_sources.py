@@ -35,7 +35,6 @@ from test_rates import (
     SKY,
     TAU,
     _curves,
-    _sky,
 )
 
 import jaxedith
@@ -159,7 +158,7 @@ def _instrument(cls=Instrument):
 def _build(scene, instrument=None):
     """The documented curves-route build: ``field_lod=0``, instrument as a break."""
     instrument = _instrument() if instrument is None else instrument
-    models = [m for m in (instrument, scene.local_zodi) if m is not None]
+    models = [m for m in (instrument, scene.local_zodi, scene.disk) if m is not None]
     quadrature = Quadrature.build(BANDS, *models, field_lod=0)
     return quadrature, Resolution.build(quadrature, *scene.spectral_tables())
 
@@ -186,7 +185,7 @@ def _truth(scene, instrument, band, weight):
     return np.sum(w * area * _star_at(scene.star, x) * weight(x))
 
 
-def _read(scene, instrument, uniform_sky=None, times=(0.0,)):
+def _read(scene, instrument, times=(0.0,)):
     quadrature, resolution = _build(scene, instrument)
     return quadrature, jaxedith.scene_rates(
         _curves(),
@@ -195,7 +194,6 @@ def _read(scene, instrument, uniform_sky=None, times=(0.0,)):
         quadrature,
         jnp.asarray(times),
         resolution=resolution,
-        uniform_sky=uniform_sky,
     )
 
 
@@ -215,7 +213,7 @@ def test_scene_rates_integrate_a_line_rich_star_and_an_absorbing_planet():
     7.4e-2 and 8.9e-2.
     """
     scene, instrument = _scene(disk=True), _instrument()
-    quadrature, record = _read(scene, instrument, uniform_sky=_sky())
+    quadrature, record = _read(scene, instrument)
     assert record.planet.shape == (2, 4, 1, 1)
     for index, band in enumerate(BANDS):
         lod_arcsec = float(lambda_d_to_arcsec(1.0, band.center_nm, DIAMETER_M))
@@ -258,7 +256,6 @@ def test_rates_reads_the_node_rows_and_not_the_scene_star():
             contrast=args[-1],
             time_d=0.0,
             sources=rows.sources(quadrature, resolution, 0.0),
-            uniform_sky=_sky(),
         )
 
     once, twice = read(base), read(doubled)
@@ -311,7 +308,6 @@ def test_scene_rates_equal_the_per_time_rates_and_run_under_jit_and_grad():
             quadrature,
             t,
             resolution=resolution,
-            uniform_sky=_sky(),
         )
     )(times)
     sources = scene.sources(quadrature, resolution, times)
@@ -327,7 +323,6 @@ def test_scene_rates_equal_the_per_time_rates_and_run_under_jit_and_grad():
             contrast=sources.contrast[:, :, 0, t],
             time_d=times[t],
             sources=scene.sources(quadrature, resolution, times[t]),
-            uniform_sky=_sky(),
         )
         for name in ("planet", "star_leakage", "exozodi"):
             np.testing.assert_allclose(
@@ -343,7 +338,6 @@ def test_scene_rates_equal_the_per_time_rates_and_run_under_jit_and_grad():
             quadrature,
             times[:1],
             resolution=resolution,
-            uniform_sky=_sky(),
         ).planet.sum()
 
     np.testing.assert_allclose(
@@ -394,5 +388,4 @@ def test_rates_refuse_sources_of_another_layout():
                 contrast=3e-10,
                 time_d=0.0,
                 sources=rows,
-                uniform_sky=None,
             )

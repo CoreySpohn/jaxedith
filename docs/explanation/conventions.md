@@ -12,11 +12,15 @@ aperture solid angle.
 | `planet` | `A T P throughput(s)` or `A T F contrast throughput(s)` | AYO `CR_p`, pyEDITH `calculate_CRp` |
 | `star_leakage` | `A T F leakage_density(s) core_area(s)` | AYO `CR_bs`; the leakage rule chosen when the curves are requested sets whether the density is the aperture mean or the azimuthal ring mean; the density is read at the star's angular diameter in lambda/D at each node, so the star's size sets the leakage; between the record's tabulated diameters the read is limited by the spacing of that table (see the optixstuff architecture page), and a star beyond the last diameter raises, which aborts a jitted call |
 | `local_zodi` | `A T L_zodi sky(s) Omega` | AYO `CR_bz`: a uniform surface brightness times sky transmission times aperture solid angle |
-| `exozodi` | `A T L_disk sky(s) Omega` | AYO `CR_bez`: the disk radiance at the aperture centre times the aperture solid angle |
+| `exozodi` | `A T L_disk sky(s) Omega` | AYO `CR_bez`: the disk radiance at the aperture centre times sky transmission times aperture solid angle |
 | `thermal` | `A_geo e B Omega` | pyEDITH `calculate_CRbth`: `B` the Planck photon radiance at the temperature of `Instrument.warm_emission`, `e` its effective emissivity (warm emissivity times cold transmission), `A_geo` the collecting area without `T` or the flux scale; zero when the instrument has no `warm_emission`, the default |
 | `stellar_companions` | zero | returns with a companion source |
 | `n_pix` | `Omega / pixel_scale**2`, per band | AYO and pyEDITH `det_npix` |
 | `variance` | the same record from the squared-weight moments | equal to the mean for `Circular` and `HalfMaximum` |
+
+Sky transmission for `local_zodi` and `exozodi` travels with the curves as
+`PerformanceCurves.uniform_sky`. Each band reads its own profile. A scene
+with a disk or a local zodi requires a profile on every band's record.
 
 `F`, `P` and `L_zodi` are the node-effective rows of `scene.sources`, and `L_disk` is read
 against the node-effective star: a tabulated spectrum is integrated exactly over each
@@ -52,12 +56,26 @@ Alternatively, `contrast=` states a planet-to-star hypothesis relative to
 ```python notest
 sources = scene.sources(quadrature, resolution, time_d)
 by_flux = jaxedith.rates(
-    curves, scene, instrument, quadrature, east_arcsec, north_arcsec,
-    planet=sources.planets[:, :, 0, 0], time_d=time_d, sources=sources, uniform_sky=uniform_sky,
+    curves,
+    scene,
+    instrument,
+    quadrature,
+    east_arcsec,
+    north_arcsec,
+    planet=sources.planets[:, :, 0, 0],
+    time_d=time_d,
+    sources=sources,
 )
 by_contrast = jaxedith.rates(
-    curves, scene, instrument, quadrature, east_arcsec, north_arcsec,
-    contrast=1e-10, time_d=time_d, sources=sources, uniform_sky=uniform_sky,
+    curves,
+    scene,
+    instrument,
+    quadrature,
+    east_arcsec,
+    north_arcsec,
+    contrast=1e-10,
+    time_d=time_d,
+    sources=sources,
 )
 ```
 
@@ -71,7 +89,7 @@ on `instrument.detector`. The frame time is explicit; use
 
 ## Every planet of a scene
 
-`jaxedith.scene_rates(curves, scene, instrument, quadrature, time_d, *, resolution, uniform_sky)`
+`jaxedith.scene_rates(curves, scene, instrument, quadrature, time_d, *, resolution)`
 reads each planet at each time with the terms of `rates`, taking positions from the scene
 and the node rows and planet photon flux densities from one `scene.sources` call made outside the map over
 planets and times. Its `Rates` has fields of shape `(W, Q, K, T)` and

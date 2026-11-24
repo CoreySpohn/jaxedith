@@ -152,6 +152,7 @@ class ScalarCase:
             core_area_variance_lod2=flat(area),
             leakage_fraction_variance=flat(density * area),
             leakage_density_variance_lod2=flat(density),
+            uniform_sky=self.sky(),
         )
 
     def sky(self):
@@ -232,7 +233,6 @@ class ScalarCase:
             contrast=self.contrast,
             time_d=0.0,
             sources=scene.sources(quadrature, resolution, 0.0),
-            uniform_sky=self.sky(),
         )
 
     def electrons(self, *, companions=0.0):

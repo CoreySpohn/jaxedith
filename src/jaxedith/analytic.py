@@ -28,7 +28,6 @@ from optixstuff import (
     Quadrature,
     Rates,
     Resolution,
-    SampledProfile,
 )
 from skyscapes import Scene
 from skyscapes.scene import Sources
@@ -36,6 +35,22 @@ from skyscapes.scene import Sources
 # A photon-counting EMCCD is run at 1 / 6.73 electrons per pixel per frame.
 _OCCUPANCY_DIVISOR = 6.73
 _READ_FIELDS = ("planet", "star_leakage", "local_zodi", "exozodi", "thermal")
+
+
+def _curves_for_bands(curves, bands, scene):
+    """Expand a shared record and check that extended sources have sky profiles."""
+    per_band = curves if isinstance(curves, tuple) else (curves,) * len(bands)
+    if len(per_band) != len(bands):
+        raise ValueError("curves must be one record or one per band of the quadrature")
+    if scene.disk is not None or scene.local_zodi is not None:
+        for index, (band, record) in enumerate(zip(bands, per_band, strict=True)):
+            if record.uniform_sky is None:
+                raise ValueError(
+                    f"band {index} ({band.center_nm} nm): the curves carry no "
+                    "uniform_sky profile, which a scene with a disk or a local "
+                    "zodi needs"
+                )
+    return per_band
 
 
 def _moments(record, separation, diameter, squared):
@@ -94,7 +109,6 @@ def rates(
     planet: ArrayLike | None = None,
     time_d: ArrayLike,
     sources: Sources,
-    uniform_sky: SampledProfile | None,
 ) -> Rates:
     """Return one planet's aperture rates in photons/s/nm, fields ``(W, Q)``.
 
@@ -172,9 +186,11 @@ def rates(
     every field with ``Rates.supported`` False, so ``optixstuff.snr`` and
     ``exposure_time`` return NaN there. The curves' support is a disk of radius
     ``data_extent_lod`` and does not know the detector.
-    ``uniform_sky`` is the sky transmission profile, required when the scene
-    has a disk or a local zodi. The instrument's coronagraph slot and speckle
-    field are not read, and neither is any channel multiplier.
+    Sky transmission is read from each band's ``PerformanceCurves.uniform_sky``
+    at its band-centre separation in lambda/D. A scene with a disk or a local
+    zodi requires a profile on every band's record. The instrument's
+    coronagraph slot and speckle field are not read, and neither is any channel
+    multiplier.
 
     ``time_d`` is days from the scene epoch. The function is a pure scalar
     read; batch it with ``jax.vmap`` over position and planet flux or contrast,
@@ -182,7 +198,8 @@ def rates(
 
     Args:
         curves: Performance curves measured for this telescope, one
-            record or a tuple with one per band of ``quadrature``.
+            record or a tuple with one per band of ``quadrature``. Each band
+            reads sky transmission from its record.
         scene: Scene holding the star, the planets and any disk or local zodi.
         instrument: Instrument supplying the collecting area, detector pixel
             scale and any warm emission.
@@ -196,9 +213,6 @@ def rates(
         time_d: Time in days from the scene epoch.
         sources: Node-effective sources of ``scene`` on ``quadrature`` at
             ``time_d`` alone (shape ``T = 1``), from ``scene.sources``.
-        uniform_sky: Sky transmission profile read at the separation in
-            lambda/D, or None. Required when the scene has a disk or a local
-            zodi.
 
     Returns:
         Aperture rates in photons/s/nm with fields of shape ``(W, Q)``,
@@ -209,11 +223,7 @@ def rates(
     if (contrast is None) == (planet is None):
         raise ValueError("give exactly one of contrast and planet")
     bands = quadrature.bands
-    per_band = tuple(curves) if isinstance(curves, tuple) else (curves,) * len(bands)
-    if len(per_band) != len(bands):
-        raise ValueError("curves must be one record or one per band of the quadrature")
-    if uniform_sky is None and (scene.disk is not None or scene.local_zodi is not None):
-        raise ValueError("uniform_sky is required when the scene has a disk or zodi")
+    per_band = _curves_for_bands(curves, bands, scene)
     for record in {id(record): record for record in per_band}.values():
         ox.check_primary_matches_frame(
             instrument.primary, record.frame, source="curves"
@@ -257,7 +267,8 @@ def rates(
         separation = jnp.clip(
             separation, record.separation_lod[0], record.separation_lod[-1]
         )
-        sky = 1.0 if uniform_sky is None else uniform_sky.evaluate(separation)
+        profile = record.uniform_sky
+        sky = 1.0 if profile is None else profile.evaluate(separation)
         for squared, fields_out, pixels_out in (
             (False, mean, n_pix),
             (True, variance, n_pix_variance),
@@ -311,7 +322,6 @@ def scene_rates(
     time_d: ArrayLike,
     *,
     resolution: Resolution,
-    uniform_sky: SampledProfile | None,
 ) -> Rates:
     """Return every planet of a scene at every time, in photons/s/nm.
 
@@ -334,29 +344,28 @@ def scene_rates(
     in every field, so its exposure time is invalid, not a number. A scene with
     a batch of systems is not read; map this function over them.
 
-    ``curves`` and ``uniform_sky`` are as in :func:`rates`. Every planet is
-    read with the same aperture rule as :func:`rates`, so a planet the curves
-    do not support reads zero with ``supported`` False, shape
-    ``(W, K, T)``.
+    Each band reads the sky transmission profile on its curves, as in
+    :func:`rates`. Every planet is read with the same aperture rule as
+    :func:`rates`, so a planet the curves do not support reads zero with
+    ``supported`` False, shape ``(W, K, T)``.
 
     Args:
         curves: Performance curves measured for this telescope, one
-            record or a tuple with one per band of ``quadrature``.
+            record or a tuple with one per band of ``quadrature``. Each band
+            reads sky transmission from its record.
         scene: Scene holding the star, the planets and any disk or local zodi.
         instrument: Instrument supplying the collecting area, detector pixel
             scale and any warm emission.
         quadrature: Spectral bands and their wavelength nodes in nm.
         time_d: Times in days from the scene epoch, shape ``(T,)``.
         resolution: Operators for the scene's tables on ``quadrature``.
-        uniform_sky: Sky transmission profile read at the separation in
-            lambda/D, or None. Required when the scene has a disk or a local
-            zodi.
 
     Returns:
         Aperture rates in photons/s/nm with fields of shape ``(W, Q, K, T)``,
         ``n_pix`` and ``supported`` of shape ``(W, K, T)``, and the
         squared-weight rates in ``variance``.
     """
+    per_band = _curves_for_bands(curves, quadrature.bands, scene)
     time_d = jnp.asarray(time_d)
     if time_d.ndim != 1:
         raise ValueError("time_d must have shape (T,)")
@@ -369,7 +378,7 @@ def scene_rates(
 
     def read(east_arcsec, north_arcsec, planet, time, index):
         record = rates(
-            curves,
+            per_band,
             scene,
             instrument,
             quadrature,
@@ -378,7 +387,6 @@ def scene_rates(
             planet=planet,
             time_d=time,
             sources=_at_time(sources, index),
-            uniform_sky=uniform_sky,
         )
         return tuple(
             (*(getattr(r, name) for name in _READ_FIELDS), r.n_pix, r.supported)
@@ -417,7 +425,6 @@ def planet_exposure_time(
     *,
     time_d: ArrayLike,
     sources: Sources,
-    uniform_sky: SampledProfile | None,
     target_snr: ArrayLike,
     frame_time_s: ArrayLike,
     post_processing: PostProcessing,
@@ -434,7 +441,8 @@ def planet_exposure_time(
 
     Args:
         curves: Performance curves measured for this telescope, one
-            record or a tuple with one per band of ``quadrature``.
+            record or a tuple with one per band of ``quadrature``. Each band
+            reads sky transmission from its record.
         scene: Scene holding the star, the planets and any disk or local zodi.
         instrument: Instrument supplying the collecting area, detector pixel
             scale and any warm emission.
@@ -445,9 +453,6 @@ def planet_exposure_time(
         time_d: Time in days from the scene epoch.
         sources: Node-effective sources of ``scene`` on ``quadrature`` at
             ``time_d`` alone, from ``scene.sources``; see :func:`rates`.
-        uniform_sky: Sky transmission profile read at the separation in
-            lambda/D, or None. Required when the scene has a disk or a local
-            zodi.
         target_snr: Target S/N, a scalar or shape ``(W,)``.
         frame_time_s: Seconds per detector frame, a scalar or shape ``(W,)``.
         post_processing: Residual fractions and background variance factor of
@@ -468,7 +473,6 @@ def planet_exposure_time(
         contrast=contrast,
         time_d=time_d,
         sources=sources,
-        uniform_sky=uniform_sky,
     )
     return ox.exposure_time(
         record,
@@ -490,7 +494,6 @@ def planet_snr(
     *,
     time_d: ArrayLike,
     sources: Sources,
-    uniform_sky: SampledProfile | None,
     time_s: ArrayLike,
     frame_time_s: ArrayLike,
     post_processing: PostProcessing,
@@ -505,7 +508,8 @@ def planet_snr(
 
     Args:
         curves: Performance curves measured for this telescope, one
-            record or a tuple with one per band of ``quadrature``.
+            record or a tuple with one per band of ``quadrature``. Each band
+            reads sky transmission from its record.
         scene: Scene holding the star, the planets and any disk or local zodi.
         instrument: Instrument supplying the collecting area, detector pixel
             scale and any warm emission.
@@ -516,9 +520,6 @@ def planet_snr(
         time_d: Time in days from the scene epoch.
         sources: Node-effective sources of ``scene`` on ``quadrature`` at
             ``time_d`` alone, from ``scene.sources``; see :func:`rates`.
-        uniform_sky: Sky transmission profile read at the separation in
-            lambda/D, or None. Required when the scene has a disk or a local
-            zodi.
         time_s: Live exposure time in seconds, a scalar or shape ``(W,)``.
         frame_time_s: Seconds per detector frame, a scalar or shape ``(W,)``.
         post_processing: Residual fractions and background variance factor of
@@ -538,7 +539,6 @@ def planet_snr(
         contrast=contrast,
         time_d=time_d,
         sources=sources,
-        uniform_sky=uniform_sky,
     )
     return ox.snr(
         record,

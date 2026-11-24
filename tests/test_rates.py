@@ -63,12 +63,13 @@ def _frame():
     return Frame(550.0, DIAMETER_M, "circumscribed")
 
 
-def _curves(frame=None, throughput=(TAU, TAU), extent=15.0, last=20.0):
+def _curves(frame=None, throughput=(TAU, TAU), extent=15.0, last=20.0, *, sky=SKY):
     """Constant curves on a two-point axis; the throughput may vary with separation."""
     flat = lambda value: np.array([value, value])  # noqa: E731
+    frame = _frame() if frame is None else frame
     return PerformanceCurves(
         np.array([0.0, last]),
-        _frame() if frame is None else frame,
+        frame,
         Circular(0.7),
         np.array(throughput),
         flat(AREA),
@@ -81,15 +82,16 @@ def _curves(frame=None, throughput=(TAU, TAU), extent=15.0, last=20.0):
         core_area_variance_lod2=flat(AREA2),
         leakage_fraction_variance=flat(1e-10),
         leakage_density_variance_lod2=flat(DENSITY2),
+        uniform_sky=None if sky is None else _sky(frame, sky),
     )
 
 
-def _sky():
+def _sky(frame, transmission=SKY):
     return SampledProfile(
         np.array([0.0, 20.0]),
-        np.array([SKY, SKY]),
+        np.full(2, transmission),
         quantity="uniform_sky_response",
-        frame=_frame(),
+        frame=frame,
         interpolation="linear",
     )
 
@@ -164,7 +166,6 @@ def _read(curves=None, scene=None, instrument=None, quadrature=None, **kwargs):
         contrast=arguments.pop("contrast"),
         time_d=0.0,
         sources=_sources(scene, quadrature),
-        uniform_sky=_sky(),
     )
 
 
@@ -349,7 +350,6 @@ def test_default_instrument_has_zero_thermal():
         _quadrature(),
         jnp.array([0.0]),
         resolution=_resolution(_scene(), _quadrature()),
-        uniform_sky=_sky(),
     )
     assert float(jnp.max(jnp.abs(scene_read.thermal))) == 0.0
 
@@ -369,7 +369,6 @@ def test_scene_rates_carries_thermal_to_every_planet():
         _quadrature(),
         jnp.array([0.0]),
         resolution=_resolution(scene, _quadrature()),
-        uniform_sky=_sky(),
     )
     east, north = scene.positions(jnp.array([0.0]))
     contrast = scene.contrasts(_quadrature().nodes_nm[0, 0], jnp.array([0.0]))
@@ -420,7 +419,6 @@ def test_thermal_planet_scale_is_its_own_in_the_scene_read(
             _quadrature(),
             jnp.array([0.0]),
             resolution=_resolution(scene, _quadrature()),
-            uniform_sky=_sky(),
         )
 
     base = read(scene)
@@ -438,7 +436,7 @@ def test_missing_sources_are_zero_and_the_sky_is_required_with_them():
     """
     bare = _scene(disk=False, zodi=False)
     rates = jaxedith.rates(
-        _curves(),
+        _curves(sky=None),
         bare,
         _instrument(),
         _quadrature(),
@@ -447,24 +445,47 @@ def test_missing_sources_are_zero_and_the_sky_is_required_with_them():
         contrast=CONTRAST,
         time_d=0.0,
         sources=_sources(bare, _quadrature()),
-        uniform_sky=None,
     )
     np.testing.assert_array_equal(rates.local_zodi, 0.0)
     np.testing.assert_array_equal(rates.exozodi, 0.0)
     assert float(rates.planet[0, 0]) > 0
-    with pytest.raises(ValueError, match="uniform_sky"):
+    scene = _scene(disk=False)
+    quadrature = _quadrature((BAND, Band(735.0, 785.0)))
+    curves = (_curves(), _curves(sky=None))
+    with pytest.raises(ValueError, match=r"band 1 \(760\.0 nm\).*no uniform_sky"):
         jaxedith.rates(
-            _curves(),
-            _scene(),
+            curves,
+            scene,
             _instrument(),
-            _quadrature(),
+            quadrature,
             EAST,
             NORTH,
             contrast=CONTRAST,
             time_d=0.0,
-            sources=_sources(_scene(), _quadrature()),
-            uniform_sky=None,
+            sources=_sources(scene, quadrature),
         )
+
+
+def test_extended_sources_use_each_bands_sky_transmission():
+    """Hand radiance products to float64 roundoff catch reusing the first profile."""
+    quadrature = _quadrature((BAND, Band(735.0, 785.0)))
+    scene, instrument = _scene(), _instrument()
+    transmissions = (0.2, 0.8)
+    curves = tuple(_curves(sky=sky) for sky in transmissions)
+    actual = _read(
+        curves=curves, scene=scene, instrument=instrument, quadrature=quadrature
+    )
+    for w, (band, sky) in enumerate(zip(quadrature.bands, transmissions, strict=True)):
+        node = quadrature.nodes_nm[w, 0]
+        lod_arcsec = lambda_d_to_arcsec(1.0, band.center_nm, DIAMETER_M)
+        solid_angle = AREA * arcsec_to_rad(lod_arcsec) ** 2
+        prefactor = AREA_M2 * OPTICS * sky * solid_angle
+        zodi = scene.local_zodi.photon_radiance(node, scene.sky_frame, 0.0)
+        disk = scene.photon_radiance_at(node, 0.0, EAST, NORTH)
+        np.testing.assert_allclose(
+            actual.local_zodi[w, 0], prefactor * zodi, rtol=1e-12
+        )
+        np.testing.assert_allclose(actual.exozodi[w, 0], prefactor * disk, rtol=1e-12)
 
 
 def test_separation_is_read_at_each_band_centre():
@@ -578,7 +599,6 @@ def test_scene_rates_flag_the_unsupported_planets_and_have_no_nan_gradient():
         _quadrature(),
         jnp.array([0.0]),
         resolution=_resolution(_scene(), _quadrature()),
-        uniform_sky=_sky(),
     )
     assert record.supported.shape == (1, 1, 1)
     assert not np.any(record.supported)
@@ -597,7 +617,7 @@ def test_transformations_are_finite_inside_the_data():
     contrast (the rate is linear in it, so the step is exact to 1e-9).
     """
     curves, scene, instrument = _curves(), _scene(), _instrument()
-    quadrature, sky = _quadrature(), _sky()
+    quadrature = _quadrature()
     sources = _sources(scene, quadrature)
 
     def planet(east, north, contrast):
@@ -611,7 +631,6 @@ def test_transformations_are_finite_inside_the_data():
             contrast=contrast,
             time_d=0.0,
             sources=sources,
-            uniform_sky=sky,
         )
         return rates.planet[0, 0] + rates.exozodi[0, 0]
 
@@ -634,7 +653,7 @@ def test_a_large_batch_of_positions_compiles_once():
     positions of the same shape.
     """
     curves, scene, instrument = _curves(), _scene(), _instrument()
-    quadrature, sky = _quadrature(), _sky()
+    quadrature = _quadrature()
     sources = _sources(scene, quadrature)
     traces = []
 
@@ -652,7 +671,6 @@ def test_a_large_batch_of_positions_compiles_once():
             contrast=CONTRAST,
             time_d=0.0,
             sources=sources,
-            uniform_sky=sky,
         ).planet
 
     key = jax.random.PRNGKey(0)
@@ -705,7 +723,7 @@ def test_scene_entry_points_equal_the_two_step_calls():
     quadrature = _quadrature((BAND, Band(600.0, 700.0)))
     curves, scene, instrument = _curves(), _scene(), _instrument()
     common = (curves, scene, instrument, quadrature, EAST, NORTH, 1e-6)
-    keywords = dict(time_d=0.0, sources=_sources(scene, quadrature), uniform_sky=_sky())
+    keywords = dict(time_d=0.0, sources=_sources(scene, quadrature))
     rates = jaxedith.rates(*common[:-1], contrast=common[-1], **keywords)
     frame = jnp.array([100.0, 60.0])
     for post_processing in (
@@ -783,7 +801,7 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
     one ulp; rtol 1e-14); one trace serves a second call with new times.
     """
     curves, scene, instrument = _curves(), _two_planet_scene(), _instrument()
-    quadrature, sky = _quadrature((BAND, Band(600.0, 700.0))), _sky()
+    quadrature = _quadrature((BAND, Band(600.0, 700.0)))
     times = jnp.array([0.0, 40.0, 90.0])
     resolution = _resolution(scene, quadrature)
     sources = scene.sources(quadrature, resolution, times)
@@ -799,7 +817,6 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
             quadrature,
             time_d,
             resolution=resolution,
-            uniform_sky=sky,
         )
 
     got = read(times)
@@ -819,7 +836,6 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
                 contrast=sources.contrast[:, :, k, t],
                 time_d=times[t],
                 sources=at_time,
-                uniform_sky=sky,
             )
             for name in ("planet", "star_leakage", "local_zodi", "exozodi"):
                 for record, expected in ((got, want), (got.variance, want.variance)):
@@ -839,7 +855,6 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
             quadrature,
             0.0,
             resolution=resolution,
-            uniform_sky=sky,
         )
 
 
@@ -867,6 +882,7 @@ def _diameter_curves(diameters=DIAMETERS_LOD, rows=DENSITY_ROWS):
         core_area_variance_lod2=flat(AREA2),
         leakage_fraction_variance=over(1e-10),
         leakage_density_variance_lod2=over(DENSITY2),
+        uniform_sky=_sky(_frame()),
     )
 
 
@@ -1013,13 +1029,12 @@ def test_zero_star_thermal_planet_flux():
     resolution = _resolution(scene, quadrature)
     sources = scene.sources(quadrature, resolution, times)
     record = jaxedith.scene_rates(
-        _curves(throughput=(1.0, 1.0)),
+        _curves(throughput=(1.0, 1.0), sky=None),
         scene,
         instrument,
         quadrature,
         times,
         resolution=resolution,
-        uniform_sky=None,
     )
     assert np.isfinite(record.planet).all()
     assert record.supported.all()
@@ -1044,6 +1059,5 @@ def test_rates_requires_one_planet_input(kwargs):
                 NORTH,
                 time_d=0.0,
                 sources=_sources(scene, quadrature),
-                uniform_sky=_sky(),
                 **kwargs,
             )
