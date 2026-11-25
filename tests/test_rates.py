@@ -886,21 +886,19 @@ def _diameter_curves(diameters=DIAMETERS_LOD, rows=DENSITY_ROWS):
     )
 
 
-def _node_lod_arcsec():
-    return float(
-        _frame().lod_to_arcsec(float(_quadrature().nodes_nm[0, 0])),
-    )
+def _band_lod_arcsec():
+    return _frame().lod_to_arcsec(BAND.center_nm)
 
 
 def _star_leakage(curves, diameter_lod):
-    """The leakage of a star of ``diameter_lod`` (lambda/D at the node)."""
-    scene = _scene(diameter_arcsec=diameter_lod * _node_lod_arcsec())
+    """The leakage of a star of ``diameter_lod`` (lambda/D at the band centre)."""
+    scene = _scene(diameter_arcsec=diameter_lod * _band_lod_arcsec())
     return _read(curves=curves, scene=scene)
 
 
 @pytest.mark.parametrize("diameter_lod", [0.0, 0.03, 0.05, 0.12])
 def test_leakage_is_read_at_the_stars_diameter_in_lambda_over_d(diameter_lod):
-    """Fails if the star's size is dropped, or its units are not lambda/D at the node.
+    """Fails if the star's size is dropped, or its units are not band-centre lambda/D.
 
     Basis: the leakage rate is linear in the density the record returns, so the
     ratio to a point star's rate equals the record's own read at that diameter
@@ -910,7 +908,7 @@ def test_leakage_is_read_at_the_stars_diameter_in_lambda_over_d(diameter_lod):
     curves = _diameter_curves()
     base = _star_leakage(curves, 0.0)
     rates = _star_leakage(curves, diameter_lod)
-    separation = np.hypot(EAST, NORTH) / _node_lod_arcsec()
+    separation = np.hypot(EAST, NORTH) / _band_lod_arcsec()
     for record, rate, point in (
         (curves, rates, base),
         (curves, rates.variance, base.variance),
@@ -938,7 +936,7 @@ def test_leakage_gradient_in_the_star_diameter():
     it is finite and nonzero.
     """
     curves = _diameter_curves()
-    lod = _node_lod_arcsec()
+    lod = _band_lod_arcsec()
 
     def leakage(diameter_lod):
         scene = _scene(diameter_arcsec=diameter_lod * lod)
@@ -968,39 +966,31 @@ def test_a_diameter_record_refuses_a_star_beyond_its_table():
         _star_leakage(_diameter_curves(), 0.5)
 
 
-def test_the_diameter_is_read_at_each_node_not_the_reference_or_band_centre():
-    """Fails if the star's size is read at the wrong wavelength, in the wrong unit
-    or with the ratio inverted.
+def test_leakage_reads_the_stellar_diameter_at_the_observing_band_centre():
+    """All nodes see the same star size in the yield-code aperture.
 
-    The record's rows are exp(3 d), so the log is linear in diameter and the
-    not-a-knot spline of the log is exact between knots. The ratio of a 6 mas
-    star's rate to a point star's is then exp(3 d) with d = theta / (lambda / D)
-    at each of three nodes of a 700 to 900 nm band, a band away from the frame's
-    550 nm reference. The truth uses hwoutils constants alone. Tolerance 1e-6:
-    the spline abscissa of the zero knot is the float32 epsilon, which leaves
-    3.6e-7 measured. A read at the reference wavelength changes the ratio by
-    up to 43 percent, at the band centre by 6.8 percent, and with the ratio
-    inverted or arcsec taken as lambda/D by far more.
+    The 495 nm observing band centre is 0.9 times the 550 nm frame reference.
+    At that scale the star is exactly 0.25 lambda/D, a knot of the linear
+    density table. The hand rate is the incident photon density times
+    effective area, aperture area and tabulated leakage density. The 1e-12
+    relative tolerance covers float64 unit conversion and products.
     """
     from hwoutils.constants import rad2arcsec
 
-    a = 3.0
-    diameters = np.linspace(0.0, 0.5, 6)
-    curves = _diameter_curves(diameters, np.exp(a * diameters))
-    quadrature = _quadrature_for(Band(700.0, 900.0), order=3)
-    theta = 0.006
-
-    def read(arcsec):
-        scene = _scene(diameter_arcsec=arcsec)
-        return _read(curves=curves, scene=scene, quadrature=quadrature)
-
-    ratio = np.asarray(read(theta).star_leakage[0]) / np.asarray(
-        read(0.0).star_leakage[0]
-    )
-    nodes = np.asarray(quadrature.nodes_nm[0])
-    lod_arcsec = nodes * 1e-9 / DIAMETER_M * rad2arcsec
-    np.testing.assert_allclose(ratio, np.exp(a * theta / lod_arcsec), rtol=1e-6)
-    assert np.ptp(ratio) > 0.1
+    diameters = np.array([0.0, 0.125, 0.25, 0.375, 0.5])
+    curves = _diameter_curves(diameters, 1 + 3 * diameters)
+    band = Band(470.0, 520.0)
+    quadrature = Quadrature.build((band,), breaks_nm=[490.0], order=2)
+    diameter_lod = 0.25
+    diameter_arcsec = diameter_lod * (495e-9 / DIAMETER_M) * rad2arcsec
+    scene = _scene(diameter_arcsec=diameter_arcsec, disk=False, zodi=False)
+    result = _read(curves=curves, scene=scene, quadrature=quadrature)
+    for rate, area, density in (
+        (result, AREA, DENSITY),
+        (result.variance, AREA2, DENSITY2),
+    ):
+        expected = FLUX * AREA_M2 * OPTICS * area * density * (1 + 3 * diameter_lod)
+        np.testing.assert_allclose(rate.star_leakage, expected, rtol=1e-12, atol=0)
 
 
 def test_zero_star_thermal_planet_flux():

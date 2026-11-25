@@ -56,8 +56,8 @@ def _curves_for_bands(curves, bands, scene):
 def _moments(record, separation, diameter, squared):
     """Return throughput, core area and leakage density, as means or squared weights.
 
-    ``diameter`` is the star's angular diameter in lambda/D at each node, which
-    the leakage density is read at.
+    The leakage density is read at ``diameter``, the star's angular diameter
+    in lambda/D at the observing band centre.
     """
     suffix = "_variance" if squared else ""
     return (
@@ -144,14 +144,12 @@ def rates(
 
     ``curves`` is one ``PerformanceCurves`` or a tuple with one per band of
     ``quadrature``, measured for this telescope. The leakage is read at the
-    star's angular diameter (``sources.star_diameter_arcsec``) in lambda/D at
-    each node, so a record tabulated over stellar diameter is read at the
-    star's size. A record of one profile that carries its diameter
-    (``stellar_diameters_lod`` set) raises for a star of a different diameter.
+    star's angular diameter (``sources.star_diameter_arcsec``) in lambda/D.
+    A record of one profile that carries its diameter (``stellar_diameters_lod``
+    set) raises for a star of a different diameter.
     A record with ``stellar_diameters_lod=None`` has no provenance to check and
-    is read for any star unchecked; the caller vouches for it. The separation
-    and the aperture solid angle are read at the band centre, the diameter at
-    each node.
+    is read for any star unchecked; the caller vouches for it. The separation,
+    the aperture solid angle and the stellar diameter are read at the band centre.
 
     The function reads no source spectrum. ``F``, ``L_zodi`` and the star the
     disk is defined against are the node-effective rows of ``sources``, from
@@ -166,7 +164,7 @@ def rates(
     extra nodes. Under a different ``field_lod`` the result is the same to
     quadrature accuracy and costs more nodes.
 
-    The star leakage is read from curves that are functions of separation
+    At a given stellar diameter the leakage curve is a function of separation
     alone, so the position angle of the planet is never used. What
     ``leakage_density`` means at a separation depends on how the record was
     made. For a rotationally symmetric (1D) product it is the aperture
@@ -179,8 +177,12 @@ def rates(
     aperture-record route (``coronagraphoto.aperture_record``), which agrees
     with a roll average of this read and gives the single-angle value.
 
-    The separation is read at the band-centre lambda/D for
-    every node of the band, so the aperture is fixed in angle within a band.
+    The curves route reads every product at the observing band centre,
+    following the yield-code recipe. For a band-averaged product this is the
+    reading specified by Stark and Krist (2019), "Standardized Coronagraph
+    Parameters for Input into Yield Calculations". For a single-wavelength
+    product it approximates the chromatic change in image scale across the
+    observing band by fixing the aperture in angle.
     A planet where ``curves.supported(separation)`` is False (beyond the first
     or last sample, or its aperture leaving ``data_extent_lod``) reads zero in
     every field with ``Rates.supported`` False, so ``optixstuff.snr`` and
@@ -259,8 +261,7 @@ def rates(
     for w, (band, record) in enumerate(zip(bands, per_band, strict=True)):
         lod_arcsec = record.frame.lod_to_arcsec(band.center_nm)
         separation = angle / lod_arcsec
-        # The star spans a different number of lambda/D at each node.
-        diameter = sources.star_diameter_arcsec / record.frame.lod_to_arcsec(nodes[w])
+        diameter = sources.star_diameter_arcsec / lod_arcsec
         outside = ~record.supported(separation)
         # Read inside the table so values and gradients stay finite; the
         # unsupported reads are zeroed below.
