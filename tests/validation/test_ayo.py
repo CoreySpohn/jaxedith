@@ -14,6 +14,8 @@ import ineedvalidation as vv
 import pytest
 from reference.scalar_case import from_workbook_cells, half_ulp, workbook_columns
 
+pytestmark = pytest.mark.float64_only(reason="AYO workbook validation reference values")
+
 RTOL_RATE = 1e-5
 RTOL_TIME = 1e-5
 SPECKLE_FRACTION = 0.029  # the workbook's CR_NF is 0.029 times the leakage rate

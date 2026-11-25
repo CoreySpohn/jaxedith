@@ -1,12 +1,7 @@
-# ruff: noqa: E402
 """Shared fixtures for jaxedith tests."""
 
 import importlib.util
 import os
-
-import jax
-
-jax.config.update("jax_enable_x64", True)
 
 from hypothesis import settings
 from jaxtyping import install_import_hook
