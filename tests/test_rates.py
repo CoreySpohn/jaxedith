@@ -52,13 +52,6 @@ SKY = 0.5
 RTOL = 1e-9
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _float64():
-    """The reference formulas hold to float64 rounding; scope x64 to this module."""
-    with jax.enable_x64():
-        yield
-
-
 def _frame():
     return Frame(550.0, DIAMETER_M, "circumscribed")
 
@@ -610,6 +603,7 @@ def test_scene_rates_flag_the_unsupported_planets_and_have_no_nan_gradient():
     assert float(jax.grad(total)(EAST)) == 0.0
 
 
+@pytest.mark.float64_only(reason="Finite-difference gradient reference")
 def test_transformations_are_finite_inside_the_data():
     """Fails if jit, vmap or grad of the read produces a non-finite value.
 
@@ -928,6 +922,7 @@ def test_leakage_is_read_at_the_stars_diameter_in_lambda_over_d(diameter_lod):
         assert float(rates.star_leakage[0, 0]) > float(base.star_leakage[0, 0])
 
 
+@pytest.mark.float64_only(reason="Finite-difference gradient reference")
 def test_leakage_gradient_in_the_star_diameter():
     """Fails if the star's size cannot be differentiated through the rates.
 

@@ -23,6 +23,8 @@ from reference.etc import exptime_from_rates_ayo
 from reference.legacy import legacy_pyedith_noise_rate
 from reference.scalar_case import ScalarCase, read_csv
 
+pytestmark = pytest.mark.float64_only(reason="pyEDITH validation reference values")
+
 RTOL_RATE = 1e-6
 RTOL_TIME = 1e-5
 CASES = read_csv("pyedith_cases.csv")

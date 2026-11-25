@@ -88,6 +88,8 @@ packages = ["src/jaxedith"]
 exclude = ["/scripts", "/docs", "/tests", "/.github"]
 
 [tool.pytest.ini_options]
+addopts = "-p hwoutils.testing.precision"
+default_precision = "float32"
 filterwarnings = [
     "error",
     # ExoJAX's HITRAN adapter redirects stdout without closing its devnull file.

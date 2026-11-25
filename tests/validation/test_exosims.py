@@ -47,6 +47,7 @@ def _values(cells):
 
 
 @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="exosims")
+@pytest.mark.float64_only(reason="EXOSIMS workbook validation reference values")
 @pytest.mark.parametrize("key", list(COLUMNS), ids=IDS)
 def test_rates_agree_with_the_printed_cells(key):
     """Fails if a planet, leakage or zodi rate departs from the EXOSIMS column.
@@ -62,6 +63,7 @@ def test_rates_agree_with_the_printed_cells(key):
 
 
 @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="exosims")
+@pytest.mark.float64_only(reason="EXOSIMS workbook validation reference values")
 @pytest.mark.parametrize("key", list(COLUMNS), ids=IDS)
 def test_printed_exozodi_rate_is_not_reproducible_from_its_surface_brightness(key):
     """Pins the EXOSIMS exozodi cell against jaxedith: a finding, not a budget item.
@@ -80,6 +82,7 @@ def test_printed_exozodi_rate_is_not_reproducible_from_its_surface_brightness(ke
 
 
 @vv.case("etc-benchmark", "cross-code-benchmark", reference_code="exosims")
+@pytest.mark.float64_only(reason="EXOSIMS workbook validation reference values")
 @pytest.mark.parametrize("key", list(COLUMNS), ids=IDS)
 def test_detection_time_from_jaxedith_rates_matches_the_workbook_formula(key):
     """Fails if the EXOSIMS detection time from jaxedith's rates departs from the cell.
