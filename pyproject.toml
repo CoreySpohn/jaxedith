@@ -89,6 +89,7 @@ exclude = ["/scripts", "/docs", "/tests", "/.github"]
 
 [tool.pytest.ini_options]
 addopts = "-p hwoutils.testing.precision"
+precision_guard_enforce = true
 default_precision = "float32"
 filterwarnings = [
     "error",
