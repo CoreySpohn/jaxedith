@@ -17,7 +17,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
 dependencies = [
-    "hwoutils[jax]>=1.15.0",
+    "hwoutils[jax]>=3.0.0",
     "jax>=0.8.1",
     "jaxlib>=0.8.1",
     "optixstuff>=7.0.0",  # unreleased: next release, see .github/sibling-pins.txt
