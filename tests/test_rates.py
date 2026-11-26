@@ -1,6 +1,7 @@
 """Analytic aperture rates: each term against the scalar formulas, and contracts."""
 
 import equinox as eqx
+import ineedvalidation as vv
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -9,7 +10,7 @@ import pytest
 from hwoutils.constants import Rsun2m, rad2arcsec
 from hwoutils.conversions import arcsec_to_rad, lambda_d_to_arcsec
 from hwoutils.epoch import Epoch
-from hwoutils.testing import ulps
+from hwoutils.testing import precision_pair, ulps
 from optixstuff import (
     ConstantThroughput,
     IdealDetector,
@@ -872,19 +873,80 @@ def test_photon_counting_frame_time_integrates_and_aligns_pixel_counts_by_band()
         )
 
 
-def test_scene_entry_points_equal_the_two_step_calls():
+@pytest.fixture
+def planet_exposure_inputs():
+    """The two-band observation shared by the one-planet exposure tests."""
+    quadrature = _quadrature((BAND, Band(600.0, 700.0)))
+    scene = _scene()
+    common = (_curves(), scene, _instrument(), quadrature, EAST, NORTH)
+    keywords = dict(time_d=0.0, sources=_sources(scene, quadrature))
+    return common, keywords, jnp.array([5.0, 7.0]), jnp.array([100.0, 60.0])
+
+
+@vv.case("etc-inversion", "code-verification", basis="spike", srq="exposure-time")
+@pytest.mark.float64_only(reason="precision_pair needs x64")
+@pytest.mark.parametrize(
+    ("quantity", "bound"),
+    [
+        ("time_s", 1.4e-6),
+        ("planet", 4.0e-9),
+        ("star_leakage", 9.0e-7),
+        ("background", 1.2e-6),
+    ],
+)
+def test_planet_exposure_precision(planet_exposure_inputs, quantity, bound):
+    """Fails if narrowing the ETC inputs loses accuracy in time or count rates.
+
+    A flat star at 10 pc, a 6 m primary and a planet at 0.05 arcsec with
+    contrast 1e-6 or 3e-10. The 500-600 and 600-700 nm bands use S/N 5 and 7
+    and frames of 100 and 60 s, with zero residuals and unit background factor.
+    Maximum errors relative to each band's float64 value were 4.51e-7 for
+    time, 1.30e-9 for planet, 2.97e-7 for leakage and 3.93e-7 for total
+    background. Bounds are three times the unrounded maxima, rounded up to
+    two significant figures: 1.4e-6, 4.0e-9, 9.0e-7 and 1.2e-6, respectively.
+    """
+    common, keywords, target_snr, frame = planet_exposure_inputs
+    exposure = dict(
+        target_snr=target_snr,
+        frame_time_s=frame,
+        post_processing=ox.PostProcessing(background_variance_factor=1.0),
+    )
+
+    def read(common, keywords, exposure, contrast):
+        if quantity == "time_s":
+            value = jaxedith.planet_exposure_time(
+                *common, contrast, **keywords, **exposure
+            ).time_s
+        else:
+            rates = jaxedith.rates(*common, contrast=contrast, **keywords).integrate()
+            if quantity == "background":
+                value = (
+                    rates.star_leakage
+                    + rates.local_zodi
+                    + rates.exozodi
+                    + rates.thermal
+                    + rates.stellar_companions
+                )
+            else:
+                value = getattr(rates, quantity)
+        assert value.dtype == contrast.dtype
+        return value
+
+    for contrast in (1e-6, CONTRAST):
+        args64 = (common, keywords, exposure, jnp.asarray(contrast))
+        precision_pair(read, args64, bound=bound, scale=0.0)
+
+
+def test_scene_entry_points_equal_the_two_step_calls(planet_exposure_inputs):
     """Fails if a scene entry point does any work of its own.
 
     Basis: exact equality with ``rates`` followed by the optixstuff function,
     for a unit background factor with no residual, for the AYO setting and for
     per-band times.
     """
-    quadrature = _quadrature((BAND, Band(600.0, 700.0)))
-    curves, scene, instrument = _curves(), _scene(), _instrument()
-    common = (curves, scene, instrument, quadrature, EAST, NORTH, 1e-6)
-    keywords = dict(time_d=0.0, sources=_sources(scene, quadrature))
-    rates = jaxedith.rates(*common[:-1], contrast=common[-1], **keywords)
-    frame = jnp.array([100.0, 60.0])
+    common, keywords, target_snr, frame = planet_exposure_inputs
+    instrument = common[2]
+    rates = jaxedith.rates(*common, contrast=1e-6, **keywords)
     for post_processing in (
         ox.PostProcessing(background_variance_factor=1.0),
         ox.PostProcessing(0.1, 0.05, background_variance_factor=2.0),
@@ -892,14 +954,15 @@ def test_scene_entry_points_equal_the_two_step_calls():
         wanted = ox.exposure_time(
             rates,
             instrument.detector,
-            jnp.array([5.0, 7.0]),
+            target_snr,
             frame_time_s=frame,
             post_processing=post_processing,
         )
         got = jaxedith.planet_exposure_time(
             *common,
+            contrast=1e-6,
             **keywords,
-            target_snr=jnp.array([5.0, 7.0]),
+            target_snr=target_snr,
             frame_time_s=frame,
             post_processing=post_processing,
         )
@@ -909,6 +972,7 @@ def test_scene_entry_points_equal_the_two_step_calls():
         np.testing.assert_array_equal(
             jaxedith.planet_snr(
                 *common,
+                contrast=1e-6,
                 **keywords,
                 time_s=3600.0,
                 frame_time_s=frame,
