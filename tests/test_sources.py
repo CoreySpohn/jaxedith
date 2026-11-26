@@ -19,6 +19,8 @@ import numpy as np
 import pytest
 from hwoutils.conversions import arcsec_to_rad, lambda_d_to_arcsec
 from hwoutils.epoch import Epoch
+from hwoutils.numerics import sum_roundoff
+from hwoutils.testing import ulps
 from numpy.polynomial.legendre import leggauss
 from optixstuff import IdealDetector, Instrument, Quadrature, SimplePrimary
 from optixstuff.optical_elements import AbstractUniformElement
@@ -292,10 +294,12 @@ def test_scene_rates_equal_the_per_time_rates_and_run_under_jit_and_grad():
 
     Three times, a star that varies in time through its scale at the node rows:
     each time of the vmapped read equals ``rates`` fed ``sources`` of that time
-    alone (rtol 1e-14, one ulp measured 1.6e-16), under ``jit`` with the scene
-    closed over; the derivative of the summed planet rate with respect to the
-    star's ``flux_scale`` equals the rate itself (planet is linear in the
-    scale; rtol 1e-9).
+    alone. Allow 16 rounding operations for the temporal interpolation,
+    cubic throughput and aperture products, plus the pairwise-sum depths
+    of the star and contrast table reductions on each path. The derivative
+    with respect to the star's scale equals the rate because the planet
+    signal is linear in that scale. That comparison allows eight products
+    and the pairwise sum of eight band/node rates on both paths.
     """
     scene, instrument = _scene(disk=True), _instrument()
     quadrature, resolution = _build(scene, instrument)
@@ -312,6 +316,10 @@ def test_scene_rates_equal_the_per_time_rates_and_run_under_jit_and_grad():
     )(times)
     sources = scene.sources(quadrature, resolution, times)
     east, north = scene.positions(times)
+    rtol = float(
+        ulps(16, 1.0)
+        + 2 * (sum_roundoff(1.0, KNOTS_NM.size) + sum_roundoff(1.0, PLANET_NM.size))
+    )
     for t in range(3):
         want = jaxedith.rates(
             _curves(),
@@ -326,7 +334,7 @@ def test_scene_rates_equal_the_per_time_rates_and_run_under_jit_and_grad():
         )
         for name in ("planet", "star_leakage", "exozodi"):
             np.testing.assert_allclose(
-                getattr(got, name)[:, :, 0, t], getattr(want, name), rtol=1e-14
+                getattr(got, name)[:, :, 0, t], getattr(want, name), rtol=rtol
             )
 
     def total(scale):
@@ -340,9 +348,11 @@ def test_scene_rates_equal_the_per_time_rates_and_run_under_jit_and_grad():
             resolution=resolution,
         ).planet.sum()
 
-    np.testing.assert_allclose(
-        jax.grad(total)(jnp.asarray(1.0)), total(jnp.asarray(1.0)), rtol=1e-9
+    scale = jnp.asarray(1.0)
+    gradient_rtol = float(
+        ulps(8, scale) + 2 * sum_roundoff(scale, quadrature.nodes_nm.size)
     )
+    np.testing.assert_allclose(jax.grad(total)(scale), total(scale), rtol=gradient_rtol)
 
 
 @vv.case("aperture-photon-budget", "code-verification", basis="exact-algebra")

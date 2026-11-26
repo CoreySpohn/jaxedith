@@ -15,8 +15,12 @@ the image path; it returns when the scene holds a companion source.
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optixstuff as ox
 from hwoutils.conversions import arcsec_to_rad
+from hwoutils.leaves import is_traced
+from hwoutils.numerics import COARSEST, roundoff
+from hwoutils.precision import like
 from jax import Array
 from jax.typing import ArrayLike
 from optixstuff import (
@@ -64,6 +68,30 @@ def _moments(record, separation, diameter, squared):
         record.evaluate(f"throughput{suffix}", separation),
         record.evaluate(f"core_area{suffix}_lod2", separation),
         record.evaluate(f"leakage_density{suffix}_lod2", separation, diameter),
+    )
+
+
+def _radial_support(angle, axes, extent, lod_arcsec):
+    """Intersect the measured domains, then test on the float32 arcsec grid."""
+    # Keep concrete table geometry on the host through the nonempty check.
+    traced = any(is_traced(axis) for axis in axes)
+    xp, dtype = (jnp, COARSEST) if traced else (np, np.float64)
+    curve, *sky = (xp.asarray(axis, dtype=dtype) for axis in axes)
+    low, high = curve[0], xp.minimum(curve[-1], xp.asarray(extent, dtype=dtype))
+    for axis in sky:
+        low, high = xp.maximum(low, axis[0]), xp.minimum(high, axis[-1])
+    nonempty = (extent >= 0) & (low <= high)
+
+    scale = xp.asarray(lod_arcsec, dtype=dtype)
+    low = jnp.asarray(low * scale, dtype=COARSEST)
+    high = jnp.asarray(high * scale, dtype=COARSEST)
+    # Near either bound the residual is exact on the decision grid. Allow
+    # roundoff from hypot and the endpoint's angular conversion.
+    return (
+        nonempty
+        & jnp.isfinite(angle)
+        & (low - angle <= roundoff(jnp.abs(low), n_ops=2))
+        & (angle - high <= roundoff(jnp.abs(high), n_ops=2))
     )
 
 
@@ -183,16 +211,17 @@ def rates(
     Parameters for Input into Yield Calculations". For a single-wavelength
     product it approximates the chromatic change in image scale across the
     observing band by fixing the aperture in angle.
-    A planet where ``curves.supported(separation)`` is False (beyond the first
-    or last sample, or its aperture leaving ``data_extent_lod``) reads zero in
-    every field with ``Rates.supported`` False, so ``optixstuff.snr`` and
-    ``exposure_time`` return NaN there. The curves' support is a disk of radius
-    ``data_extent_lod`` and does not know the detector.
+    The support interval is the intersection of the curve sample span and
+    the separations where the aperture fits inside ``data_extent_lod``. A
+    scene with a disk or local zodi also intersects the span of the sky
+    profile, which it requires on each band's record. A nonempty interval
+    includes its endpoints, with a two-operation roundoff allowance for
+    the radial norm and angular conversion on the float32 arcsec grid in both
+    lanes. Outside support every rate is zero and ``Rates.supported`` is
+    False, so ``optixstuff.snr`` and ``exposure_time`` return NaN there.
     Sky transmission is read from each band's ``PerformanceCurves.uniform_sky``
-    at its band-centre separation in lambda/D. A scene with a disk or a local
-    zodi requires a profile on every band's record. The instrument's
-    coronagraph slot and speckle field are not read, and neither is any channel
-    multiplier.
+    at its band-centre separation in lambda/D. The read omits the instrument's
+    coronagraph slot, speckle field and channel multiplier.
 
     ``time_d`` is days from the scene epoch. The function is a pure scalar
     read; batch it with ``jax.vmap`` over position and planet flux or contrast,
@@ -219,8 +248,7 @@ def rates(
     Returns:
         Aperture rates in photons/s/nm with fields of shape ``(W, Q)``,
         ``n_pix`` of shape ``(W,)``, the squared-weight rates in ``variance``
-        and ``supported`` False for a planet the curves do not support (past their
-        samples or extent).
+        and the per-band ``supported`` flag.
     """
     if (contrast is None) == (planet is None):
         raise ValueError("give exactly one of contrast and planet")
@@ -256,20 +284,35 @@ def rates(
     planet = None if planet is None else per_node(jnp.asarray(planet))
     pixel_arcsec2 = instrument.detector.pixel_scale_arcsec**2
     angle = jnp.hypot(east, north)
+    # Use the same coordinate resolution for support in both lanes.
+    support_angle = jnp.hypot(east.astype(COARSEST), north.astype(COARSEST))
+    extended = scene.disk is not None or scene.local_zodi is not None
 
     mean, variance, n_pix, n_pix_variance, supported = [], [], [], [], []
     for w, (band, record) in enumerate(zip(bands, per_band, strict=True)):
         lod_arcsec = record.frame.lod_to_arcsec(band.center_nm)
         separation = angle / lod_arcsec
         diameter = sources.star_diameter_arcsec / lod_arcsec
-        outside = ~record.supported(separation)
+        first, last = record.separation_lod[0], record.separation_lod[-1]
+        radius = getattr(record.rule, "radius_lod", 0.0)
+        # Subtract the static lengths on the host before narrowing the limit.
+        extent = record.data_extent_lod - float(radius)
+        sky = 1.0
+        axes = (record.separation_lod,)
+        profile = record.uniform_sky if extended else None
+        if profile is not None:
+            low, high = profile.separation_lod[0], profile.separation_lod[-1]
+            axes += (profile.separation_lod,)
+            sky = profile.evaluate(
+                jnp.clip(separation, like(low, separation), like(high, separation))
+            )
+        inside = _radial_support(support_angle, axes, extent, lod_arcsec)
+        outside = ~inside
         # Read inside the table so values and gradients stay finite; the
         # unsupported reads are zeroed below.
         separation = jnp.clip(
-            separation, record.separation_lod[0], record.separation_lod[-1]
+            separation, like(first, separation), like(last, separation)
         )
-        profile = record.uniform_sky
-        sky = 1.0 if profile is None else profile.evaluate(separation)
         for squared, fields_out, pixels_out in (
             (False, mean, n_pix),
             (True, variance, n_pix_variance),
@@ -293,7 +336,7 @@ def rates(
             )
             pixels = area * lod_arcsec**2 / pixel_arcsec2
             pixels_out.append(jnp.where(outside, 0.0, pixels))
-        supported.append(~outside)
+        supported.append(inside)
 
     def stack(fields):
         return {name: jnp.stack([band[name] for band in fields]) for name in fields[0]}
@@ -557,15 +600,17 @@ def photon_counting_frame_time(rates: Rates, detector: AbstractDetector) -> Arra
     electrons per aperture pixel per frame, ``1 / (6.73 r)`` with ``r`` the
     electron rate of all sources, planet included, per aperture pixel (the
     cadence pyEDITH takes for clock-induced charge). ``rates`` is one aperture
-    in photons/s/nm or electrons/s with ``n_pix`` set. The batch axes are those
+    in photons/s/nm, electrons/s/nm or electrons/s with ``n_pix`` set.
+    Spectral inputs are integrated over their bands. The batch axes are those
     of ``rates``: ``()`` for one aperture, ``(K, T)`` for a record from
     :func:`scene_rates`. ``optixstuff.snr`` and ``optixstuff.exposure_time``
     take a frame time that is a scalar or ``(W,)``, so a cadence per planet is a
     ``jax.vmap`` of the calculator over the batch axes.
 
     Args:
-        rates: Aperture rates of one or more apertures, in photons/s/nm or
-            electrons/s, with ``n_pix`` set.
+        rates: Aperture rates of one or more apertures, in photons/s/nm,
+            electrons/s/nm or electrons/s, with ``n_pix`` set. A pixel count
+            can be scalar, per band, or supplied for each aperture.
         detector: Detector whose yield converts photon rates to electrons.
 
     Returns:
@@ -573,6 +618,12 @@ def photon_counting_frame_time(rates: Rates, detector: AbstractDetector) -> Arra
     """
     if rates.n_pix is None:
         raise ValueError("rates must carry n_pix, the aperture's pixel count")
-    electrons = detector.electrons(rates) if rates.carrier == "photon" else rates
-    per_pixel = electrons.total() / electrons.n_pix
+    if rates.carrier == "photon":
+        electrons = detector.electrons(rates)
+    else:
+        electrons = rates.integrate() if rates.spectral else rates
+    total = electrons.total()
+    pixels = electrons.n_pix
+    pixels = pixels.reshape(pixels.shape + (1,) * (total.ndim - pixels.ndim))
+    per_pixel = total / pixels
     return 1.0 / (_OCCUPANCY_DIVISOR * per_pixel)

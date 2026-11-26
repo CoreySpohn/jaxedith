@@ -6,9 +6,10 @@ import jax.numpy as jnp
 import numpy as np
 import optixstuff as ox
 import pytest
-from hwoutils.constants import Rsun2m
+from hwoutils.constants import Rsun2m, rad2arcsec
 from hwoutils.conversions import arcsec_to_rad, lambda_d_to_arcsec
 from hwoutils.epoch import Epoch
+from hwoutils.testing import ulps
 from optixstuff import (
     ConstantThroughput,
     IdealDetector,
@@ -49,7 +50,6 @@ TAU, TAU2 = 0.3, 0.22
 AREA, AREA2 = 1.5, 1.1
 DENSITY, DENSITY2 = 2e-11, 1.4e-11
 SKY = 0.5
-RTOL = 1e-9
 
 
 def _frame():
@@ -263,10 +263,9 @@ def test_a_disk_hook_implementer_sees_the_scale_applied_once():
 def test_every_term_matches_the_scalar_formulas():
     """Fails if a rate departs from its AYO or pyEDITH scalar product.
 
-    Basis: products of float64 scalars on one node of a flat-spectrum scene
-    with constant curves; rtol 1e-9, the bound the deleted suite used for the
-    same algebra. The exozodi reference is built from the scene's own disk
-    radiance, so it checks the aperture factors and not the disk model.
+    Basis: 16 rounding operations cover the constant fits, angular conversion,
+    products and one-node integration on both paths. The exozodi reference
+    uses the scene's disk radiance and independently checks the aperture factors.
     """
     rates = _read()
     assert rates.carrier == "photon" and rates.spectral
@@ -275,6 +274,7 @@ def test_every_term_matches_the_scalar_formulas():
     # integrated over the band, which the reference's bandwidth factor includes.
     electrons = ox.IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)).electrons(rates)
     expected = _scalar_expectations()
+    rtol = float(ulps(16, 1.0))
     for statistic, record, electron in (
         ("mean", rates, electrons),
         ("variance", rates.variance, electrons.variance),
@@ -283,12 +283,12 @@ def test_every_term_matches_the_scalar_formulas():
             np.testing.assert_allclose(
                 electron_value := getattr(electron, name)[0],
                 expected[statistic][name],
-                rtol=RTOL,
+                rtol=rtol,
                 err_msg=f"{statistic} {name}",
             )
             assert np.isfinite(electron_value) and electron_value > 0
         np.testing.assert_allclose(
-            record.n_pix[0], expected[statistic]["n_pix"], rtol=RTOL
+            record.n_pix[0], expected[statistic]["n_pix"], rtol=rtol
         )
     assert float(jnp.max(jnp.abs(rates.stellar_companions))) == 0.0
 
@@ -299,10 +299,12 @@ def test_thermal_matches_the_pyedith_scalar_formula(temperature_K):
 
     Basis: ``reference.primitives.thermal_rate`` (the pyEDITH product of Planck
     photon radiance, emissivity times cold transmission, collecting area
-    without throughput, bandwidth and aperture solid angle) in float64 on the
-    node of a one-node band, for the mean and the squared-weight records;
-    rtol 1e-12 for the exp and a six-factor product. The system throughput
-    and flux scale must not enter, so both are non-unity here.
+    without throughput, bandwidth and aperture solid angle) on the node of a
+    one-node band, for the mean and squared-weight records. Both paths share
+    the Planck factors. Allow 12 rounding operations for the angular conversion,
+    area, emissivity and band products across the two paths, and the same
+    allowance for rate rescaling. The system throughput and flux scale must
+    not enter, so both are non-unity here.
     """
     eps = 0.638
     instrument = _instrument(
@@ -314,16 +316,17 @@ def test_thermal_matches_the_pyedith_scalar_formula(temperature_K):
     width = float(_quadrature().weights()[0, 0])
     lod_arcsec = float(lambda_d_to_arcsec(1.0, BAND.center_nm, DIAMETER_M))
     lod_rad = float(arcsec_to_rad(lod_arcsec))
+    rtol = float(ulps(12, 1.0))
     for record, area in ((electrons, AREA), (electrons.variance, AREA2)):
         expected = thermal_rate(
             node, AREA_M2, width, temperature_K, lod_rad, eps, 1, 1, area
         )
         assert expected > 0
-        np.testing.assert_allclose(record.thermal[0], expected, rtol=1e-12)
+        np.testing.assert_allclose(record.thermal[0], expected, rtol=rtol)
     others = _read()
     for name in ("planet", "star_leakage", "local_zodi", "exozodi"):
         np.testing.assert_allclose(
-            getattr(rates, name), 1.3 * getattr(others, name), rtol=1e-12
+            getattr(rates, name), 1.3 * getattr(others, name), rtol=rtol
         )
 
 
@@ -460,7 +463,11 @@ def test_missing_sources_are_zero_and_the_sky_is_required_with_them():
 
 
 def test_extended_sources_use_each_bands_sky_transmission():
-    """Hand radiance products to float64 roundoff catch reusing the first profile."""
+    """Hand radiance products catch reusing the first profile.
+
+    Basis: 12 rounding operations for the angular conversion, area and
+    radiance products on both paths, including the input casts.
+    """
     quadrature = _quadrature((BAND, Band(735.0, 785.0)))
     scene, instrument = _scene(), _instrument()
     transmissions = (0.2, 0.8)
@@ -468,6 +475,7 @@ def test_extended_sources_use_each_bands_sky_transmission():
     actual = _read(
         curves=curves, scene=scene, instrument=instrument, quadrature=quadrature
     )
+    rtol = float(ulps(12, 1.0))
     for w, (band, sky) in enumerate(zip(quadrature.bands, transmissions, strict=True)):
         node = quadrature.nodes_nm[w, 0]
         lod_arcsec = lambda_d_to_arcsec(1.0, band.center_nm, DIAMETER_M)
@@ -475,17 +483,81 @@ def test_extended_sources_use_each_bands_sky_transmission():
         prefactor = AREA_M2 * OPTICS * sky * solid_angle
         zodi = scene.local_zodi.photon_radiance(node, scene.sky_frame, 0.0)
         disk = scene.photon_radiance_at(node, 0.0, EAST, NORTH)
-        np.testing.assert_allclose(
-            actual.local_zodi[w, 0], prefactor * zodi, rtol=1e-12
+        np.testing.assert_allclose(actual.local_zodi[w, 0], prefactor * zodi, rtol=rtol)
+        np.testing.assert_allclose(actual.exozodi[w, 0], prefactor * disk, rtol=rtol)
+
+
+@pytest.mark.parametrize("disk,zodi", [(True, False), (False, True), (False, False)])
+@pytest.mark.parametrize("sky_start", [2.0, 4.0000004], ids=["overlap", "disjoint"])
+def test_sky_profile_support_is_required_only_for_extended_sources(
+    disk, zodi, sky_start
+):
+    """Fails if sky coverage gates bare scenes or slack bridges a gap in coverage.
+
+    Basis: [2, 4] lies inside the aperture domain, while [4.0000004, 6]
+    starts just beyond a curve ending at 4 lambda/D. A disjoint profile
+    cannot support an extended-source read even within roundoff of both
+    endpoints. Unsupported rates are exact zeros.
+    """
+    sky_end = 4.0 if sky_start == 2.0 else 6.0
+    profile = SampledProfile(
+        [sky_start, sky_end],
+        [0.8, 0.4],
+        quantity="uniform_sky_response",
+        frame=_frame(),
+        interpolation="linear",
+    )
+    last = 20.0 if sky_start == 2.0 else 4.0
+    curves = eqx.tree_at(lambda c: c.uniform_sky, _curves(last=last), profile)
+    scene, instrument, quadrature = (
+        _scene(disk=disk, zodi=zodi),
+        _instrument(),
+        _quadrature(),
+    )
+    sources = _sources(scene, quadrature)
+    lod = _frame().lod_to_arcsec(BAND.center_nm)
+
+    def read(east):
+        return jaxedith.rates(
+            curves,
+            scene,
+            instrument,
+            quadrature,
+            east,
+            0.0,
+            contrast=CONTRAST,
+            time_d=0.0,
+            sources=sources,
         )
-        np.testing.assert_allclose(actual.exozodi[w, 0], prefactor * disk, rtol=1e-12)
+
+    for evaluate in (read, eqx.filter_jit(read)):
+        for separation in (1.0, 2.0, 4.0, 7.0):
+            result = evaluate(jnp.asarray(separation * lod))
+            supported = separation <= last and (
+                (not disk and not zodi) or sky_start <= separation <= sky_end
+            )
+            np.testing.assert_array_equal(result.supported, [supported])
+            np.testing.assert_array_equal(result.variance.supported, [supported])
+            if supported:
+                assert np.all(result.planet > 0)
+                if disk:
+                    assert np.all(result.exozodi > 0)
+                if zodi:
+                    assert np.all(result.local_zodi > 0)
+            else:
+                for record in (result, result.variance):
+                    for name in record.component_names():
+                        np.testing.assert_array_equal(getattr(record, name), 0.0)
+                    np.testing.assert_array_equal(record.n_pix, 0.0)
 
 
 def test_separation_is_read_at_each_band_centre():
     """Fails if a band reads another band's lambda/D, or per-band curves mix.
 
     Basis: throughput equal to the separation in lambda/D; the planet rate over
-    its prefactor must be the angle over the band-centre lambda/D (rtol 1e-12).
+    its prefactor must be the angle over the band-centre lambda/D. Allow
+    12 rounding operations for hypot, unit conversion, the linear curve
+    read, the planet-rate product and division by the prefactor.
     """
     bands = (Band(500.0, 560.0), Band(640.0, 760.0))
     quadrature = _quadrature(bands)
@@ -496,7 +568,7 @@ def test_separation_is_read_at_each_band_centre():
     centres = np.array([band.center_nm for band in bands])
     lod = lambda_d_to_arcsec(1.0, centres, DIAMETER_M)
     np.testing.assert_allclose(
-        rates.planet[:, 0] / prefactor, separation / lod, rtol=1e-12
+        rates.planet[:, 0] / prefactor, separation / lod, rtol=float(ulps(12, 1.0))
     )
     # One record per band equals the same record repeated.
     each = _read(curves=(curves, curves), quadrature=quadrature)
@@ -534,47 +606,118 @@ def test_beyond_the_data_is_zero_and_unsupported_and_a_diameter_mismatch_raises(
     separation = np.hypot(EAST, NORTH) / lod
     edge = _curves(extent=separation + 0.7)
     assert np.all(_read(curves=edge).supported)
-    assert not np.any(_read(curves=_curves(extent=separation + 0.7 - 1e-6)).supported)
+    # The extent and radius round to the same float32 value before subtraction.
+    scene, instrument, quadrature = (
+        _scene(disk=False, zodi=False),
+        _instrument(),
+        _quadrature(),
+    )
+    sources = _sources(scene, quadrature)
+
+    def on_axis(curves, east):
+        return jaxedith.rates(
+            curves,
+            scene,
+            instrument,
+            quadrature,
+            east,
+            0.0,
+            contrast=CONTRAST,
+            time_d=0.0,
+            sources=sources,
+        )
+
+    for extent, supported in ((0.7, True), (0.7 - 1e-8, False)):
+        curves = _curves(extent=extent)
+        for read in (on_axis, eqx.filter_jit(on_axis)):
+            np.testing.assert_array_equal(
+                read(curves, jnp.asarray(0.0)).supported, [supported]
+            )
     with pytest.raises(ValueError, match="differs from the curves"):
         _read(instrument=_instrument(diameter=DIAMETER_M * 1.05))
 
 
-@pytest.mark.parametrize("offset", [-0.01, 0.0, 0.01])
-def test_a_read_past_the_last_sample_is_unsupported_inside_the_extent(offset):
-    """Fails if samples that end inside the array extent are read as data beyond them.
+@pytest.mark.parametrize("boundary", [3.0, 10.0])
+@pytest.mark.parametrize("limit", ["last_sample", "aperture_extent"])
+def test_curve_and_aperture_support_at_float32_neighbors(boundary, limit):
+    """Fails if the support flags diverge near either radial upper bound.
 
-    Basis: the last sample sits ``offset`` lambda/D from the planet while the
-    extent (15) leaves the aperture room; past the sample every field is an exact
-    zero, ``supported`` False and the exposure time NaN, and at or inside it the
-    values equal those of curves that run on (rtol 1e-12: constant curves refit on a
-    shorter axis differ by float64 rounding only).
+    Basis: symmetric float32 neighbors at 1, 2 and 4 representable steps
+    and the relative offsets 2**-22, 2**-21 and 2**-20 bracket contact.
+    The two-operation radial allowance covers hypot and angular conversion. Outside
+    support, rates are exact zero and exposure time is NaN. Eight rounding
+    operations cover the constant profile reads and final rate products.
     """
-    lod = float(lambda_d_to_arcsec(1.0, BAND.center_nm, DIAMETER_M))
-    separation = np.hypot(EAST, NORTH) / lod
-    short = _curves(last=separation + offset)
-    got = _read(curves=short)
-    detector = _instrument().detector
-    time = ox.exposure_time(
-        got,
-        detector,
-        5.0,
-        frame_time_s=1.0,
-        post_processing=ox.PostProcessing(background_variance_factor=1.0),
-    ).time_s
-    if offset < 0:
-        assert not np.any(got.supported) and not np.any(got.variance.supported)
-        for name in ("planet", "star_leakage", "local_zodi", "exozodi", "thermal"):
-            np.testing.assert_array_equal(getattr(got, name), 0.0)
-        np.testing.assert_array_equal(got.n_pix, 0.0)
-        assert np.isnan(time).all()
-    else:
-        whole = _read(curves=_curves())
-        assert np.all(got.supported)
-        for name in ("planet", "star_leakage", "local_zodi", "exozodi", "thermal"):
-            np.testing.assert_allclose(
-                getattr(got, name), getattr(whole, name), rtol=1e-12
+    curves = (
+        _curves(last=boundary)
+        if limit == "last_sample"
+        else _curves(extent=boundary + 0.7)
+    )
+    scene, instrument, quadrature = _scene(), _instrument(), _quadrature()
+    sources = _sources(scene, quadrature)
+    lod = _frame().lod_to_arcsec(BAND.center_nm)
+    step = float(np.spacing(np.float32(boundary)))
+    accepted = [0, step, 2 * step, boundary * 2**-22]
+    rejected = [4 * step, boundary * 2**-21, boundary * 2**-20]
+    samples = sorted(
+        {
+            (
+                float(np.float32(boundary + sign * offset)),
+                sign < 0 or offset in accepted,
             )
-        assert np.isfinite(time).all()
+            for offset in (*accepted, *rejected)
+            for sign in (-1, 1)
+        }
+    )
+    east = jnp.asarray([separation * lod for separation, _ in samples])
+    supported = np.array([expected for _, expected in samples])
+
+    def read(east, record=curves):
+        return jaxedith.rates(
+            record,
+            scene,
+            instrument,
+            quadrature,
+            east,
+            0.0,
+            contrast=CONTRAST,
+            time_d=0.0,
+            sources=sources,
+        )
+
+    whole_curves = _curves()
+    comparisons = [
+        read(position, whole_curves) if expected else None
+        for position, expected in zip(east, supported, strict=True)
+    ]
+    # Reuse one compilation across all the positions near this boundary.
+    for evaluate in (read, eqx.filter_jit(read)):
+        for position, expected, whole in zip(east, supported, comparisons, strict=True):
+            got = evaluate(position)
+            time = ox.exposure_time(
+                got,
+                instrument.detector,
+                5.0,
+                frame_time_s=1.0,
+                post_processing=ox.PostProcessing(background_variance_factor=1.0),
+            ).time_s
+            np.testing.assert_array_equal(got.supported, [expected])
+            np.testing.assert_array_equal(got.variance.supported, [expected])
+            if whole is not None:
+                for name in got.component_names():
+                    np.testing.assert_allclose(
+                        getattr(got, name),
+                        getattr(whole, name),
+                        rtol=float(ulps(8, 1.0)),
+                        atol=0,
+                    )
+                assert np.isfinite(time).all()
+            else:
+                for record in (got, got.variance):
+                    for name in record.component_names():
+                        np.testing.assert_array_equal(getattr(record, name), 0.0)
+                    np.testing.assert_array_equal(record.n_pix, 0.0)
+                assert np.isnan(time).all()
 
 
 def test_scene_rates_flag_the_unsupported_planets_and_have_no_nan_gradient():
@@ -678,9 +821,9 @@ def test_a_large_batch_of_positions_compiles_once():
 def test_photon_counting_frame_time_follows_the_occupancy_rule():
     """Fails if the frame time is not 1 / (6.73 r) per band.
 
-    Basis: exact algebra, rtol 1e-12, from electron rates with a known total and
-    pixel count; a photon-rate record reaches the same value through the
-    detector's yield.
+    Basis: eight rounding operations cover the additions and three operations
+    in the occupancy formula. A photon-rate record reaches the same value
+    through the detector's yield.
     """
     detector = IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8))
     electrons = ox.Rates(
@@ -693,17 +836,39 @@ def test_photon_counting_frame_time_follows_the_occupancy_rule():
         n_pix=jnp.array([20.0, 40.0]),
     )
     expected = 1.0 / (6.73 * jnp.array([0.61 / 20.0, 0.42 / 40.0]))
+    rtol = float(ulps(8, 1.0))
     np.testing.assert_allclose(
-        jaxedith.photon_counting_frame_time(electrons, detector), expected, rtol=1e-12
+        jaxedith.photon_counting_frame_time(electrons, detector), expected, rtol=rtol
     )
     rates = _read()
     frame = jaxedith.photon_counting_frame_time(rates, detector)
     total = detector.electrons(rates).total()
-    np.testing.assert_allclose(frame, rates.n_pix / (6.73 * total), rtol=1e-12)
+    np.testing.assert_allclose(frame, rates.n_pix / (6.73 * total), rtol=rtol)
     with pytest.raises(ValueError, match="n_pix"):
         jaxedith.photon_counting_frame_time(
             eqx.tree_at(lambda r: r.n_pix, rates, None, is_leaf=lambda x: x is None),
             detector,
+        )
+
+
+def test_photon_counting_frame_time_integrates_and_aligns_pixel_counts_by_band():
+    """The two bandwidths and pixel counts act along the leading band axis.
+
+    Basis: eight rounding operations cover the one-node integration and the
+    occupancy formula on host float64 products, including the input casts.
+    """
+    quadrature = _quadrature((BAND, Band(600.0, 650.0)))
+    detector = IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8))
+    per_nm = np.array([[1.0, 2.0, 4.0], [2.0, 3.0, 5.0]])
+    pixel_counts = np.array([20.0, 40.0])
+    rates = ox.Rates(
+        quadrature, "electron", planet=per_nm[:, None, :], n_pix=pixel_counts
+    )
+    expected = pixel_counts[:, None] / (6.73 * np.array([[100.0], [50.0]]) * per_nm)
+    for record in (rates, rates.integrate()):
+        got = jaxedith.photon_counting_frame_time(record, detector)
+        np.testing.assert_allclose(
+            got, expected, rtol=float(ulps(8, jnp.ones((), got.dtype)))
         )
 
 
@@ -791,8 +956,11 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
 
     Basis: two planets, three times, two bands. Each field, pixel count and
     squared-weight field is compared with the Python loop over ``rates`` at the
-    scene's own positions and contrasts to float rounding (measured 1.6e-16,
-    one ulp; rtol 1e-14); one trace serves a second call with new times.
+    scene's own positions and contrasts. Allow 16 rounding operations for
+    the scalar products and fits. The zodi terms add the projected-orbit
+    and inverse-square arithmetic (24 operations) and three magnitude
+    operations at the sensitivity of the AB exponential, 0.4 ln(10) per
+    magnitude. One trace serves a second call with new times.
     """
     curves, scene, instrument = _curves(), _two_planet_scene(), _instrument()
     quadrature = _quadrature((BAND, Band(600.0, 700.0)))
@@ -817,6 +985,10 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
     assert got.planet.shape == (2, 1, 2, 3) and got.n_pix.shape == (2, 2, 3)
     assert got.variance.planet.shape == (2, 1, 2, 3)
     east, north = scene.positions(times)
+    rtol = float(ulps(16, 1.0))
+    mag_scale = scene.local_zodi.surface_brightness_mag_arcsec2
+    zodi_ops = 24 + int(np.ceil(3 * 0.4 * np.log(10.0) * mag_scale))
+    zodi_rtol = float(ulps(zodi_ops, 1.0))
     for k in range(2):
         for t in range(3):
             at_time = scene.sources(quadrature, resolution, times[t])
@@ -836,9 +1008,10 @@ def test_scene_rates_equals_the_loop_over_rates_and_compiles_once():
                     np.testing.assert_allclose(
                         getattr(record, name)[:, :, k, t],
                         getattr(expected, name),
-                        rtol=1e-14,
+                        rtol=zodi_rtol if name in ("local_zodi", "exozodi") else rtol,
+                        err_msg=name,
                     )
-            np.testing.assert_allclose(got.n_pix[:, k, t], want.n_pix, rtol=1e-14)
+            np.testing.assert_allclose(got.n_pix[:, k, t], want.n_pix, rtol=rtol)
     read(times + 1.0)
     assert len(traces) == 1
     with pytest.raises(ValueError, match="shape"):
@@ -895,28 +1068,28 @@ def test_leakage_is_read_at_the_stars_diameter_in_lambda_over_d(diameter_lod):
     """Fails if the star's size is dropped, or its units are not band-centre lambda/D.
 
     Basis: the leakage rate is linear in the density the record returns, so the
-    ratio to a point star's rate equals the record's own read at that diameter
-    (rtol 1e-9, float64 products). The record's rows differ by 3 and 10 times,
-    so a diameter ignored or read in arcseconds changes the ratio by far more.
+    ratio to a point star's rate equals the host curve read at that diameter.
+    Six rounding operations cover the rate products and ratio. The log-density
+    spline adds nine operations for its Horner weights and three-term dot
+    product, at the scale of the largest absolute log-density. Exponentiation
+    converts absolute error there to relative error in the rate. The rows
+    differ by factors of 3 and 10, well above either lane's bound.
     """
     curves = _diameter_curves()
     base = _star_leakage(curves, 0.0)
     rates = _star_leakage(curves, diameter_lod)
     separation = np.hypot(EAST, NORTH) / _band_lod_arcsec()
-    for record, rate, point in (
-        (curves, rates, base),
-        (curves, rates.variance, base.variance),
+    for name, rate, point in (
+        ("leakage_density_lod2", rates, base),
+        ("leakage_density_variance_lod2", rates.variance, base.variance),
     ):
-        name = (
-            "leakage_density_variance_lod2"
-            if rate is rates.variance
-            else ("leakage_density_lod2")
-        )
-        want = record.evaluate(name, separation, diameter_lod) / record.evaluate(
+        want = curves.evaluate(name, separation, diameter_lod) / curves.evaluate(
             name, separation, 0.0
         )
+        log_scale = np.max(np.abs(np.log(getattr(curves, name))))
+        rtol = ulps(6, 1.0) + ulps(9, log_scale)
         np.testing.assert_allclose(
-            rate.star_leakage / point.star_leakage, want, rtol=RTOL
+            rate.star_leakage / point.star_leakage, want, rtol=float(rtol)
         )
     if diameter_lod > 0:
         assert float(rates.star_leakage[0, 0]) > float(base.star_leakage[0, 0])
@@ -967,11 +1140,11 @@ def test_leakage_reads_the_stellar_diameter_at_the_observing_band_centre():
     The 495 nm observing band centre is 0.9 times the 550 nm frame reference.
     At that scale the star is exactly 0.25 lambda/D, a knot of the linear
     density table. The hand rate is the incident photon density times
-    effective area, aperture area and tabulated leakage density. The 1e-12
-    relative tolerance covers float64 unit conversion and products.
+    effective area, aperture area and tabulated leakage density. Allow six
+    rounding operations for the products and four more at the log-density
+    scale for conversion of the diameter and a read within rounding of the
+    knot. Exponentiation maps that absolute log error to relative rate error.
     """
-    from hwoutils.constants import rad2arcsec
-
     diameters = np.array([0.0, 0.125, 0.25, 0.375, 0.5])
     curves = _diameter_curves(diameters, 1 + 3 * diameters)
     band = Band(470.0, 520.0)
@@ -985,7 +1158,9 @@ def test_leakage_reads_the_stellar_diameter_at_the_observing_band_centre():
         (result.variance, AREA2, DENSITY2),
     ):
         expected = FLUX * AREA_M2 * OPTICS * area * density * (1 + 3 * diameter_lod)
-        np.testing.assert_allclose(rate.star_leakage, expected, rtol=1e-12, atol=0)
+        log_scale = abs(np.log(density))
+        rtol = ulps(6, 1.0) + ulps(4, log_scale)
+        np.testing.assert_allclose(rate.star_leakage, expected, rtol=float(rtol))
 
 
 def test_zero_star_thermal_planet_flux():
