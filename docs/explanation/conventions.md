@@ -91,6 +91,17 @@ of `rates` (including `sources`, with a positional `contrast` hypothesis) and co
 on `instrument.detector`. The frame time is explicit; use
 `photon_counting_frame_time` for the photon-counting cadence.
 
+For a flat-spectrum star at 10 pc observed with a 6 m telescope, the precision
+comparison uses contrasts of `1e-6` and `3e-10` at 0.05 arcsec separation.
+The 500–600 and 600–700 nm bands have target S/N of 5 and 7 and frame times
+of 100 and 60 s, respectively, with zero residual fractions and a background
+variance factor of one.
+In float32, the largest differences relative to each band's float64 value
+were `4.51e-7` for exposure time, `1.30e-9` for the planet count rate,
+`2.97e-7` for stellar leakage and `3.93e-7` for the total background
+(leakage plus local and exozodiacal light here), so use float64 when you
+need finer agreement.
+
 ## Every planet of a scene
 
 `jaxedith.scene_rates(curves, scene, instrument, quadrature, time_d, *, resolution)`
