@@ -36,12 +36,16 @@ A planet's scale is carried by `Sources.planets`; thermal emission remains
 independent of the stellar scale. The
 instrument's own `flux_scale` multiplies every sky term through `A`.
 
-The aperture is fixed in angle within a band. A planet outside the curves' support
-(`curves.supported`: between the first and last sample, with the aperture inside
-`data_extent_lod`) reads zero in every field
-with `Rates.supported` False, so the exposure time and S/N are NaN there. The curves must be measured for the
-telescope's diameter, and for the star's angular diameter: jaxedith does not
-broaden them.
+The aperture is fixed in angle within a band. Analytic support is the overlap
+of the curve sample span and the separations where the aperture fits inside
+`data_extent_lod`. A scene with a disk or local zodi also requires coverage
+from the band's sky transmission profile. A nonempty interval includes its
+endpoints, with a roundoff allowance of two float32 machine epsilons at each
+endpoint's scale for the radial norm and the angular conversion. Both precision
+lanes use the same float32 grid in arcseconds. Outside support, rates and pixel
+counts are zero, `Rates.supported` is false, and exposure time and S/N are NaN.
+The curves must be measured for the telescope's diameter and the star's angular
+diameter.
 
 `photon_counting_frame_time(rates, detector)` returns `1 / (6.73 r)` seconds per
 band, with `r` the electron rate of all sources per aperture pixel, the

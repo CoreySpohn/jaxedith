@@ -12,6 +12,7 @@ inputs and the EXOSIMS columns round the leakage density), 1e-5 on times.
 
 import ineedvalidation as vv
 import pytest
+from hwoutils.testing import ulps
 from reference.etc import (
     exptime_from_rates_ayo,
     exptime_from_rates_exosims_char,
@@ -112,12 +113,14 @@ def test_detection_time_from_jaxedith_rates_matches_the_workbook_formula(key):
     assert ratio == pytest.approx(stale or 1.0, rel=RTOL_TIME)
 
 
-@vv.case("etc-inversion", "code-verification")
+@vv.case("etc-inversion", "code-verification", basis="exact-algebra")
 @pytest.mark.parametrize("key", list(COLUMNS)[:4], ids=IDS[:4])
 def test_calculator_factor_selects_the_ayo_or_exosims_characterization_equation(key):
     """Fails if the calculator's background factor does not reduce to the two equations.
 
-    Basis: closed-form algebra on the same rates, rtol 1e-12 (float64 rounding).
+    Basis: 16 rounding operations cover the two variance and time calculations.
+    Six more cover the squared rates, amplified by the condition of subtracting
+    the speckle-floor square from the planet-rate square.
     Factor 2 is the AYO equation and factor 1 the EXOSIMS characterization one.
     """
     v = _values(COLUMNS[key])
@@ -131,6 +134,10 @@ def test_calculator_factor_selects_the_ayo_or_exosims_characterization_equation(
         + case.detector_rate(frame)
     )
     floor = SPECKLE_FRACTION * terms["star_leakage"]
+    planet_sq = float(terms["planet"]) ** 2
+    floor_sq = (v["SNR"] * float(floor)) ** 2
+    condition = (planet_sq + floor_sq) / (planet_sq - floor_sq)
+    rtol = float(ulps(16, 1.0) + condition * ulps(6, 1.0))
     for factor, reference in (
         (
             2.0,
@@ -146,4 +153,6 @@ def test_calculator_factor_selects_the_ayo_or_exosims_characterization_equation(
         result = case.exposure_time(
             v["SNR"], frame, speckle=SPECKLE_FRACTION, factor=factor
         )
-        assert float(result.time_s[0]) == pytest.approx(float(reference), rel=1e-12)
+        assert float(result.time_s[0]) == pytest.approx(
+            float(reference), rel=rtol, abs=0
+        )
