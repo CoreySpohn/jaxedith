@@ -1,6 +1,8 @@
 """Analytic aperture rates: each term against the scalar formulas, and contracts."""
 
+import ast
 import inspect
+import pathlib
 
 import equinox as eqx
 import ineedvalidation as vv
@@ -1533,6 +1535,40 @@ def test_exposure_time_uses_the_selected_configurations_own_detector(name):
     np.testing.assert_allclose(snr[0], target, rtol=float(ulps(64, 1.0)))
     other = observatory.select("b" if name == "a" else "a").detector
     assert float(other.read_noise_e_rms) != float(detector.read_noise_e_rms)
+
+
+def test_the_wrong_view_refusal_is_the_optixstuff_one():
+    """Fails if an entry keeps its own wrong-typed-view check.
+
+    Exact: no function named ``_require_selected`` in the package, and the
+    entry points call ``optixstuff.require_selected``, whose ``TypeError``
+    both entries raise for a bare ``Instrument``.
+    """
+    source = pathlib.Path(jaxedith.__file__).parent
+    for path in source.rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        names = {
+            node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+        }
+        assert "_require_selected" not in names, path
+    scene, quadrature = _scene(), _quadrature()
+    bare = _instrument().instrument
+    unwrapped = inspect.unwrap(jaxedith.rates)
+    with pytest.raises(TypeError) as local:
+        unwrapped(
+            _curves(),
+            scene,
+            bare,
+            quadrature,
+            EAST,
+            NORTH,
+            contrast=CONTRAST,
+            time_d=0.0,
+            sources=_sources(scene, quadrature),
+        )
+    with pytest.raises(TypeError) as shared:
+        ox.require_selected(bare)
+    assert str(local.value) == str(shared.value)
 
 
 def test_a_bare_instrument_is_refused_and_the_view_traces_once():

@@ -32,6 +32,7 @@ from optixstuff import (
     Rates,
     Resolution,
     SelectedInstrument,
+    require_selected,
 )
 from skyscapes import Scene
 from skyscapes.scene import Sources
@@ -123,14 +124,6 @@ def _at_time(sources: Sources, index) -> Sources:
         zodi = jnp.take(sources.local_zodi, index, axis=-1)[..., None]
         sources = eqx.tree_at(lambda s: s.local_zodi, sources, zodi)
     return sources
-
-
-def _require_selected(selected):
-    if not isinstance(selected, SelectedInstrument):
-        raise TypeError(
-            "selected must be a SelectedInstrument; pass observatory.select(name), "
-            f"not a {type(selected).__name__}"
-        )
 
 
 def rates(
@@ -271,7 +264,7 @@ def rates(
         ``n_pix`` of shape ``(W,)``, the squared-weight rates in ``variance``
         and the per-band ``supported`` flag.
     """
-    _require_selected(selected)
+    require_selected(selected)
     if (contrast is None) == (planet is None):
         raise ValueError("give exactly one of contrast and planet")
     bands = quadrature.bands
@@ -429,7 +422,7 @@ def scene_rates(
         ``n_pix`` and ``supported`` of shape ``(W, K, T)``, and the
         squared-weight rates in ``variance``.
     """
-    _require_selected(selected)
+    require_selected(selected)
     per_band = _curves_for_bands(curves, quadrature.bands, scene)
     time_d = jnp.asarray(time_d)
     if time_d.ndim != 1:
