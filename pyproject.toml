@@ -22,7 +22,7 @@ dependencies = [
     "jax>=0.8.1",
     "jaxlib>=0.8.1",
     "numpy>=2.1.2",
-    "optixstuff>=7.0.0",  # unreleased: next release, see .github/sibling-pins.txt
+    "optixstuff>=7.0.0",
     "skyscapes>=6.0.0",  # unreleased: next release
 ]
 [project.optional-dependencies]
