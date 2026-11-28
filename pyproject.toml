@@ -23,7 +23,7 @@ dependencies = [
     "jaxlib>=0.8.1",
     "numpy>=2.1.2",
     "optixstuff>=7.0.0",
-    "skyscapes>=6.0.0",  # unreleased: next release
+    "skyscapes>=6.0.0",
 ]
 [project.optional-dependencies]
 dev = ["pre-commit>=3.6.0"]
@@ -50,8 +50,8 @@ test = [
     "pytest-fail-slow>=0.1.0",
     "numpy>=2.1.2",
     "scipy>=1.13",
-    "optixstuff>=7.0.0",  # unreleased: next release
-    "skyscapes>=6.0.0",  # unreleased: next release
+    "optixstuff>=7.0.0",
+    "skyscapes>=6.0.0",
 ]
 
 [project.urls]
