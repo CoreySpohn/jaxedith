@@ -1,5 +1,7 @@
 """Analytic aperture rates: each term against the scalar formulas, and contracts."""
 
+import inspect
+
 import equinox as eqx
 import ineedvalidation as vv
 import jax
@@ -14,14 +16,14 @@ from hwoutils.testing import precision_pair, ulps
 from optixstuff import (
     ConstantThroughput,
     IdealDetector,
-    Instrument,
     PerformanceCurves,
     Quadrature,
     SampledProfile,
-    SimplePrimary,
+    SimplePupil,
 )
 from optixstuff.apertures import Circular
 from optixstuff.grids import Frame
+from optixstuff.optical_elements import AbstractUniformElement
 from optixstuff.spectral import Band, Resolution
 from reference.primitives import (
     exozodi_rate,
@@ -117,11 +119,28 @@ def _scene(*, disk=True, zodi=True, diameter_arcsec=0.0):
     )
 
 
+def _selected(
+    pupil, elements, detector, *, telescope_elements=(), name="imager", **kwargs
+):
+    """One-configuration observatory view with the released test layout."""
+    observatory = ox.Observatory(
+        ox.Telescope(pupil, attenuating_elements=telescope_elements),
+        (
+            ox.Instrument(
+                name,
+                attenuating_elements=elements,
+                detector=detector,
+                **kwargs,
+            ),
+        ),
+    )
+    return observatory.select(name)
+
+
 def _instrument(diameter=DIAMETER_M, **kwargs):
-    return Instrument(
-        SimplePrimary(circumscribed_diameter_m=diameter, collecting_area_m2=AREA_M2),
+    return _selected(
+        SimplePupil(circumscribed_diameter_m=diameter, collecting_area_m2=AREA_M2),
         (ConstantThroughput(OPTICS),),
-        None,
         IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)),
         **kwargs,
     )
@@ -1242,10 +1261,9 @@ def test_zero_star_thermal_planet_flux():
         scene,
         (Planet(jnp.ones(1), BlackbodyPhysicalModel(jnp.array([300.0]))),),
     )
-    instrument = Instrument(
-        SimplePrimary(circumscribed_diameter_m=DIAMETER_M, collecting_area_m2=1.0),
+    instrument = _selected(
+        SimplePupil(circumscribed_diameter_m=DIAMETER_M, collecting_area_m2=1.0),
         (ConstantThroughput(1.0),),
-        None,
         IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)),
     )
     quadrature = _quadrature()
@@ -1285,3 +1303,317 @@ def test_rates_requires_one_planet_input(kwargs):
                 sources=_sources(scene, quadrature),
                 **kwargs,
             )
+
+
+class _StepThroughput(AbstractUniformElement):
+    """A throughput that is flat on each side of one declared break."""
+
+    break_nm: float = eqx.field(static=True)
+
+    def get_throughput(self, wavelength_nm):
+        """Return 0.9 below the break and 0.6 above it."""
+        return jnp.where(jnp.asarray(wavelength_nm) < self.break_nm, 0.9, 0.6)
+
+    def spectral_breaks_nm(self):
+        """Declare the break."""
+        return np.array([self.break_nm])
+
+
+def _read_fields(selected, **kwargs):
+    rates = _read(instrument=selected, **kwargs)
+    return {
+        name: np.asarray(getattr(rates, name))
+        for name in ("planet", "star_leakage", "local_zodi", "exozodi", "thermal")
+    }
+
+
+@pytest.mark.parametrize("by", ["contrast", "planet"])
+def test_each_planet_input_alone_and_the_selected_keyword(by):
+    """Fails if the one-planet-input rule or the ``selected`` name changes.
+
+    Basis: exact equality between the positional and the keyword call, and the
+    released refusal when neither or both inputs are given.
+    """
+    scene, quadrature = _scene(), _quadrature()
+    sources = _sources(scene, quadrature)
+    given = {"contrast": CONTRAST} if by == "contrast" else {"planet": 3.0}
+    common = dict(time_d=0.0, sources=sources, **given)
+    first = jaxedith.rates(
+        _curves(), scene, _instrument(), quadrature, EAST, NORTH, **common
+    )
+    second = jaxedith.rates(
+        _curves(),
+        scene,
+        selected=_instrument(),
+        quadrature=quadrature,
+        east_arcsec=EAST,
+        north_arcsec=NORTH,
+        **common,
+    )
+    np.testing.assert_array_equal(first.planet, second.planet)
+    np.testing.assert_array_equal(first.n_pix, second.n_pix)
+
+
+def test_field_radius_of_a_curve_only_configuration_uses_the_circumscribed_diameter():
+    """Fails if the no-coronagraph field radius reads another pupil diameter.
+
+    Closed form: the detector half-diagonal over lambda/D at the band center for
+    the circumscribed diameter, with an inscribed diameter that differs.
+    Basis: four ulps for the division and the frame conversion.
+    """
+    pupil = SimplePupil(
+        circumscribed_diameter_m=DIAMETER_M,
+        inscribed_diameter_m=0.8 * DIAMETER_M,
+        collecting_area_m2=AREA_M2,
+    )
+    selected = _selected(
+        pupil, (), IdealDetector(pixel_scale_arcsec=0.01, shape=(6, 8))
+    )
+    assert selected.coronagraph is None
+    expected = 5.0 * 0.01 / float(lambda_d_to_arcsec(1.0, BAND.center_nm, DIAMETER_M))
+    np.testing.assert_allclose(
+        selected.spectral_field_lod(BAND), expected, rtol=float(ulps(4, 1.0))
+    )
+    assert np.isfinite(_read(instrument=selected).planet).all()
+
+
+@pytest.mark.parametrize(
+    ("delta", "raises"), [(1e-5, True), (1e-7, False)], ids=["1e-5", "1e-7"]
+)
+def test_curves_frame_is_checked_against_the_selected_pupil(delta, raises):
+    """Fails if the curve-only frame check moves off ``selected.pupil``.
+
+    Truth: the pupil match tolerance of 1e-6 relative; exact accept or refuse.
+    """
+    frame = Frame(550.0, DIAMETER_M * (1.0 + delta), "circumscribed")
+    if raises:
+        with pytest.raises(ValueError, match="curves"):
+            _read(curves=_curves(frame=frame))
+    else:
+        assert np.isfinite(_read(curves=_curves(frame=frame)).planet).all()
+
+
+def test_telescope_train_scales_the_rates_but_not_the_thermal_rate():
+    """Fails if a telescope element enters the thermal rate or misses a source rate.
+
+    Closed form (rule: total throughput is the telescope train times the
+    configuration train): a half-throughput telescope element halves the planet,
+    leakage and both zodi rates and leaves the thermal rate unchanged.
+    Basis: four ulps for one product.
+    """
+    pupil = SimplePupil(circumscribed_diameter_m=DIAMETER_M, collecting_area_m2=AREA_M2)
+    detector = IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8))
+    warm = ox.WarmEmission(290.0, 0.638)
+    bare = _read_fields(
+        _selected(pupil, (ConstantThroughput(OPTICS),), detector, warm_emission=warm)
+    )
+    half = _read_fields(
+        _selected(
+            pupil,
+            (ConstantThroughput(OPTICS),),
+            detector,
+            warm_emission=warm,
+            telescope_elements=(ConstantThroughput(0.5),),
+        )
+    )
+    rtol = float(ulps(4, 1.0))
+    for name in ("planet", "star_leakage", "local_zodi", "exozodi"):
+        assert np.all(bare[name] > 0)
+        np.testing.assert_allclose(half[name], 0.5 * bare[name], rtol=rtol)
+    assert np.all(bare["thermal"] > 0)
+    np.testing.assert_allclose(half["thermal"], bare["thermal"], rtol=rtol)
+
+
+def test_a_telescope_break_is_a_piece_edge_of_the_quadrature():
+    """Fails if a telescope-only spectral break does not reach the quadrature.
+
+    Exact: the break is the shared edge of two adjacent pieces, the piece count
+    changes, and a step function at the break integrates to its closed form,
+    which a rule with no edge there misses.
+    Basis: four ulps for a four-node Gauss rule on a constant piece.
+    """
+    pupil = SimplePupil(circumscribed_diameter_m=DIAMETER_M, collecting_area_m2=AREA_M2)
+    detector = IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8))
+    plain = _selected(pupil, (ConstantThroughput(OPTICS),), detector)
+    broken = _selected(
+        pupil,
+        (ConstantThroughput(OPTICS),),
+        detector,
+        telescope_elements=(_StepThroughput(break_nm=530.0),),
+    )
+    assert 530.0 in broken.spectral_breaks_nm()
+    assert 530.0 not in plain.spectral_breaks_nm()
+    without = Quadrature.build((BAND,), plain, order=4, field_lod=0)
+    with_break = Quadrature.build((BAND,), broken, order=4, field_lod=0)
+    assert len(without.pieces[0]) == 1 and len(with_break.pieces[0]) == 2
+    (low, middle, _), (middle_again, high, _) = with_break.pieces[0]
+    assert (low, middle, middle_again, high) == (500.0, 530.0, 530.0, 600.0)
+    step = jnp.where(with_break.nodes_nm < 530.0, 0.9, 0.6)
+    np.testing.assert_allclose(
+        with_break.integrate(step),
+        [30.0 * 0.9 + 70.0 * 0.6],
+        rtol=float(ulps(4, 1.0)),
+    )
+    wrong = jnp.where(without.nodes_nm < 530.0, 0.9, 0.6)
+    assert abs(float(without.integrate(wrong)[0]) - 69.0) > 1e-3
+
+
+def _detector_pair():
+    """Two configurations with different nonzero dark, clock-induced and read terms."""
+    return tuple(
+        ox.Detector(
+            pixel_scale_arcsec=0.01,
+            shape=(8, 8),
+            dark_current_e_per_pixel_s=dark,
+            clock_induced_charge_e_per_pixel_frame=cic,
+            read_noise_e_rms=read,
+        )
+        for dark, cic, read in ((0.02, 0.003, 2.0), (0.11, 0.017, 5.0))
+    )
+
+
+def _two_configuration_observatory():
+    pupil = SimplePupil(circumscribed_diameter_m=DIAMETER_M, collecting_area_m2=AREA_M2)
+    first, second = _detector_pair()
+    return ox.Observatory(
+        ox.Telescope(pupil),
+        tuple(
+            ox.Instrument(
+                name, attenuating_elements=(ConstantThroughput(OPTICS),), detector=d
+            )
+            for name, d in (("a", first), ("b", second))
+        ),
+    )
+
+
+@pytest.mark.parametrize("name", ["a", "b"])
+def test_exposure_time_uses_the_selected_configurations_own_detector(name):
+    """Fails if the detector terms come from another configuration or are repeated.
+
+    Closed form from the detector law, computed here from ideal electron rates:
+    ``T = snr**2 (v + n (dark + (cic + read**2) / frame)) / s**2`` with signal
+    rate ``s``, source variance rate ``v`` and pixel count ``n``, for a
+    continuous live time and unit background factor. Basis: 64 ulps for the
+    chain of sums from the rate record to the time.
+    """
+    observatory = _two_configuration_observatory()
+    selected = observatory.select(name)
+    detector = selected.detector
+    scene, quadrature = _scene(), _quadrature()
+    sources = _sources(scene, quadrature)
+    frame, target = 60.0, 7.0
+    args = (_curves(), scene, selected, quadrature, EAST, NORTH, CONTRAST)
+    keywords = dict(time_d=0.0, sources=sources)
+    result = jaxedith.planet_exposure_time(
+        *args,
+        **keywords,
+        target_snr=target,
+        frame_time_s=frame,
+        post_processing=ox.PostProcessing(background_variance_factor=1.0),
+    )
+    record = jaxedith.rates(*args[:-1], contrast=CONTRAST, **keywords)
+    ideal = ox.IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)).electrons(record)
+    signal = float(ideal.planet[0])
+    variance = float(ideal.variance.total()[0])
+    pixels = float(ideal.variance.n_pix[0])
+    law = (
+        float(detector.dark_current_e_per_pixel_s)
+        + float(detector.clock_induced_charge_e_per_pixel_frame) / frame
+        + float(detector.read_noise_e_rms) ** 2 / frame
+    )
+    expected = target**2 * (variance + pixels * law) / signal**2
+    np.testing.assert_allclose(result.time_s[0], expected, rtol=float(ulps(64, 1.0)))
+    snr = jaxedith.planet_snr(
+        *args,
+        **keywords,
+        time_s=result.time_s[0],
+        frame_time_s=frame,
+        post_processing=ox.PostProcessing(background_variance_factor=1.0),
+    )
+    np.testing.assert_allclose(snr[0], target, rtol=float(ulps(64, 1.0)))
+    other = observatory.select("b" if name == "a" else "a").detector
+    assert float(other.read_noise_e_rms) != float(detector.read_noise_e_rms)
+
+
+def test_a_bare_instrument_is_refused_and_the_view_traces_once():
+    """Fails if a bare ``Instrument`` is accepted, or the view retraces.
+
+    Exact: ``TypeError`` naming ``select`` from every public entry; the view
+    passes through ``eqx.filter_jit`` and ``jax.vmap`` over a batched pupil
+    diameter with one trace.
+    """
+    scene, quadrature = _scene(), _quadrature()
+    sources = _sources(scene, quadrature)
+    bare = _instrument().instrument
+    # The test-time annotation checker would refuse first; reach the entry's own check.
+    rates, scene_rates = (
+        inspect.unwrap(function) for function in (jaxedith.rates, jaxedith.scene_rates)
+    )
+    for call in (
+        lambda: rates(
+            _curves(),
+            scene,
+            bare,
+            quadrature,
+            EAST,
+            NORTH,
+            contrast=CONTRAST,
+            time_d=0.0,
+            sources=sources,
+        ),
+        lambda: scene_rates(
+            _curves(),
+            scene,
+            bare,
+            quadrature,
+            jnp.array([0.0]),
+            resolution=_resolution(scene, quadrature),
+        ),
+    ):
+        with pytest.raises(TypeError, match=r"observatory\.select\(name\)"):
+            call()
+    traces = []
+
+    @eqx.filter_jit
+    def read(diameter):
+        traces.append(1)
+        selected = _instrument(diameter=diameter)
+        return jaxedith.rates(
+            _curves(),
+            scene,
+            selected,
+            quadrature,
+            EAST,
+            NORTH,
+            contrast=CONTRAST,
+            time_d=0.0,
+            sources=sources,
+        ).planet
+
+    batched = jax.vmap(read)(DIAMETER_M * jnp.ones(3))
+    assert batched.shape == (3, 1, 1) and np.isfinite(batched).all()
+    assert len(traces) == 1
+
+
+def test_the_curve_only_route_leaves_the_pupil_identity_unverified():
+    """Fails if detached curves start refusing a pupil of another identity.
+
+    Two pupils of equal diameter with different identifiers read the same curves
+    with equal results: the route checks the frame diameter only, as the
+    ``rates`` docstring states.
+    """
+    assert "identity of the" in jaxedith.rates.__doc__.replace("\n    ", " ")
+    reads = []
+    for pupil_id in ("alpha", "beta"):
+        pupil = SimplePupil(
+            circumscribed_diameter_m=DIAMETER_M,
+            collecting_area_m2=AREA_M2,
+            pupil_id=pupil_id,
+        )
+        selected = _selected(
+            pupil,
+            (ConstantThroughput(OPTICS),),
+            IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)),
+        )
+        reads.append(_read(instrument=selected).planet)
+    np.testing.assert_array_equal(reads[0], reads[1])

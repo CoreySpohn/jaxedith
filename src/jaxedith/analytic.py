@@ -7,9 +7,9 @@ radiance and the aperture, evaluated once per spectral node. The result is an
 ``optixstuff.Rates`` that ``optixstuff.snr`` and ``optixstuff.exposure_time``
 reduce to a signal-to-noise ratio or a time.
 
-Thermal emission is read from ``Instrument.warm_emission`` and is zero when
-the instrument has none. Stellar-companion light is zero in this release, as in
-the image path; it returns when the scene holds a companion source.
+Thermal emission is read from ``SelectedInstrument.warm_emission`` and is zero
+when the selected configuration has none. Stellar-companion light is zero in
+this release, as in the image path; it returns when the scene holds a companion source.
 """
 
 import equinox as eqx
@@ -26,12 +26,12 @@ from jax.typing import ArrayLike
 from optixstuff import (
     AbstractDetector,
     ExposureTime,
-    Instrument,
     PerformanceCurves,
     PostProcessing,
     Quadrature,
     Rates,
     Resolution,
+    SelectedInstrument,
 )
 from skyscapes import Scene
 from skyscapes.scene import Sources
@@ -125,10 +125,18 @@ def _at_time(sources: Sources, index) -> Sources:
     return sources
 
 
+def _require_selected(selected):
+    if not isinstance(selected, SelectedInstrument):
+        raise TypeError(
+            "selected must be a SelectedInstrument; pass observatory.select(name), "
+            f"not a {type(selected).__name__}"
+        )
+
+
 def rates(
     curves: PerformanceCurves | tuple[PerformanceCurves, ...],
     scene: Scene,
-    instrument: Instrument,
+    selected: SelectedInstrument,
     quadrature: Quadrature,
     east_arcsec: ArrayLike,
     north_arcsec: ArrayLike,
@@ -158,11 +166,12 @@ def rates(
     ``L_zodi`` the scene's local-zodi radiance and ``L_disk`` the disk radiance
     at the aperture centre. ``thermal`` is the warm telescope's own emission,
     pyEDITH's ``calculate_CRbth``: ``B`` the Planck photon radiance at the
-    temperature of ``instrument.warm_emission``, ``e`` its effective emissivity
+    temperature of ``selected.warm_emission``, ``e`` its effective emissivity
     (warm emissivity times cold transmission) and ``A_geo`` the geometric
     collecting area, with no system throughput and no flux scale (see
-    ``Instrument.thermal_photon_rate_per_sr``). It is zero for an instrument
-    without ``warm_emission``, the default. ``optixstuff`` owns the
+    ``SelectedInstrument.thermal_photon_rate_per_sr``). Telescope elements
+    multiply into the throughput only, never into this term. It is zero for a
+    configuration without ``warm_emission``, the default. ``optixstuff`` owns the
     description; ``jaxedith`` and the image path of ``coronagraphoto`` both
     fill the term.
     ``n_pix`` is ``Omega`` over the detector pixel solid angle, and
@@ -178,6 +187,18 @@ def rates(
     A record with ``stellar_diameters_lod=None`` has no provenance to check and
     is read for any star unchecked; the caller vouches for it. The separation,
     the aperture solid angle and the stellar diameter are read at the band centre.
+
+    ``selected`` is ``observatory.select(name)``, a view held only for the call.
+    A bare ``optixstuff.Instrument`` raises ``TypeError``, because only the view
+    knows the telescope pupil. ``time_d`` is days from the scene epoch and no
+    exposure event is taken. From an event, ``selected`` is
+    ``observatory.select(exposure.instrument)``, ``time_d`` is
+    ``exposure.on_epoch(scene.epoch).time_d`` and the quadrature is
+    ``sampling.quadrature``.
+
+    Curves supplied separately carry no pupil identity, so the route checks the
+    frame diameter against ``selected.pupil`` only and the identity of the
+    pupil is unverified.
 
     The function reads no source spectrum. ``F``, ``L_zodi`` and the star the
     disk is defined against are the node-effective rows of ``sources``, from
@@ -232,8 +253,8 @@ def rates(
             record or a tuple with one per band of ``quadrature``. Each band
             reads sky transmission from its record.
         scene: Scene holding the star, the planets and any disk or local zodi.
-        instrument: Instrument supplying the collecting area, detector pixel
-            scale and any warm emission.
+        selected: Selected instrument, ``observatory.select(name)``, supplying
+            the collecting area, detector pixel scale and any warm emission.
         quadrature: Spectral bands and their wavelength nodes in nm.
         east_arcsec: Planet offset east of the star in arcsec.
         north_arcsec: Planet offset north of the star in arcsec.
@@ -250,14 +271,13 @@ def rates(
         ``n_pix`` of shape ``(W,)``, the squared-weight rates in ``variance``
         and the per-band ``supported`` flag.
     """
+    _require_selected(selected)
     if (contrast is None) == (planet is None):
         raise ValueError("give exactly one of contrast and planet")
     bands = quadrature.bands
     per_band = _curves_for_bands(curves, bands, scene)
     for record in {id(record): record for record in per_band}.values():
-        ox.check_primary_matches_frame(
-            instrument.primary, record.frame, source="curves"
-        )
+        ox.check_pupil_matches_frame(selected.pupil, record.frame, source="curves")
 
     time_d = jnp.asarray(time_d)
     east, north = jnp.asarray(east_arcsec), jnp.asarray(north_arcsec)
@@ -273,16 +293,16 @@ def rates(
     def per_node(values):
         return jnp.broadcast_to(values, nodes.shape)
 
-    gain = per_node(instrument.effective_area_m2(nodes))
+    gain = per_node(selected.effective_area_m2(nodes))
     star = per_node(sources.star[..., 0])
     disk = per_node(
         scene.photon_radiance_at(nodes, time_d, east, north, star=sources.node_star())
     )
     zodi = per_node(0.0 if sources.local_zodi is None else sources.local_zodi[..., 0])
-    thermal = per_node(instrument.thermal_photon_rate_per_sr(nodes))
+    thermal = per_node(selected.thermal_photon_rate_per_sr(nodes))
     contrast = None if contrast is None else per_node(jnp.asarray(contrast))
     planet = None if planet is None else per_node(jnp.asarray(planet))
-    pixel_arcsec2 = instrument.detector.pixel_scale_arcsec**2
+    pixel_arcsec2 = selected.detector.pixel_scale_arcsec**2
     angle = jnp.hypot(east, north)
     # Use the same coordinate resolution for support in both lanes.
     support_angle = jnp.hypot(east.astype(COARSEST), north.astype(COARSEST))
@@ -361,7 +381,7 @@ def rates(
 def scene_rates(
     curves: PerformanceCurves | tuple[PerformanceCurves, ...],
     scene: Scene,
-    instrument: Instrument,
+    selected: SelectedInstrument,
     quadrature: Quadrature,
     time_d: ArrayLike,
     *,
@@ -398,8 +418,8 @@ def scene_rates(
             record or a tuple with one per band of ``quadrature``. Each band
             reads sky transmission from its record.
         scene: Scene holding the star, the planets and any disk or local zodi.
-        instrument: Instrument supplying the collecting area, detector pixel
-            scale and any warm emission.
+        selected: Selected instrument, ``observatory.select(name)``, supplying
+            the collecting area, detector pixel scale and any warm emission.
         quadrature: Spectral bands and their wavelength nodes in nm.
         time_d: Times in days from the scene epoch, shape ``(T,)``.
         resolution: Operators for the scene's tables on ``quadrature``.
@@ -409,6 +429,7 @@ def scene_rates(
         ``n_pix`` and ``supported`` of shape ``(W, K, T)``, and the
         squared-weight rates in ``variance``.
     """
+    _require_selected(selected)
     per_band = _curves_for_bands(curves, quadrature.bands, scene)
     time_d = jnp.asarray(time_d)
     if time_d.ndim != 1:
@@ -424,7 +445,7 @@ def scene_rates(
         record = rates(
             per_band,
             scene,
-            instrument,
+            selected,
             quadrature,
             east_arcsec,
             north_arcsec,
@@ -461,7 +482,7 @@ def scene_rates(
 def planet_exposure_time(
     curves: PerformanceCurves | tuple[PerformanceCurves, ...],
     scene: Scene,
-    instrument: Instrument,
+    selected: SelectedInstrument,
     quadrature: Quadrature,
     east_arcsec: ArrayLike,
     north_arcsec: ArrayLike,
@@ -478,7 +499,7 @@ def planet_exposure_time(
     The one-call entry point for the scalar calculators, for the single planet
     at ``east_arcsec``, ``north_arcsec`` with ``contrast``; the scene's other
     planets are not read (:func:`scene_rates` reads all of them). It is
-    ``optixstuff.exposure_time(rates(...), instrument.detector, target_snr,
+    ``optixstuff.exposure_time(rates(...), selected.detector, target_snr,
     frame_time_s=frame_time_s, post_processing=post_processing)`` and does no
     arithmetic of its own; see those functions for every argument and for the
     meaning of ``valid``.
@@ -488,8 +509,8 @@ def planet_exposure_time(
             record or a tuple with one per band of ``quadrature``. Each band
             reads sky transmission from its record.
         scene: Scene holding the star, the planets and any disk or local zodi.
-        instrument: Instrument supplying the collecting area, detector pixel
-            scale and any warm emission.
+        selected: Selected instrument, ``observatory.select(name)``, supplying
+            the collecting area, detector pixel scale and any warm emission.
         quadrature: Spectral bands and their wavelength nodes in nm.
         east_arcsec: Planet offset east of the star in arcsec.
         north_arcsec: Planet offset north of the star in arcsec.
@@ -510,7 +531,7 @@ def planet_exposure_time(
     record = rates(
         curves,
         scene,
-        instrument,
+        selected,
         quadrature,
         east_arcsec,
         north_arcsec,
@@ -520,7 +541,7 @@ def planet_exposure_time(
     )
     return ox.exposure_time(
         record,
-        instrument.detector,
+        selected.detector,
         target_snr,
         frame_time_s=frame_time_s,
         post_processing=post_processing,
@@ -530,7 +551,7 @@ def planet_exposure_time(
 def planet_snr(
     curves: PerformanceCurves | tuple[PerformanceCurves, ...],
     scene: Scene,
-    instrument: Instrument,
+    selected: SelectedInstrument,
     quadrature: Quadrature,
     east_arcsec: ArrayLike,
     north_arcsec: ArrayLike,
@@ -546,7 +567,7 @@ def planet_snr(
 
     The planet is the one at ``east_arcsec``, ``north_arcsec`` with
     ``contrast``; the scene's other planets are not read. It is
-    ``optixstuff.snr(rates(...), instrument.detector, time_s,
+    ``optixstuff.snr(rates(...), selected.detector, time_s,
     frame_time_s=frame_time_s, post_processing=post_processing)`` and does no
     arithmetic of its own.
 
@@ -555,8 +576,8 @@ def planet_snr(
             record or a tuple with one per band of ``quadrature``. Each band
             reads sky transmission from its record.
         scene: Scene holding the star, the planets and any disk or local zodi.
-        instrument: Instrument supplying the collecting area, detector pixel
-            scale and any warm emission.
+        selected: Selected instrument, ``observatory.select(name)``, supplying
+            the collecting area, detector pixel scale and any warm emission.
         quadrature: Spectral bands and their wavelength nodes in nm.
         east_arcsec: Planet offset east of the star in arcsec.
         north_arcsec: Planet offset north of the star in arcsec.
@@ -576,7 +597,7 @@ def planet_snr(
     record = rates(
         curves,
         scene,
-        instrument,
+        selected,
         quadrature,
         east_arcsec,
         north_arcsec,
@@ -586,7 +607,7 @@ def planet_snr(
     )
     return ox.snr(
         record,
-        instrument.detector,
+        selected.detector,
         time_s,
         frame_time_s=frame_time_s,
         post_processing=post_processing,

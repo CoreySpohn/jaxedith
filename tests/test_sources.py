@@ -22,7 +22,14 @@ from hwoutils.epoch import Epoch
 from hwoutils.numerics import sum_roundoff
 from hwoutils.testing import ulps
 from numpy.polynomial.legendre import leggauss
-from optixstuff import IdealDetector, Instrument, Quadrature, SimplePrimary
+from optixstuff import (
+    IdealDetector,
+    Instrument,
+    Observatory,
+    Quadrature,
+    SimplePupil,
+    Telescope,
+)
 from optixstuff.optical_elements import AbstractUniformElement
 from optixstuff.spectral import Band, Resolution
 from skyscapes.disk.base import AbstractDisk
@@ -63,7 +70,7 @@ class _CubicThroughput(AbstractUniformElement):
 class _WideInstrument(Instrument):
     """An instrument that declares a response field, as a coronagraph camera does."""
 
-    def spectral_field_lod(self, band):
+    def spectral_field_lod(self, band, *, telescope, detector):
         """Return the half-diagonal of a 128-pixel detector at 0.25 lambda/D."""
         return 22.6
 
@@ -149,12 +156,13 @@ def _scene(star=None, *, disk=False):
 
 
 def _instrument(cls=Instrument):
-    return cls(
-        SimplePrimary(circumscribed_diameter_m=DIAMETER_M, collecting_area_m2=AREA_M2),
-        (_CubicThroughput(),),
-        None,
-        IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)),
+    pupil = SimplePupil(circumscribed_diameter_m=DIAMETER_M, collecting_area_m2=AREA_M2)
+    configuration = cls(
+        "imager",
+        attenuating_elements=(_CubicThroughput(),),
+        detector=IdealDetector(pixel_scale_arcsec=0.01, shape=(8, 8)),
     )
+    return Observatory(Telescope(pupil), (configuration,)).select("imager")
 
 
 def _build(scene, instrument=None):
@@ -369,9 +377,11 @@ def test_the_curves_route_build_keeps_the_nodes_of_the_order():
     flat = Quadrature.build(BANDS, order=4)
     curves = Quadrature.build(BANDS, instrument, order=4, field_lod=0)
     declared = Quadrature.build(BANDS, instrument, order=4, field_lod=None)
+    plain = Quadrature.build(BANDS, _instrument(), order=4, field_lod=None)
+    assert instrument.spectral_field_lod(BANDS[0]) == 22.6
     assert curves.nodes_nm.shape == flat.nodes_nm.shape == (2, 4)
     np.testing.assert_array_equal(curves.nodes_nm, flat.nodes_nm)
-    assert declared.nodes_nm.shape[1] > 4
+    assert declared.nodes_nm.shape[1] > plain.nodes_nm.shape[1] >= 4
 
 
 @vv.case("aperture-photon-budget", "code-verification", basis="exact-algebra")

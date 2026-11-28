@@ -18,11 +18,11 @@ classifiers = [
 ]
 dependencies = [
     "equinox>=0.13.2",
-    "hwoutils[jax]>=3.0.0",
+    "hwoutils[jax]>=3.1.0",
     "jax>=0.8.1",
     "jaxlib>=0.8.1",
     "numpy>=2.1.2",
-    "optixstuff>=7.0.0",
+    "optixstuff>=8.0.0",
     "skyscapes>=6.0.0",
 ]
 [project.optional-dependencies]
@@ -50,7 +50,7 @@ test = [
     "pytest-fail-slow>=0.1.0",
     "numpy>=2.1.2",
     "scipy>=1.13",
-    "optixstuff>=7.0.0",
+    "optixstuff>=8.0.0",
     "skyscapes>=6.0.0",
 ]
 

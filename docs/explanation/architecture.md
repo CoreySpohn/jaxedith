@@ -1,6 +1,6 @@
 # Architecture
 
-The path is `curves, scene, instrument -> rates -> detector -> snr or
+The path is `curves, scene, selected -> rates -> detector -> snr or
 exposure_time`. `jaxedith.rates` reads the curves at the planet's separation
 in lambda/D at each band centre and multiplies each source by the collecting
 area, the system throughput and the aperture, per spectral node. It reads no
@@ -10,7 +10,7 @@ It returns an
 `optixstuff.Rates` record: mean and squared-weight photon rates of shape
 `(W, Q)` and per-band pixel counts, for one planet. `jaxedith.planet_exposure_time`
 and `jaxedith.planet_snr` are the one-call entry points for one planet: `rates`
-followed by the optixstuff function on `instrument.detector`, with no arithmetic
+followed by the optixstuff function on `selected.detector`, with no arithmetic
 of their own. `jaxedith.scene_rates` is a `vmap` of `rates` over every planet of
 the scene and every time, which computes `scene.sources` once outside the map and
 passes `sources.planets` as `planet=`, in the layout of `coronagraphoto.scene_aperture_rates`:

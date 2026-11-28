@@ -1,6 +1,6 @@
 # jaxedith
 
-`jaxedith` turns performance curves, a scene, an instrument and a planet
+`jaxedith` turns performance curves, a scene, a selected instrument and a planet
 position into analytic aperture rates: the scalar AYO and pyEDITH count-rate
 terms, evaluated in JAX. It returns an `optixstuff.Rates` record, which
 `optixstuff.snr` and `optixstuff.exposure_time` reduce to a signal-to-noise
@@ -11,7 +11,21 @@ ratio or an exposure time. The package has five functions: `rates`, `scene_rates
 
 This example needs `curves` (an `optixstuff.PerformanceCurves` measured for the
 telescope and star, for example from yippy's `coronagraph.curves(rule)`), a
-`skyscapes.Scene`, an `optixstuff.Instrument` and the bands to read.
+`skyscapes.Scene`, an `optixstuff.Observatory` and the bands to read. The hardware
+is one shared telescope with named instrument configurations behind it; the functions
+take the selected view of one configuration and hold it only for the call:
+
+```python notest
+observatory = ox.Observatory(
+    ox.Telescope(ox.SimplePupil(circumscribed_diameter_m=6.0, collecting_area_m2=28.0)),
+    (ox.Instrument("imager", coronagraph=coronagraph, detector=detector),),
+)
+selected = observatory.select("imager")
+```
+
+From an exposure event, `selected` is `observatory.select(exposure.instrument)`,
+`time_d` is `exposure.on_epoch(scene.epoch).time_d` and the quadrature is
+`sampling.quadrature`.
 
 The curves are read at the band-centre lambda/D for every node, so the response
 does not slide across a pixel and the quadrature is built with `field_lod=0`: a
@@ -26,7 +40,7 @@ import jaxedith
 import optixstuff as ox
 from optixstuff.spectral import Quadrature, Resolution
 
-models = [m for m in (instrument, scene.local_zodi, scene.disk) if m is not None]
+models = [m for m in (selected, scene.local_zodi, scene.disk) if m is not None]
 quadrature = Quadrature.build(bands, *models, field_lod=0)
 resolution = Resolution.build(quadrature, *scene.spectral_tables())
 sources = scene.sources(quadrature, resolution, time_d)
@@ -36,7 +50,7 @@ contrast = 1e-10  # an optional hypothesis for the one-call contrast calculators
 rates = jaxedith.rates(
     curves,
     scene,
-    instrument,
+    selected,
     quadrature,
     east_arcsec,
     north_arcsec,
@@ -44,10 +58,10 @@ rates = jaxedith.rates(
     time_d=time_d,
     sources=sources,  # node rows of the one time read
 )
-frame_time_s = jaxedith.photon_counting_frame_time(rates, instrument.detector)
+frame_time_s = jaxedith.photon_counting_frame_time(rates, selected.detector)
 time = ox.exposure_time(
     rates,
-    instrument.detector,
+    selected.detector,
     7.0,
     frame_time_s=frame_time_s,
     post_processing=ox.PostProcessing(1 / 30, 0.0, background_variance_factor=2.0),
@@ -90,7 +104,7 @@ only where that contrast implies the same planet flux at the nodes:
 time = jaxedith.planet_exposure_time(
     curves,
     scene,
-    instrument,
+    selected,
     quadrature,
     east_arcsec,
     north_arcsec,
@@ -104,7 +118,7 @@ time = jaxedith.planet_exposure_time(
 snr = jaxedith.planet_snr(
     curves,
     scene,
-    instrument,
+    selected,
     quadrature,
     east_arcsec,
     north_arcsec,
@@ -118,7 +132,7 @@ snr = jaxedith.planet_snr(
 ```
 
 `jaxedith.planet_exposure_time` is `rates` followed by `optixstuff.exposure_time` on
-`instrument.detector`, and `jaxedith.planet_snr` is `rates` followed by
+`selected.detector`, and `jaxedith.planet_snr` is `rates` followed by
 `optixstuff.snr`; neither adds arithmetic. They return an
 `optixstuff.ExposureTime` and the S/N per band.
 
@@ -139,14 +153,14 @@ over the planets and the times that reads `scene.sources` once outside the map, 
 record = jaxedith.scene_rates(
     curves,
     scene,
-    instrument,
+    selected,
     quadrature,
     time_d,
     resolution=resolution,
 )  # time_d: (T,) days; fields (W, Q, K, T), n_pix (W, K, T)
 time = ox.exposure_time(
     record,
-    instrument.detector,
+    selected.detector,
     7.0,
     frame_time_s=frame_time_s,
     post_processing=post_processing,
@@ -159,7 +173,7 @@ The reduction itself is described in optixstuff's
 [how an exposure time is computed](https://optixstuff.readthedocs.io/en/latest/explanation/exposure_time.html).
 The conventions of the terms, and how AYO, pyEDITH and EXOSIMS map onto
 `PostProcessing`, are on the [conventions page](docs/explanation/conventions.md).
-Thermal emission is read from `Instrument.warm_emission` (optixstuff's
+Thermal emission is read from the selected configuration's `warm_emission` (optixstuff's
 `WarmEmission`) and is zero without it; stellar companions are zero in this
 release. `coronagraphoto` fills the same field from its images and aperture
 records.

@@ -23,11 +23,13 @@ from optixstuff import (
     ConstantThroughput,
     Detector,
     Instrument,
+    Observatory,
     PerformanceCurves,
     PostProcessing,
     Quadrature,
     SampledProfile,
-    SimplePrimary,
+    SimplePupil,
+    Telescope,
 )
 from optixstuff.apertures import Circular
 from optixstuff.grids import Frame
@@ -207,17 +209,17 @@ class ScalarCase:
         )
 
     def instrument(self, **keywords):
-        """Primary, optics throughput and the detector."""
-        primary = SimplePrimary(
+        """Selected view of a pupil, optics throughput and the detector."""
+        pupil = SimplePupil(
             circumscribed_diameter_m=self.diameter_m,
             collecting_area_m2=self.area_cm2 / CM2_PER_M2,
         )
-        return Instrument(
-            primary,
-            (ConstantThroughput(self.optics),),
-            None,
-            self.detector(**keywords),
+        configuration = Instrument(
+            "imager",
+            attenuating_elements=(ConstantThroughput(self.optics),),
+            detector=self.detector(**keywords),
         )
+        return Observatory(Telescope(pupil), (configuration,)).select("imager")
 
     def rates(self):
         """The aperture rates in photons/s/nm at the case's separation."""
