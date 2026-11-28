@@ -1,5 +1,98 @@
 # Changelog
 
+## [4.0.0](https://github.com/CoreySpohn/jaxedith/compare/v3.0.0...v4.0.0) (2026-11-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **jaxedith:** enforce curve and sky support with float32-resolution inclusive endpoints in both lanes
+* **analytic:** the curves route reads the leakage at the star's diameter in lambda/D at the band centre instead of at each node.
+* **analytic:** the uniform_sky keyword of rates, scene_rates, planet_snr and planet_exposure_time is removed; each band reads PerformanceCurves.uniform_sky from its own record, and a scene with a disk or a local zodi raises on the host, naming the band, when a band's record carries no profile.
+* **analytic:** jaxedith.rates takes exactly one of the keyword-only contrast= or planet= (photon flux density); scene_rates passes Sources.planets, so a planet around a star with a zero node reads finite; planet_snr and planet_exposure_time keep their contrast argument
+* **rates:** rates reads the leakage density at the star's angular diameter in lambda/D per node; a record of one profile raises for a star of a different diameter.
+* **rates:** rates, planet_exposure_time and planet_snr take a required sources keyword (from Scene.sources) and read no spectrum themselves; scene_rates takes a required resolution keyword and reads the sources once outside the map over planets and times.
+* **rates:** read support from curves.supported, zero past the last sample
+* **rates:** read zero with a supported flag beyond the curves' extent instead of NaN
+* **analytic:** fill Rates.thermal from Instrument.warm_emission
+* **analytic:** rename scene_snr and scene_exposure_time to planet_snr and planet_exposure_time, add scene_rates
+* **analytic:** require post_processing in scene_snr and scene_exposure_time
+* **analytic:** rename snr and exposure_time to scene_snr and scene_exposure_time
+* **conventions:** state background_variance_factor in every PostProcessing
+* **analytic:** add one-call snr and exposure_time that compose rates with the optixstuff calculator
+* **rates:** add rates and photon_counting_frame_time for analytic aperture rates
+* **calculator:** delete the S/N and exposure-time calculator and its helper tests in favor of optixstuff
+* **api:** remove aperture_rates and its fixtures
+* **api:** take the zodi models from skyscapes and read the sightline from the scene sky frame
+* **api:** return one optixstuff Rates from aperture_rates and remove ApertureRates
+* import bands, grids and resampling from optixstuff; read quadrature weights by name
+* **api:** read exozodi from scene.disk instead of the exozodi keyword
+* take the optixstuff Instrument (renamed from OpticalPath); rename the optical_path argument to instrument
+* build quadratures from the evaluated models and drop aperture_quadrature
+* integrate the uniform-sky response over the aperture for every rule
+* read stellar diameter and disk radiance from skyscapes and drop the disk_grid route
+* build inverse-variance Matched weights from the scene and detector rates
+* use variance moments in aperture noise terms
+* take aperture preparation from optixstuff and drop the direct yippy and numpy dependencies
+* jaxedith ships one calculator; the scalar comparison dialects move into the test suite as cross-code references
+* the analytic AYO exozodi default comes from zodi.jax
+* local-zodi models come from zodi.jax
+* analytic AYO exozodi is the default in aperture_rates; the scene disk is opt-in
+* hold the aperture fixed in angle across a band by evaluating each node at its own separation and radius
+* read the shared photon-rate budget through one aperture reader with post-processing and detector statistics
+
+### Features
+
+* analytic AYO exozodi is the default in aperture_rates; the scene disk is opt-in ([74b59a8](https://github.com/CoreySpohn/jaxedith/commit/74b59a862009755268e32a93af121a79c30b0c33))
+* **analytic:** add one-call snr and exposure_time that compose rates with the optixstuff calculator ([008c2da](https://github.com/CoreySpohn/jaxedith/commit/008c2da7fffd1fde533f9a1bc95d9399168635d9))
+* **analytic:** fill Rates.thermal from Instrument.warm_emission ([a43566d](https://github.com/CoreySpohn/jaxedith/commit/a43566d9a8df5d4674b5ef6f60d20a513b3012f9))
+* **analytic:** read the sky transmission from each band's curves ([c39eb06](https://github.com/CoreySpohn/jaxedith/commit/c39eb06fe4f7483fad8fa5ce7858c41e3270a5cf))
+* **analytic:** read the stellar diameter at the observing band centre ([07dcd64](https://github.com/CoreySpohn/jaxedith/commit/07dcd64e60dbdfd1385aa36961c4378e4ee00cb4))
+* **analytic:** rename scene_snr and scene_exposure_time to planet_snr and planet_exposure_time, add scene_rates ([f22fc13](https://github.com/CoreySpohn/jaxedith/commit/f22fc13e85350be4417230e26fb14b3936e02b2a))
+* **analytic:** require post_processing in scene_snr and scene_exposure_time ([ca845b3](https://github.com/CoreySpohn/jaxedith/commit/ca845b3e20ba68804d0da28a52047e943699fee2))
+* **api:** read exozodi from scene.disk instead of the exozodi keyword ([402682e](https://github.com/CoreySpohn/jaxedith/commit/402682ebb640c56ac93a9410fd2f8b531e0e0df2))
+* **api:** return one optixstuff Rates from aperture_rates and remove ApertureRates ([6e312d2](https://github.com/CoreySpohn/jaxedith/commit/6e312d2acb50defd014b87a8b3022b948647c90a))
+* **api:** take the zodi models from skyscapes and read the sightline from the scene sky frame ([b0fbe69](https://github.com/CoreySpohn/jaxedith/commit/b0fbe6925640b900994b8c81d7fa196916bda201))
+* build inverse-variance Matched weights from the scene and detector rates ([f6f6954](https://github.com/CoreySpohn/jaxedith/commit/f6f695404d154157815b31b189314b3b7158d9d3))
+* **rates:** add rates and photon_counting_frame_time for analytic aperture rates ([cd709b3](https://github.com/CoreySpohn/jaxedith/commit/cd709b3d0d3354bf76f8ca4f78cd5ce403d6a57f))
+* **rates:** read the star leakage at the star's diameter ([c6e34ec](https://github.com/CoreySpohn/jaxedith/commit/c6e34ec97a9ad20328f5b1ad1a2e5d387115e308))
+* **rates:** take node-effective sources and compute them once in scene_rates ([4880cfe](https://github.com/CoreySpohn/jaxedith/commit/4880cfe8b1899fc2b889ab76c8c404434cdc48ee))
+* read stellar diameter and disk radiance from skyscapes and drop the disk_grid route ([7cbc3f1](https://github.com/CoreySpohn/jaxedith/commit/7cbc3f1f6c457c647d82dbbe4dc381253748a17d))
+* read the shared photon-rate budget through one aperture reader with post-processing and detector statistics ([8ff3518](https://github.com/CoreySpohn/jaxedith/commit/8ff3518cc2845b1fa45c26189058b043d2fcea23))
+
+
+### Bug Fixes
+
+* **analytic:** read scene planets by photon flux density in rates ([ff37dbf](https://github.com/CoreySpohn/jaxedith/commit/ff37dbf7c728d5d52275ab23e358090436ae2b16))
+* **etc:** pass each star's angular diameter to the coronagraph leakage ([5059320](https://github.com/CoreySpohn/jaxedith/commit/5059320b16478ed703aaa8d40e878078ad1d539e))
+* hold the aperture fixed in angle across a band by evaluating each node at its own separation and radius ([138c143](https://github.com/CoreySpohn/jaxedith/commit/138c143cd69eacc1879904d109820f08000ca360))
+* integrate the uniform-sky response over the aperture for every rule ([ad5ca56](https://github.com/CoreySpohn/jaxedith/commit/ad5ca565a4433fa4b5d74d4ceab2b74d1e5eebfb))
+* **jaxedith:** declare equinox and numpy as runtime dependencies ([bc44795](https://github.com/CoreySpohn/jaxedith/commit/bc44795e25ffeb3b707b760865667a41408e5dcf))
+* **jaxedith:** enforce curve and sky support with float32-resolution inclusive endpoints in both lanes ([6df658e](https://github.com/CoreySpohn/jaxedith/commit/6df658e701d25c182ed7795e7799781dd29d649c))
+* keep every aperture rule field when scaling the radius to a wavelength node ([8e42a4d](https://github.com/CoreySpohn/jaxedith/commit/8e42a4db45c7eb495a2382995b05ad976bf4d87d))
+* propagate NaN variance, treat the speckle ceiling as infeasible, and mark out-of-range traced planets ([dc9af1e](https://github.com/CoreySpohn/jaxedith/commit/dc9af1e07f1ebb3ef9a71fcab821bfd86c8dba2d))
+* **rates:** read support from curves.supported, zero past the last sample ([3ce996d](https://github.com/CoreySpohn/jaxedith/commit/3ce996d76aa71132d620b549ccc58889711f1212))
+* **rates:** read zero with a supported flag beyond the curves' extent instead of NaN ([6c32327](https://github.com/CoreySpohn/jaxedith/commit/6c32327139b2fdaee83770506a5b8ce532c3ee15))
+* use variance moments in aperture noise terms ([0adbd58](https://github.com/CoreySpohn/jaxedith/commit/0adbd58c9758d9ab37410061f8014254757b9f19))
+
+
+### Documentation
+
+* **conventions:** state background_variance_factor in every PostProcessing ([a07a301](https://github.com/CoreySpohn/jaxedith/commit/a07a3014a69fbe6884702bce859dc6616dfc6316))
+
+
+### Code Refactoring
+
+* **analytic:** rename snr and exposure_time to scene_snr and scene_exposure_time ([2ea4ded](https://github.com/CoreySpohn/jaxedith/commit/2ea4ded74649bce91266ce0bbb8a4f1b0b7698e5))
+* **api:** remove aperture_rates and its fixtures ([deb4865](https://github.com/CoreySpohn/jaxedith/commit/deb486573f18096255969008cb00f7241842aa74))
+* build quadratures from the evaluated models and drop aperture_quadrature ([24989b9](https://github.com/CoreySpohn/jaxedith/commit/24989b9989b2631f2ac08ca800bbc8e42fcdaed6))
+* **calculator:** delete the S/N and exposure-time calculator and its helper tests in favor of optixstuff ([2f30d1e](https://github.com/CoreySpohn/jaxedith/commit/2f30d1e2bdd64e2b66adff19dc76fae7be5543d1))
+* import bands, grids and resampling from optixstuff; read quadrature weights by name ([9482dcb](https://github.com/CoreySpohn/jaxedith/commit/9482dcbf146939b14f46e10271aec46545e957ce))
+* jaxedith ships one calculator; the scalar comparison dialects move into the test suite as cross-code references ([2461f06](https://github.com/CoreySpohn/jaxedith/commit/2461f06a0115f3f0dce6af5c506e21409d50f118))
+* local-zodi models come from zodi.jax ([a328a5c](https://github.com/CoreySpohn/jaxedith/commit/a328a5cb8db66197de84fad61ce8944845bfa915))
+* take aperture preparation from optixstuff and drop the direct yippy and numpy dependencies ([7eddbed](https://github.com/CoreySpohn/jaxedith/commit/7eddbedf0492a1112263ba0dbbf566e5caa1ea6a))
+* take the optixstuff Instrument (renamed from OpticalPath); rename the optical_path argument to instrument ([3c2f5aa](https://github.com/CoreySpohn/jaxedith/commit/3c2f5aa4338129a5c101a109879802640cfec9f6))
+* the analytic AYO exozodi default comes from zodi.jax ([839d8b3](https://github.com/CoreySpohn/jaxedith/commit/839d8b3bdf27561c1f1ea82de42984034fa67073))
+
 ## [3.0.0](https://github.com/CoreySpohn/jaxedith/compare/v2.1.1...v3.0.0) (2026-11-16)
 
 
